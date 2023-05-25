@@ -1,0 +1,29 @@
+gpt2_models:
+  - gpt2
+  - gpt2-medium
+  - gpt2-large
+  - gpt2-xl
+
+dolly_models:
+  - databricks/dolly-v2-3b
+  - databricks/dolly-v2-7b
+  - databricks/dolly-v2-12b
+
+llama_models:
+  - decapoda-research/llama-7b-hf
+  - decapoda-research/llama-13b-hf
+  - decapoda-research/llama-30b-hf
+  - decapoda-research/llama-65b-hf
+  - chainyo/alpaca-lora-7b
+  - chavinlo/alpaca-13b
+
+openai_text_models:
+  - text-curie-001
+  - text-babbage-001
+  - text-ada-001
+  - text-davinci-002
+  - text-davinci-003
+
+openai_chat_models:
+  - gpt-3.5-turbo
+  - gpt-4
