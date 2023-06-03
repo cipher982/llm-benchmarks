@@ -1,0 +1,19 @@
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "llm_benchmarks"
+version = "0.1.0"
+description = "Benchmarking various LLMs inference speed"
+authors = [
+    "David Rose <david@drose.io>",
+]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.9"
+
+[tool.black]
+line-length = 120

@@ -225,16 +225,10 @@ def main():
     # Log tables
     wandb.log(
         {
-            "output_tokens_bar_chart": bar(
-                output_tokens_table, "Model", "Output Tokens"
-            ),
-            "gpu_mem_usage_bar_chart": bar(
-                gpu_mem_usage_table, "Model", "GPU Memory Usage"
-            ),
+            "output_tokens_bar_chart": bar(output_tokens_table, "Model", "Output Tokens"),
+            "gpu_mem_usage_bar_chart": bar(gpu_mem_usage_table, "Model", "GPU Memory Usage"),
             "time_bar_chart": bar(time_table, "Model", "Total Time"),
-            "tokens_per_second_bar_chart": bar(
-                tokens_per_second_table, "Model", "Tokens/Second"
-            ),
+            "tokens_per_second_bar_chart": bar(tokens_per_second_table, "Model", "Tokens/Second"),
         }
     )
     # Upload artifacts
