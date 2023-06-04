@@ -2,9 +2,8 @@ import gc
 import os
 from time import time
 
+import numpy as np
 import torch
-from transformers import AutoModelForCausalLM
-from transformers import AutoTokenizer
 
 import wandb
 
@@ -12,20 +11,32 @@ import wandb
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
-def generate_samples(model_name: str, config: dict, num_samples: int = 1) -> dict:
+def generate_samples(
+    model_name: str,
+    config: dict,
+    num_samples: int = 1,
+    llama: bool = False,
+) -> dict:
+    if llama:
+        from transformers import LlamaTokenizer as Tokenizer
+        from transformers import LlamaForCausalLM as Model
+    else:
+        from transformers import AutoTokenizer as Tokenizer
+        from transformers import AutoModelForCausalLM as Model
+
     # Load Model
-    model = AutoModelForCausalLM.from_pretrained(
+    model = Model.from_pretrained(
         model_name,
         load_in_8bit=config["load_in_8bit"],
         torch_dtype=config["torch_dtype"],
         device_map="auto",
         trust_remote_code=True,
     )
-    model.eval()
-    model = torch.compile(model)
+    model.eval()  # type: ignore
+    model = torch.compile(model)  # type: ignore
 
     # Tokenize inputs
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = Tokenizer.from_pretrained(model_name)
     text = "Question: Tell me a history of WW2 in 3 or 4 paragraphs.\nAnswer: "
     input_tokens = tokenizer(text, return_tensors="pt").input_ids.to("cuda")
 
@@ -35,6 +46,11 @@ def generate_samples(model_name: str, config: dict, num_samples: int = 1) -> dic
         "generate_time": [],
         "tokens_per_second": [],
     }
+
+    if config["try_different_lengths"]:
+        max_length = np.linspace(50, config["max_length"], num_samples)
+    else:
+        max_length = [config["max_length"]] * num_samples
 
     for i in range(num_samples):
         # Set up Weights & Biases
@@ -47,7 +63,8 @@ def generate_samples(model_name: str, config: dict, num_samples: int = 1) -> dic
                 input_tokens,
                 do_sample=True,
                 temperature=config["temperature"],
-                max_length=config["max_length"],
+                min_length=int(max_length[i]),
+                max_length=int(max_length[i]),
                 pad_token_id=tokenizer.eos_token_id,
                 eos_token_id=tokenizer.eos_token_id,
             )
