@@ -11,9 +11,8 @@ def plot_model_inference_speed(
     colors: dict,
     title: str,
     save_path: str,
-    save_format: str = "png",
     results_dir: str = "./results",
-    width: int = 800,
+    width: int = 1000,
     height: int = 600,
     scale: int = 5,
 ) -> None:
@@ -48,4 +47,4 @@ def plot_model_inference_speed(
     fig.show()
 
     # Save
-    fig.write_image(save_path, format=save_format, width=width, height=height, scale=scale)
+    fig.write_image(save_path, width=width, height=height, scale=scale)
