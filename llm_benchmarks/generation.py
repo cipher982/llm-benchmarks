@@ -48,7 +48,7 @@ def generate_samples(
     }
 
     if config["try_different_lengths"]:
-        max_length = np.linspace(50, config["max_length"], num_samples)
+        max_length = np.linspace(config["min_length"], config["max_length"], num_samples)
     else:
         max_length = [config["max_length"]] * num_samples
 

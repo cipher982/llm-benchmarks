@@ -1,0 +1,51 @@
+import glob
+
+import pandas as pd
+import plotly.express as px
+
+
+def plot_model_inference_speed(
+    model_name: str,
+    filters: dict,
+    grouping_column: str,
+    colors: dict,
+    title: str,
+    save_path: str,
+    save_format: str = "png",
+    results_dir: str = "./results",
+    width: int = 800,
+    height: int = 600,
+    scale: int = 5,
+) -> None:
+    # Concatenate CSV files
+    try:
+        df = pd.concat(
+            [pd.read_csv(f) for f in glob.glob(f"{results_dir}/*{model_name}*.csv")],
+            ignore_index=True,
+        )
+    except ValueError:
+        print(f"No CSV files found in {results_dir} for model {model_name}.")
+        return
+
+    # Apply filters based on provided dictionary
+    for column, bounds in filters.items():
+        lower, upper = bounds
+        df = df[(df[column] > lower) & (df[column] < upper)]
+
+    # Plot
+    fig = px.scatter(
+        df,
+        x="output_tokens",
+        y="tokens_per_second",
+        color=grouping_column,
+        color_discrete_map=colors,
+        trendline="ols",
+        trendline_options=dict(log_x=True),
+    )
+    fig.update_traces(marker=dict(size=12))
+    fig.update_layout(xaxis_title="output_tokens", yaxis_title="tokens_per_second", title="Scatter Plot")
+    fig.update_layout(title=title)
+    fig.show()
+
+    # Save
+    fig.write_image(save_path, format=save_format, width=width, height=height, scale=scale)
