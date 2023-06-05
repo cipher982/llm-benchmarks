@@ -25,7 +25,8 @@ This may be easier to read with a lot of the models we don't really care about r
 ### Comparing Speed with Output Tokens
 This is designed to look at the effects of different sizes and inference speeds. These are my most recent tests and should be considered more accurate than the two above.
 
-** The below plots are from a 3090. I have A100 and H100 benchmarks coming soon.**
+**The below plots are from a 3090. I have A100 and H100 benchmarks coming soon.**
+
 #### LLaMA
 ![LLaMA Models](https://github.com/cipher982/llm-benchmarks/blob/main/static/llama_compare_size_and_quant_inference.png?raw=true)
 
