@@ -13,8 +13,8 @@ def plot_model_inference_speed(
     title: str,
     save_path: str,
     results_dir: str = "./results",
-    width: int = 1000,
-    height: int = 600,
+    width: int = 800,
+    height: int = 400,
     scale: int = 5,
 ) -> None:
     # Concatenate CSV files
