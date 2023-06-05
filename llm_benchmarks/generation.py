@@ -27,7 +27,8 @@ def generate_samples(
     # Load Model
     model = Model.from_pretrained(
         model_name,
-        load_in_8bit=config["load_in_8bit"],
+        load_in_4bit=True if config["quantization_bits"] == "4bit" else False,
+        load_in_8bit=True if config["quantization_bits"] == "8bit" else False,
         torch_dtype=config["torch_dtype"],
         device_map="auto",
         trust_remote_code=True,

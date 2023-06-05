@@ -47,4 +47,5 @@ def plot_model_inference_speed(
     fig.show()
 
     # Save
-    fig.write_image(save_path, width=width, height=height, scale=scale)
+    if save_path:
+        fig.write_image(save_path, width=width, height=height, scale=scale)
