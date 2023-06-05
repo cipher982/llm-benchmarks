@@ -8,7 +8,7 @@ import torch
 import wandb
 
 # Fix deadlock issue
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 
 def generate_samples(
@@ -23,6 +23,8 @@ def generate_samples(
     else:
         from transformers import AutoTokenizer as Tokenizer
         from transformers import AutoModelForCausalLM as Model
+
+    wandb.init(project="llm-benchmarks-3", config=config)
 
     # Load Model
     model = Model.from_pretrained(
@@ -54,9 +56,6 @@ def generate_samples(
         max_length = [config["max_length"]] * num_samples
 
     for i in range(num_samples):
-        # Set up Weights & Biases
-        wandb.init(project="llm-benchmarks-2", config=config)
-
         # Generate
         time0 = time()
         with torch.no_grad():
@@ -92,7 +91,6 @@ def generate_samples(
                 "tokens_per_second": tokens_per_second,
             }
         )
-        wandb.finish()
 
         # Print metrics
         print(f"===== Model: {model_name} Run: {i+1}/{num_samples} =====")
@@ -104,5 +102,7 @@ def generate_samples(
     del model
     gc.collect()
     torch.cuda.empty_cache()
+
+    wandb.finish()
 
     return metrics

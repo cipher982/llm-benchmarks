@@ -1,4 +1,5 @@
 import glob
+from typing import List
 
 import pandas as pd
 import plotly.express as px
@@ -7,7 +8,7 @@ import plotly.express as px
 def plot_model_inference_speed(
     model_name: str,
     filters: dict,
-    grouping_column: str,
+    grouping_columns: List,
     colors: dict,
     title: str,
     save_path: str,
@@ -31,12 +32,20 @@ def plot_model_inference_speed(
         lower, upper = bounds
         df = df[(df[column] > lower) & (df[column] < upper)]
 
+    # Make interaction feature
+    if len(grouping_columns) == 1:
+        df["grouping"] = df[grouping_columns[0]]
+    elif len(grouping_columns) == 2:
+        df["grouping"] = df[grouping_columns[0]] + "_" + df[grouping_columns[1]]
+    else:
+        raise ValueError("grouping_columns must be a list of length 1 or 2")
+
     # Plot
     fig = px.scatter(
         df,
         x="output_tokens",
         y="tokens_per_second",
-        color=grouping_column,
+        color="grouping",
         color_discrete_map=colors,
         trendline="ols",
         trendline_options=dict(log_x=True),
@@ -47,5 +56,4 @@ def plot_model_inference_speed(
     fig.show()
 
     # Save
-    if save_path:
-        fig.write_image(save_path, width=width, height=height, scale=scale)
+    fig.write_image(save_path, width=width, height=height, scale=scale)
