@@ -26,10 +26,10 @@ This may be easier to read with a lot of the models we don't really care about r
 This is designed to look at the effects of different sizes and inference speeds. These are my most recent tests and should be considered more accurate than the two above.
 
 ##### LLaMA
-![LLaMA Models](https://github.com/cipher982/llm-benchmarks/blob/main/static/llama_compare_size_inference.png?raw=true)
+![LLaMA Models](https://github.com/cipher982/llm-benchmarks/blob/main/static/llama_compare_size_and_quant_inference.png?raw=true)
 
-##### LLaMA
-![Dolly2 Models](https://github.com/cipher982/llm-benchmarks/blob/main/static/dolly2_compare_size_inference.png?raw=true)
+##### Dolly-2
+![Dolly2 Models](https://github.com/cipher982/llm-benchmarks/blob/main/static/dolly2_compare_size_and_quant_inference.png?raw=true)
 
-##### LLaMA
-![Falcon Models](https://github.com/cipher982/llm-benchmarks/blob/main/static/falcon_compare_8bit_inference.png?raw=true)
+##### Falcon
+![Falcon Models](https://github.com/cipher982/llm-benchmarks/blob/main/static/falcon_compare_quantization_inference.png?raw=true)
