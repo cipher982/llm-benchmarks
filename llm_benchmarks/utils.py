@@ -18,7 +18,6 @@ def log_metrics_to_csv(model_name: str, config: dict, metrics: dict, output_dir:
             "quantization_bits",
             "torch_dtype",
             "temperature",
-            "max_length",
         ],
     ]
 
@@ -33,7 +32,6 @@ def log_metrics_to_csv(model_name: str, config: dict, metrics: dict, output_dir:
             config["quantization_bits"],
             config["torch_dtype"],
             config["temperature"],
-            config["max_length"],
         ]
         data.append(row)
 

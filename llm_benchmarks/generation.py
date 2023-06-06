@@ -2,10 +2,11 @@ import gc
 import os
 from time import time
 
-import numpy as np
 import torch
 
 import wandb
+
+# import numpy as np
 
 # Fix deadlock issue
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
@@ -14,7 +15,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "true"
 def generate_samples(
     model_name: str,
     config: dict,
-    num_samples: int = 1,
+    custom_token_counts: list = [],
     llama: bool = False,
 ) -> dict:
     if llama:
@@ -40,7 +41,7 @@ def generate_samples(
 
     # Tokenize inputs
     tokenizer = Tokenizer.from_pretrained(model_name)
-    text = "Question: Tell me a history of WW2 in 3 or 4 paragraphs.\nAnswer: "
+    text = "Hi: "
     input_tokens = tokenizer(text, return_tensors="pt").input_ids.to("cuda")
 
     metrics = {
@@ -50,21 +51,21 @@ def generate_samples(
         "tokens_per_second": [],
     }
 
-    if config["try_different_lengths"]:
-        max_length = np.linspace(config["min_length"], config["max_length"], num_samples)
+    if custom_token_counts:
+        token_counts = custom_token_counts
     else:
-        max_length = [config["max_length"]] * num_samples
+        token_counts = [16, 32, 64, 128, 256, 512, 1024, 2048]
 
-    for i in range(num_samples):
-        # Generate
+    # Generate samples
+    for i, token_count in enumerate(token_counts):
         time0 = time()
         with torch.no_grad():
             output = model.generate(
                 input_tokens,
                 do_sample=True,
                 temperature=config["temperature"],
-                min_length=int(max_length[i]),
-                max_length=int(max_length[i]),
+                min_length=token_count,
+                max_length=token_count,
                 pad_token_id=tokenizer.eos_token_id,
                 eos_token_id=tokenizer.eos_token_id,
             )
@@ -93,7 +94,7 @@ def generate_samples(
         )
 
         # Print metrics
-        print(f"===== Model: {model_name} Run: {i+1}/{num_samples} =====")
+        print(f"===== Model: {model_name} Run: {i+1}/{len(token_counts)} =====")
         print(f"Output tokens: {output_tokens}")
         print(f"GPU mem usage: {gpu_mem_usage:.2f} GB")
         print(f"Generate time: {generate_time:.2f} s")
