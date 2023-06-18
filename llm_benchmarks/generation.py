@@ -11,6 +11,9 @@ import wandb
 # Fix deadlock issue
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
+# Set GPU device if needed
+# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
 
 def generate_samples(
     model_name: str,
