@@ -1,0 +1,12 @@
+version: '3'
+
+services:
+  llm_bench:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: llm_bench
+    volumes:
+      - ./llm_benchmarks:/app/llm_benchmarks
+    ports:
+      - "5000:5000" # for flask

@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 
 from llm_benchmarks.config import ModelConfig
-from llm_benchmarks.generation import benchmark_model
+from llm_benchmarks.generation import generate
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ def main():
     model_names = ["gpt2", "gpt2-medium", "gpt2-large", "gpt2-xl"]
 
     for model_name in model_names:
-        _ = benchmark_model(
+        _ = generate(
             model_name=model_name,
             config=config,
             custom_token_counts=[64, 128, 256],

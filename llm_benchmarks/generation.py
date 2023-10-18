@@ -38,7 +38,7 @@ def get_installed_packages() -> str:
     return ""
 
 
-def benchmark_model(
+def generate(
     model_name: str,
     config: ModelConfig,
     custom_token_counts: list = [],
