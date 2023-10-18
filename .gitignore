@@ -4,3 +4,5 @@ __pycache__/
 results/
 old/
 *.lock
+*.ipynb
+*.env

@@ -14,15 +14,6 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.8"
-wandb = "^0.15.3"
-transformers = "^4.29.2"
-tqdm = "^4.65.0"
-accelerate = "^0.19.0"
-bitsandbytes = "^0.39.0"
-ipywidgets = "^8.0.6"
-pandas = "^2.0.2"
-plotly = "^5.14.1"
-nbformat = "^5.9.0"
 
 [tool.black]
 line-length = 120
