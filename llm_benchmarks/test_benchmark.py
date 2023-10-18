@@ -10,8 +10,6 @@ logger = logging.getLogger(__name__)
 def main():
     logger.info("Starting benchmarking...")
 
-    model_name = "replit/replit-code-v1_5-3b"
-
     config = ModelConfig(
         # quantization_bits="8bit",
         quantization_bits=None,
@@ -21,12 +19,15 @@ def main():
         run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     )
 
-    _ = benchmark_model(
-        model_name=model_name,
-        config=config,
-        custom_token_counts=[64, 128, 256],
-        llama=False,
-    )
+    model_names = ["gpt2", "gpt2-medium", "gpt2-large", "gpt2-xl"]
+
+    for model_name in model_names:
+        _ = benchmark_model(
+            model_name=model_name,
+            config=config,
+            custom_token_counts=[64, 128, 256],
+            llama=False,
+        )
 
     logger.info("Benchmarking complete!")
 

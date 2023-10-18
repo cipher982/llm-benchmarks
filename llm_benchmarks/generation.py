@@ -1,13 +1,12 @@
 import gc
-import json
 import logging
 import os
-import sqlite3
 from datetime import datetime
 from time import time
 
-import pip
+import pymongo
 import torch
+from pymongo.collection import Collection
 
 from llm_benchmarks.config import ModelConfig
 
@@ -18,44 +17,25 @@ os.environ["HUGGINGFACE_HUB_CACHE"] = "/data/hf/"
 logger = logging.getLogger(__name__)
 
 
-def setup_database(db_name: str = "benchmark_metrics.db") -> tuple:
-    conn = sqlite3.connect(db_name)
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS benchmark_metrics (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            run_ts TEXT,
-            quantization_bits TEXT,
-            torch_dtype TEXT,
-            temperature REAL,
-            gen_ts TEXT,
-            model_name TEXT,
-            lib_versions TEXT,
-            token_count INTEGER,
-            output_tokens INTEGER,
-            gpu_mem_usage REAL,
-            generate_time REAL,
-            tokens_per_second REAL
-        );
-    """
-    )
-    conn.commit()
-    return conn, cursor
+MONGODB_URI = os.environ.get("MONGODB_URI", "mongodb://localhost:27017")
 
 
-def insert_into_benchmark_metrics(data: dict, cursor, conn) -> None:
-    columns = ", ".join(data.keys())
-    placeholders = ", ".join("?" * len(data))
-    query = f"INSERT INTO benchmark_metrics ({columns}) VALUES ({placeholders})"
-    cursor.execute(query, tuple(data.values()))
-    conn.commit()
+def setup_database(db_name: str) -> Collection:
+    client = pymongo.MongoClient(MONGODB_URI)
+    db = client[db_name]
+    collection = db["benchmark_metrics"]
+    return collection
 
 
+def insert_into_benchmark_metrics(data: dict, collection: Collection) -> None:
+    collection.insert_one(data)
+
+
+# Functionality deprecated by pip
 def get_installed_packages() -> str:
-    packages = {package.project_name: package.version for package in pip.get_installed_distributions()}
-    return json.dumps(packages)
+    # packages = {package.project_name: package.version for package in pip.get_installed_distributions()}
+    # return json.dumps(packages)
+    return ""
 
 
 def benchmark_model(
@@ -63,7 +43,7 @@ def benchmark_model(
     config: ModelConfig,
     custom_token_counts: list = [],
     llama: bool = False,
-    db_name: str = "benchmark_metrics.db",
+    db_name: str = "benchmark_metrics",
 ) -> dict:
     if llama:
         from transformers import LlamaForCausalLM as Model  # type: ignore
@@ -101,8 +81,8 @@ def benchmark_model(
     else:
         token_counts = [32, 64, 128, 256, 512, 1024]
 
-    # Database setup
-    conn, cursor = setup_database(db_name)
+    # MongoDB
+    collection = setup_database(db_name)
 
     # Get installed packages as JSON string
     lib_versions = get_installed_packages()
@@ -128,15 +108,14 @@ def benchmark_model(
         generate_time = time1 - time0
         tokens_per_second = output_tokens / generate_time
 
-        # Insert metrics to the database
-        gen_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
+        # MongoDB metrics
         data = {
             "run_ts": config.run_ts,
+            "model_name": model_name,
             "quantization_bits": config.quantization_bits,
             "torch_dtype": config.torch_dtype,
             "temperature": config.temperature,
-            "gen_ts": gen_ts,
+            "gen_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "model_name": model_name,
             "lib_versions": lib_versions,
             "token_count": token_count,
@@ -145,10 +124,9 @@ def benchmark_model(
             "generate_time": generate_time,
             "tokens_per_second": tokens_per_second,
         }
+        insert_into_benchmark_metrics(data, collection)
 
-        insert_into_benchmark_metrics(data, cursor, conn)
-
-        # Compile metrics
+        # Append metrics to the metrics dict
         metrics["output_tokens"].append(output_tokens)
         metrics["gpu_mem_usage"].append(gpu_mem_usage)
         metrics["generate_time"].append(generate_time)
