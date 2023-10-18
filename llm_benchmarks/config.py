@@ -2,7 +2,15 @@ from typing import Optional
 
 
 class ModelConfig:
-    def __init__(self, run_ts: str, torch_dtype: str, temperature: float, quantization_bits: Optional[str] = None):
+    def __init__(
+        self,
+        model_name: str,
+        run_ts: str,
+        torch_dtype: str,
+        temperature: float,
+        quantization_bits: Optional[str] = None,
+    ):
+        self.model_name = model_name
         self.run_ts = run_ts
         self.torch_dtype = torch_dtype
         self.temperature = temperature

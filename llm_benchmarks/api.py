@@ -5,7 +5,7 @@ from flask import jsonify
 from flask.wrappers import Response
 
 from llm_benchmarks.config import ModelConfig
-from llm_benchmarks.generation import generate
+from llm_benchmarks.generation import generate_and_log
 
 app = Flask(__name__)
 
@@ -16,6 +16,7 @@ def call_benchmark(model_name: str) -> Response:
 
     # Declare config defaults
     config = ModelConfig(
+        model_name=model_name,
         # quantization_bits="8bit",
         quantization_bits=None,
         # torch_dtype="float16",
@@ -25,7 +26,7 @@ def call_benchmark(model_name: str) -> Response:
     )
 
     # Your benchmarking logic here
-    result = generate(model_name, config)
+    result = generate_and_log(config)
     return jsonify(result)
 
 
