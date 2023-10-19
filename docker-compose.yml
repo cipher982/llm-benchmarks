@@ -6,7 +6,19 @@ services:
       context: .
       dockerfile: Dockerfile
     image: llm_bench
+    runtime: nvidia
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     volumes:
       - ./llm_benchmarks:/app/llm_benchmarks
+      - ./logs/:/var/log
+    network_mode: host
     ports:
       - "5000:5000" # for flask
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
