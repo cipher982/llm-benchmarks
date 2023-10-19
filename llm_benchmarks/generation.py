@@ -1,15 +1,19 @@
 """Module for benchmarking llm infernce speeds and external logging."""
 import gc
-import logging
+import logging.config
 import os
 from datetime import datetime
 from time import time
+from typing import Dict
+from typing import List
+from typing import Optional
 
 import pymongo
 import torch
 from pymongo.collection import Collection
 
 from llm_benchmarks.config import ModelConfig
+
 
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
@@ -27,15 +31,24 @@ def generate_and_log(
     llama: bool = False,
     db_name: str = "llm_benchmarks",
 ) -> None:
-    metrics = generate(config, custom_token_counts, llama)
-    log_to_mongo(config, metrics, db_name)
+    """Main entry point. Generates and logs the data."""
+    logger.info(f"Beginning benchmarking for model {config.model_name}")
+    try:
+        metrics = generate(config, custom_token_counts, llama)
+        log_to_mongo(config, metrics, db_name)
+    except Exception as e:
+        logger.exception(f"Error in generate_and_log: {e}")
 
 
 def generate(
     config: ModelConfig,
-    custom_token_counts: list = [],
+    custom_token_counts: Optional[List[int]] = None,
     llama: bool = False,
 ) -> dict:
+    """Generates the data based on the provided config."""
+
+    logger.info(f"Beginning generations for model {config.model_name}")
+
     if llama:
         from transformers import LlamaForCausalLM as Model  # type: ignore
         from transformers import LlamaTokenizer as Tokenizer  # type: ignore
@@ -44,6 +57,7 @@ def generate(
         from transformers import AutoTokenizer as Tokenizer  # type: ignore
 
     # Load Model
+    logger.info(f"Loading pretrained model {config.model_name}")
     model = Model.from_pretrained(
         config.model_name,
         load_in_4bit=config.load_in_4bit,
@@ -74,16 +88,21 @@ def generate(
 
     # Generate samples
     for ix, token_count in enumerate(requested_tokens):
+        logger.info(f"Generating sample for token count {token_count}")
         time0 = time()
-        output = model.generate(
-            input_tokens,
-            do_sample=True,
-            temperature=config.temperature,
-            min_length=token_count,
-            max_length=token_count,
-            pad_token_id=tokenizer.eos_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-        )
+        try:
+            output = model.generate(
+                input_tokens,
+                do_sample=True,
+                temperature=config.temperature,
+                min_length=token_count,
+                max_length=token_count,
+                pad_token_id=tokenizer.eos_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+            )
+        except Exception as e:
+            logger.exception(f"Error in generating sample for token count {token_count}: {e}")
+
         time1 = time()
 
         # Collect metrics
@@ -114,23 +133,33 @@ def generate(
     return metrics
 
 
-def log_to_mongo(config: ModelConfig, metrics: dict, db_name: str) -> None:
-    collection = setup_database(db_name)
+def log_to_mongo(
+    config: ModelConfig,
+    metrics: Dict[str, List[float]],
+    db_name: str,
+) -> None:
+    """Logs the metrics to MongoDB."""
 
-    data = {
-        "run_ts": config.run_ts,
-        "model_name": config.model_name,
-        "quantization_bits": config.quantization_bits,
-        "torch_dtype": config.torch_dtype,
-        "temperature": config.temperature,
-        "gen_ts": metrics["gen_ts"],
-        "requested_tokens": metrics["requested_tokens"],
-        "output_tokens": metrics["output_tokens"],
-        "gpu_mem_usage": metrics["gpu_mem_usage"],
-        "generate_time": metrics["generate_time"],
-        "tokens_per_second": metrics["tokens_per_second"],
-    }
-    insert_into_benchmark_metrics(data, collection)
+    logger.info(f"Logging metrics to MongoDB for model {config.model_name}")
+    try:
+        collection = setup_database(db_name)
+
+        data = {
+            "run_ts": config.run_ts,
+            "model_name": config.model_name,
+            "quantization_bits": config.quantization_bits,
+            "torch_dtype": config.torch_dtype,
+            "temperature": config.temperature,
+            "gen_ts": metrics["gen_ts"],
+            "requested_tokens": metrics["requested_tokens"],
+            "output_tokens": metrics["output_tokens"],
+            "gpu_mem_usage": metrics["gpu_mem_usage"],
+            "generate_time": metrics["generate_time"],
+            "tokens_per_second": metrics["tokens_per_second"],
+        }
+        insert_into_benchmark_metrics(data, collection)
+    except Exception as e:
+        logger.exception(f"Error in log_to_mongo: {e}")
 
 
 def setup_database(db_name: str) -> Collection:

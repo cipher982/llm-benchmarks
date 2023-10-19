@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 from flask import Flask
@@ -7,12 +8,18 @@ from flask.wrappers import Response
 from llm_benchmarks.config import ModelConfig
 from llm_benchmarks.generation import generate_and_log
 
+
+logging.basicConfig(filename="/var/log/llm_benchmarks.log", level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
 app = Flask(__name__)
 
 
 @app.route("/benchmark/<model_name>", methods=["POST"])
 def call_benchmark(model_name: str) -> Response:
     """Enables the use a POST request to call the benchmarking function."""
+
+    logger.info(f"Received request for model {model_name}")
 
     # Declare config defaults
     config = ModelConfig(
