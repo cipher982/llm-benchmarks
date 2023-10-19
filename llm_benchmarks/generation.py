@@ -16,7 +16,6 @@ from llm_benchmarks.config import ModelConfig
 
 
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 os.environ["HUGGINGFACE_HUB_CACHE"] = "/data/hf/"
 
 logger = logging.getLogger(__name__)
@@ -90,6 +89,7 @@ def generate(
     for ix, token_count in enumerate(requested_tokens):
         logger.info(f"Generating sample for token count {token_count}")
         time0 = time()
+        output = None
         try:
             output = model.generate(
                 input_tokens,
@@ -106,7 +106,7 @@ def generate(
         time1 = time()
 
         # Collect metrics
-        output_tokens = len(output.cpu().numpy().tolist()[0])
+        output_tokens = len(output.cpu().numpy().tolist()[0]) if output else 0
         gpu_mem_usage = torch.cuda.memory_allocated()
         generate_time = time1 - time0
         tokens_per_second = output_tokens / generate_time

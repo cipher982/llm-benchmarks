@@ -9,7 +9,7 @@ from llm_benchmarks.config import ModelConfig
 from llm_benchmarks.generation import generate_and_log
 
 
-logging.basicConfig(filename="/var/log/llm_benchmarks.log", level=logging.DEBUG)
+logging.basicConfig(filename="/var/log/llm_benchmarks.log", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
