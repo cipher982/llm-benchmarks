@@ -106,7 +106,7 @@ def generate(
         time1 = time()
 
         # Collect metrics
-        output_tokens = len(output.cpu().numpy().tolist()[0]) if output else 0
+        output_tokens = len(output.cpu().numpy().tolist()[0]) if output is not None and output.numel() > 0 else 0
         gpu_mem_usage = torch.cuda.memory_allocated()
         generate_time = time1 - time0
         tokens_per_second = output_tokens / generate_time
