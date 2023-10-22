@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from urllib.parse import unquote
 
 from flask import Flask
 from flask import jsonify
@@ -15,9 +16,10 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 
-@app.route("/benchmark/<model_name>", methods=["POST"])
+@app.route("/benchmark/<path:model_name>", methods=["POST"])
 def call_benchmark(model_name: str) -> Response:
     """Enables the use a POST request to call the benchmarking function."""
+    model_name = unquote(model_name)
 
     logger.info(f"Received request for model {model_name}")
 
