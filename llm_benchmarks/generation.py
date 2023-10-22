@@ -158,6 +158,7 @@ def log_to_mongo(
             "tokens_per_second": metrics["tokens_per_second"],
         }
         insert_into_benchmark_metrics(data, collection)
+        logger.info(f"Successfully logged metrics to MongoDB for model {config.model_name}")
     except Exception as e:
         logger.exception(f"Error in log_to_mongo: {e}")
 
