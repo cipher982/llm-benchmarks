@@ -2,11 +2,14 @@
 
 declare -A modelStatus
 
-models=$(curl -s -G "https://huggingface.co/api/models" \
-    --data-urlencode "sort=downloads" \
-    --data-urlencode "direction=-1" \
-    --data-urlencode "limit=10" \
-    --data-urlencode "filter=text-generation" | jq -r '.[].id')
+# models=$(curl -s -G "https://huggingface.co/api/models" \
+#     --data-urlencode "sort=downloads" \
+#     --data-urlencode "direction=-1" \
+#     --data-urlencode "limit=10" \
+#     --data-urlencode "filter=text-generation" | jq -r '.[].id')
+
+models="bigscience/bloom-560m gpt2 EleutherAI/pythia-1.4b"
+
 
 for model in $models; do
     # Encode the forward slashes in the model name
