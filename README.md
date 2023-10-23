@@ -1,6 +1,8 @@
 # llm-benchmarks
 Benchmarking LLM Inference Speeds
 
+** UPDATE 2023-10-23: Moving everything to an automated process. HF Hub -> Docker eval -> dashboard
+
 ## Summary
 A collection of benchmarks for various open-source models to get an idea of the relation between different models and the inference speeds we could hope to see. There are a few things to be aware of here:
 
