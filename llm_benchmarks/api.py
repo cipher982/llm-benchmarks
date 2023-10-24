@@ -1,14 +1,17 @@
 import logging
+import os
 from datetime import datetime
 from urllib.parse import unquote
 
 from flask import Flask
 from flask import jsonify
+from flask import request
 from flask.wrappers import Response
+from pymongo import MongoClient
 
 from llm_benchmarks.config import ModelConfig
 from llm_benchmarks.generation import generate_and_log
-
+from llm_benchmarks.utils import check_and_clean_space
 
 logging.basicConfig(filename="/var/log/llm_benchmarks.log", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,26 +19,49 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 
+MONGODB_URI = os.environ.get("MONGODB_URI")
+MONGODB_DB = os.environ.get("MONGODB_DB")
+MONGODB_COLLECTION = os.environ.get("MONGODB_COLLECTION")
+
+assert MONGODB_URI, "MONGODB_URI environment variable not set"
+assert MONGODB_DB, "MONGODB_DB environment variable not set"
+assert MONGODB_COLLECTION, "MONGODB_COLLECTION environment variable not set"
+
+
 @app.route("/benchmark/<path:model_name>", methods=["POST"])
 def call_benchmark(model_name: str) -> Response:
     """Enables the use a POST request to call the benchmarking function."""
     model_name = unquote(model_name)
+    run_always = request.args.get("run_always", default="False", type=str).lower() == "true"
 
     logger.info(f"Received request for model {model_name}")
+
+    # Initialize MongoDB client and collection
+    client = MongoClient(MONGODB_URI)
+    db = client[MONGODB_DB]
+    collection = db[MONGODB_COLLECTION]
+
+    # Check if the model has already been benchmarked
+    existing_model = collection.find_one({"model_name": model_name})
+
+    if existing_model and not run_always:
+        logger.info(f"Model {model_name} has already been benchmarked. Skipping.")
+        return jsonify({"status": "skipped", "reason": "Model has already been benchmarked"})
+
+    # Check and clean disk space if needed
+    check_and_clean_space()
 
     # Declare config defaults
     config = ModelConfig(
         model_name=model_name,
-        # quantization_bits="8bit",
         quantization_bits=None,
-        # torch_dtype="float16",
         torch_dtype="auto",
         temperature=0.1,
         run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     )
 
     # Your benchmarking logic here
-    result = generate_and_log(config)
+    result = generate_and_log(config, MONGODB_URI, MONGODB_DB, MONGODB_COLLECTION)
     return jsonify(result)
 
 
