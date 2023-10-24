@@ -1,45 +1,57 @@
-import csv
-from datetime import datetime
-from pathlib import Path
+import logging
+import os
+import shutil
+from typing import List
 
 
-def log_metrics_to_csv(model_name: str, config: dict, metrics: dict, output_dir: str) -> None:
-    # Create a new CSV file for logging with timestamp
-    model_name = model_name.split("/")[-1]
+logger = logging.getLogger(__name__)
 
-    # Prepare the data to be logged
-    data = [
-        [
-            "model_name",
-            "output_tokens",
-            "gpu_mem_usage",
-            "total_time",
-            "tokens_per_second",
-            "quantization_bits",
-            "torch_dtype",
-            "temperature",
-        ],
+
+def get_used_space_percent(directory: str) -> float:
+    """Get the used space percentage of the file system containing the directory."""
+    stat = os.statvfs(directory)
+    return ((stat.f_blocks - stat.f_bfree) / stat.f_blocks) * 100
+
+
+def get_model_directories(directory: str) -> List[str]:
+    """Get a list of directories in the given directory, filtered by those starting with 'models--'."""
+    return [
+        os.path.join(directory, d)
+        for d in os.listdir(directory)
+        if os.path.isdir(os.path.join(directory, d)) and d.startswith("models--")
     ]
 
-    # Add the data for each run
-    for i in range(len(metrics["output_tokens"])):
-        row = [
-            model_name,
-            metrics["output_tokens"][i],
-            f"{metrics['gpu_mem_usage'][i]:.2f}",
-            f"{metrics['generate_time'][i]:.2f}",
-            f"{metrics['tokens_per_second'][i]:.2f}",
-            config["quantization_bits"],
-            config["torch_dtype"],
-            config["temperature"],
-        ]
-        data.append(row)
 
-    # Write the data to the CSV file
-    dt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    csv_name = f"metrics_{model_name}_{dt}.csv"
+def get_oldest_directory(directories: List[str]) -> str:
+    """Find the oldest directory in the given list."""
+    oldest_directory = min(directories, key=lambda d: os.path.getmtime(d))
+    return oldest_directory
 
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
-    with open(Path(output_dir) / csv_name, mode="w", newline="") as file:
-        writer = csv.writer(file)
-        writer.writerows(data)
+
+def check_and_clean_space():
+    threshold = 90.0  # Disk usage threshold
+    directory = "/data/hf"  # The directory where the models are stored
+
+    # Check disk usage
+    used_space = get_used_space_percent(directory)
+    logger.info(f"Current disk usage: {used_space:.2f}%")
+
+    while used_space > threshold:
+        # Get model directories
+        model_dirs = get_model_directories(directory)
+
+        # If there are no model directories, exit the loop
+        if not model_dirs:
+            logger.info("No model directories to remove.")
+            break
+
+        # Find the oldest directory
+        oldest_dir = get_oldest_directory(model_dirs)
+
+        # Remove the oldest directory
+        logger.info(f"Removing: {oldest_dir}")
+        shutil.rmtree(oldest_dir)
+
+        # Recheck disk usage
+        used_space = get_used_space_percent(directory)
+        logger.info(f"Updated disk usage: {used_space:.2f}%")
