@@ -1,7 +1,6 @@
 """Module for benchmarking llm infernce speeds and external logging."""
 import gc
 import logging.config
-import os
 from datetime import datetime
 from time import time
 from typing import Dict
@@ -18,20 +17,19 @@ from llm_benchmarks.config import ModelConfig
 logger = logging.getLogger(__name__)
 
 
-MONGODB_URI = os.environ.get("MONGODB_URI", "mongodb://localhost:27017")
-
-
 def generate_and_log(
     config,
+    uri: str,
+    db_name: str,
+    collection_name: str,
     custom_token_counts: list = [],
     llama: bool = False,
-    db_name: str = "llm_benchmarks",
 ) -> None:
     """Main entry point. Generates and logs the data."""
     logger.info(f"Beginning benchmarking for model {config.model_name}")
     try:
         metrics = generate(config, custom_token_counts, llama)
-        log_to_mongo(config, metrics, db_name)
+        log_to_mongo(config, metrics, uri, db_name, collection_name)
     except Exception as e:
         logger.exception(f"Error in generate_and_log: {e}")
 
@@ -133,13 +131,15 @@ def generate(
 def log_to_mongo(
     config: ModelConfig,
     metrics: Dict[str, List[float]],
+    uri: str,
     db_name: str,
+    collection_name: str,
 ) -> None:
     """Logs the metrics to MongoDB."""
 
     logger.info(f"Logging metrics to MongoDB for model {config.model_name}")
     try:
-        collection = setup_database(db_name)
+        collection = setup_database(uri, db_name, collection_name)
 
         data = {
             "run_ts": config.run_ts,
@@ -160,10 +160,10 @@ def log_to_mongo(
         logger.exception(f"Error in log_to_mongo: {e}")
 
 
-def setup_database(db_name: str) -> Collection:
-    client = pymongo.MongoClient(MONGODB_URI)
+def setup_database(uri: str, db_name: str, collection_name: str) -> Collection:
+    client = pymongo.MongoClient(uri)
     db = client[db_name]
-    collection = db["benchmark_metrics"]
+    collection = db[collection_name]
     return collection
 
 
