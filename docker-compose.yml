@@ -7,12 +7,14 @@ services:
       dockerfile: Dockerfile
     image: llm_bench
     runtime: nvidia
+    env_file:
+      - .env
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              count: 2
               capabilities: [gpu]
     volumes:
       - ./llm_benchmarks:/app/llm_benchmarks
