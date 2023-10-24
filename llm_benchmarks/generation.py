@@ -15,9 +15,6 @@ from pymongo.collection import Collection
 from llm_benchmarks.config import ModelConfig
 
 
-os.environ["TOKENIZERS_PARALLELISM"] = "true"
-os.environ["HUGGINGFACE_HUB_CACHE"] = "/data/hf/"
-
 logger = logging.getLogger(__name__)
 
 
