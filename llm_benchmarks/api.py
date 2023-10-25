@@ -3,6 +3,7 @@ import os
 from datetime import datetime
 from urllib.parse import unquote
 
+import torch
 from flask import Flask
 from flask import jsonify
 from flask import request
@@ -36,29 +37,28 @@ def call_benchmark(model_name: str) -> Response:
 
     logger.info(f"Received request for model {model_name}")
 
+    # Declare config defaults
+    config = ModelConfig(
+        model_name=model_name,
+        quantization_bits=None,
+        torch_dtype=torch.float16,
+        temperature=0.1,
+        run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    )
+
     # Initialize MongoDB client and collection
     client = MongoClient(MONGODB_URI)
     db = client[MONGODB_DB]
     collection = db[MONGODB_COLLECTION]
 
     # Check if the model has already been benchmarked
-    existing_model = collection.find_one({"model_name": model_name})
-
-    if existing_model and not run_always:
+    existing_config = collection.find_one({"model_name": model_name, "torch_dtype": str(config.torch_dtype)})
+    if existing_config and not run_always:
         logger.info(f"Model {model_name} has already been benchmarked. Skipping.")
         return jsonify({"status": "skipped", "reason": "Model has already been benchmarked"})
 
     # Check and clean disk space if needed
     check_and_clean_space()
-
-    # Declare config defaults
-    config = ModelConfig(
-        model_name=model_name,
-        quantization_bits=None,
-        torch_dtype="auto",
-        temperature=0.1,
-        run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    )
 
     # Your benchmarking logic here
     result = generate_and_log(config, MONGODB_URI, MONGODB_DB, MONGODB_COLLECTION)

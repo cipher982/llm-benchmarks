@@ -66,6 +66,8 @@ def fetch_and_benchmark_models(limit: int = 10, max_size_billion: int = 5, run_a
     for model, code in model_status.items():
         print(f"Model: {model}, HTTP Response Code: {code}")
 
+    print("Done ✅")
+
 
 if __name__ == "__main__":
-    fetch_and_benchmark_models(limit=50, max_size_billion=15)
+    fetch_and_benchmark_models(limit=50, max_size_billion=15, run_always=False)

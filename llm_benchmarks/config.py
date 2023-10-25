@@ -1,6 +1,7 @@
 import logging
 from typing import Optional
 
+from torch import dtype
 
 logger = logging.getLogger(__name__)
 
@@ -10,7 +11,7 @@ class ModelConfig:
         self,
         model_name: str,
         run_ts: str,
-        torch_dtype: str,
+        torch_dtype: dtype,
         temperature: float,
         quantization_bits: Optional[str] = None,
     ):
