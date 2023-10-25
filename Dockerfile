@@ -16,8 +16,8 @@ RUN python3 -m pip install -r requirements.txt
 # Install PyTorch and torchvision
 RUN python3 -m pip install torch torchvision torchaudio -f https://download.pytorch.org/whl/cu118
 
-# Add the shell script to pull models and benchmark the HF hub
-COPY ./scripts/fetch_and_benchmark.sh fetch_and_benchmark.sh
+# Add the py script to pull models and benchmark the HF hub
+COPY ./scripts/fetch_and_benchmark.py fetch_and_benchmark.py
 
 # Set the working directory
 WORKDIR /app
