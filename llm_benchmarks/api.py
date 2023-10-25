@@ -40,7 +40,7 @@ def call_benchmark(model_name: str) -> Response:
     # Declare config defaults
     config = ModelConfig(
         model_name=model_name,
-        quantization_bits=None,
+        quantization_bits="8bit",
         torch_dtype=torch.float16,
         temperature=0.1,
         run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -52,7 +52,13 @@ def call_benchmark(model_name: str) -> Response:
     collection = db[MONGODB_COLLECTION]
 
     # Check if the model has already been benchmarked
-    existing_config = collection.find_one({"model_name": model_name, "torch_dtype": str(config.torch_dtype)})
+    existing_config = collection.find_one(
+        {
+            "model_name": model_name,
+            "torch_dtype": str(config.torch_dtype),
+            "quantization_bits": config.quantization_bits,
+        }
+    )
     if existing_config and not run_always:
         logger.info(f"Model {model_name} has already been benchmarked. Skipping.")
         return jsonify({"status": "skipped", "reason": "Model has already been benchmarked"})

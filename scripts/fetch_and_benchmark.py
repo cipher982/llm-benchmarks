@@ -64,9 +64,8 @@ def fetch_and_benchmark_models(limit: int = 10, max_size_billion: int = 5, run_a
     # Summary of benchmark runs
     print("Summary of benchmark runs:")
     for model, code in model_status.items():
-        print(f"Model: {model}, HTTP Response Code: {code}")
-
-    print("Done ✅")
+        print(f"Model: {model}, HTTP Response Code: {code} + {'✅' if code == 200 else '❌'}")
+    print("🎊 Done 🎊")
 
 
 if __name__ == "__main__":
