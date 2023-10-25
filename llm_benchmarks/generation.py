@@ -17,6 +17,9 @@ from llm_benchmarks.config import ModelConfig
 logger = logging.getLogger(__name__)
 
 
+T_S_CUTOFF = 5  # Tokens per second cutoff (to prevent long runs)
+
+
 def generate_and_log(
     config,
     uri: str,
@@ -45,10 +48,8 @@ def generate(
 
     if llama:
         from transformers import LlamaForCausalLM as Model  # type: ignore
-        from transformers import LlamaTokenizer as Tokenizer  # type: ignore
     else:
         from transformers import AutoModelForCausalLM as Model  # type: ignore
-        from transformers import AutoTokenizer as Tokenizer  # type: ignore
 
     # Load Model
     logger.info(f"Loading pretrained model {config.model_name}")
@@ -61,10 +62,7 @@ def generate(
         trust_remote_code=True,
     )
 
-    # Tokenize inputs
-    tokenizer = Tokenizer.from_pretrained(config.model_name)
-    text = "Hi: "
-    input_tokens = tokenizer(text, return_tensors="pt").input_ids.to("cuda")
+    input_tokens = torch.tensor([[0, 1, 2]]).to("cuda")
 
     metrics = {
         "gen_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -81,7 +79,10 @@ def generate(
         requested_tokens = [64, 128, 256, 512, 1024]
 
     # Generate samples
+    should_continue = True
     for ix, token_count in enumerate(requested_tokens):
+        if ix == 1 and not should_continue:
+            break
         logger.info(f"Generating sample for token count {token_count}")
         time0 = time()
         output = None
@@ -92,8 +93,6 @@ def generate(
                 temperature=config.temperature,
                 min_length=token_count,
                 max_length=token_count,
-                pad_token_id=tokenizer.eos_token_id,
-                eos_token_id=tokenizer.eos_token_id,
             )
         except Exception as e:
             logger.exception(f"Error in generating sample for token count {token_count}: {e}")
@@ -121,6 +120,10 @@ def generate(
         logger.info(f"Generate time: {generate_time:.2f} s")
         logger.info(f"Tokens per second: {tokens_per_second:.2f}")
 
+        if ix == 0 and tokens_per_second < T_S_CUTOFF:
+            logger.info(f"Tokens per second is below {T_S_CUTOFF}. Limiting to the first two iterations.")
+            should_continue = False
+
     del model
     gc.collect()
     torch.cuda.empty_cache()
@@ -145,7 +148,7 @@ def log_to_mongo(
             "run_ts": config.run_ts,
             "model_name": config.model_name,
             "quantization_bits": config.quantization_bits,
-            "torch_dtype": config.torch_dtype,
+            "torch_dtype": str(config.torch_dtype),
             "temperature": config.temperature,
             "gen_ts": metrics["gen_ts"],
             "requested_tokens": metrics["requested_tokens"],
