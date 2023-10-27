@@ -1,6 +1,8 @@
 import logging
 import os
 from datetime import datetime
+from typing import Tuple
+from typing import Union
 from urllib.parse import unquote
 
 import torch
@@ -30,45 +32,49 @@ assert MONGODB_COLLECTION, "MONGODB_COLLECTION environment variable not set"
 
 
 @app.route("/benchmark/<path:model_name>", methods=["POST"])
-def call_benchmark(model_name: str) -> Response:
+def call_benchmark(model_name: str) -> Union[Response, Tuple[Response, int]]:
     """Enables the use a POST request to call the benchmarking function."""
-    model_name = unquote(model_name)
-    run_always = request.args.get("run_always", default="False", type=str).lower() == "true"
+    try:
+        model_name = unquote(model_name)
+        run_always = request.args.get("run_always", default="False", type=str).lower() == "true"
 
-    logger.info(f"Received request for model {model_name}")
+        logger.info(f"Received request for model {model_name}")
 
-    # Declare config defaults
-    config = ModelConfig(
-        model_name=model_name,
-        quantization_bits="8bit",
-        torch_dtype=torch.float16,
-        temperature=0.1,
-        run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    )
+        # Declare config defaults
+        config = ModelConfig(
+            model_name=model_name,
+            quantization_bits=None,
+            torch_dtype=torch.float16,
+            temperature=0.1,
+            run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        )
 
-    # Initialize MongoDB client and collection
-    client = MongoClient(MONGODB_URI)
-    db = client[MONGODB_DB]
-    collection = db[MONGODB_COLLECTION]
+        # Initialize MongoDB client and collection
+        client = MongoClient(MONGODB_URI)
+        db = client[MONGODB_DB]
+        collection = db[MONGODB_COLLECTION]
 
-    # Check if the model has already been benchmarked
-    existing_config = collection.find_one(
-        {
-            "model_name": model_name,
-            "torch_dtype": str(config.torch_dtype),
-            "quantization_bits": config.quantization_bits,
-        }
-    )
-    if existing_config and not run_always:
-        logger.info(f"Model {model_name} has already been benchmarked. Skipping.")
-        return jsonify({"status": "skipped", "reason": "Model has already been benchmarked"})
+        # Check if the model has already been benchmarked
+        existing_config = collection.find_one(
+            {
+                "model_name": model_name,
+                "torch_dtype": str(config.torch_dtype),
+                "quantization_bits": config.quantization_bits,
+            }
+        )
+        if existing_config and not run_always:
+            logger.info(f"Model {model_name} has already been benchmarked. Skipping.")
+            return jsonify({"status": "skipped", "reason": "Model has already been benchmarked"})
 
-    # Check and clean disk space if needed
-    check_and_clean_space()
+        # Check and clean disk space if needed
+        check_and_clean_space()
 
-    # Your benchmarking logic here
-    result = generate_and_log(config, MONGODB_URI, MONGODB_DB, MONGODB_COLLECTION)
-    return jsonify(result)
+        # Your benchmarking logic here
+        result = generate_and_log(config, MONGODB_URI, MONGODB_DB, MONGODB_COLLECTION)
+        return jsonify(result), 200
+    except Exception as e:
+        logger.exception(f"Error in call_benchmark: {e}")
+        return jsonify({"status": "error", "reason": str(e)}), 500
 
 
 app.run(host="0.0.0.0", port=5000)

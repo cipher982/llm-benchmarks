@@ -27,14 +27,16 @@ def generate_and_log(
     collection_name: str,
     custom_token_counts: list = [],
     llama: bool = False,
-) -> None:
+) -> Dict:
     """Main entry point. Generates and logs the data."""
     logger.info(f"Beginning benchmarking for model {config.model_name}")
     try:
         metrics = generate(config, custom_token_counts, llama)
         log_to_mongo(config, metrics, uri, db_name, collection_name)
+        return metrics
     except Exception as e:
         logger.exception(f"Error in generate_and_log: {e}")
+        raise
 
 
 def generate(
@@ -96,6 +98,7 @@ def generate(
             )
         except Exception as e:
             logger.exception(f"Error in generating sample for token count {token_count}: {e}")
+            continue
 
         time1 = time()
 

@@ -14,12 +14,14 @@ def fetch_and_benchmark_models(limit: int = 10, max_size_billion: int = 5, run_a
     # Extract model IDs
     model_ids = [entry["id"] for entry in model_data]
 
+    # model_ids = ["codellama/CodeLlama-34b-Instruct-hf"]
+
     # Filter models
     valid_models: List[str] = []
     dropped_models: List[str] = []
     for model_id in model_ids:
         # Use regex to extract the parameter size
-        match = re.search(r"([0-9.]+[MmBb])", model_id)  # Note the added dot in the regex
+        match = re.search(r"([0-9.]+[MmBb])", model_id)
         param_count = match.group(1) if match else None
 
         if not param_count:
@@ -28,7 +30,7 @@ def fetch_and_benchmark_models(limit: int = 10, max_size_billion: int = 5, run_a
 
         # Normalize parameter count to billions
         unit = param_count[-1].upper()
-        numerical_part = float(param_count[:-1])  # Convert to float, not int
+        numerical_part = float(param_count[:-1])
         if unit == "M":
             numerical_part /= 1000  # Convert M to B
 
@@ -64,9 +66,9 @@ def fetch_and_benchmark_models(limit: int = 10, max_size_billion: int = 5, run_a
     # Summary of benchmark runs
     print("Summary of benchmark runs:")
     for model, code in model_status.items():
-        print(f"Model: {model}, HTTP Response Code: {code} + {'✅' if code == 200 else '❌'}")
+        print(f"Model: {model}, HTTP Response Code: {code} {'✅' if code == 200 else '❌'}")
     print("🎊 Done 🎊")
 
 
 if __name__ == "__main__":
-    fetch_and_benchmark_models(limit=50, max_size_billion=15, run_always=False)
+    fetch_and_benchmark_models(limit=50, max_size_billion=10, run_always=False)
