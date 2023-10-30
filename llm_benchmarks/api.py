@@ -13,7 +13,8 @@ from flask.wrappers import Response
 from pymongo import MongoClient
 
 from llm_benchmarks.config import ModelConfig
-from llm_benchmarks.generation import generate_and_log
+from llm_benchmarks.logging import log_to_mongo
+from llm_benchmarks.transformers import generate
 from llm_benchmarks.utils import check_and_clean_space
 
 logging.basicConfig(filename="/var/log/llm_benchmarks.log", level=logging.INFO)
@@ -32,7 +33,7 @@ assert MONGODB_COLLECTION, "MONGODB_COLLECTION environment variable not set"
 
 
 @app.route("/benchmark/<path:model_name>", methods=["POST"])
-def call_benchmark(model_name: str) -> Union[Response, Tuple[Response, int]]:
+def benchmark_transformers(model_name: str) -> Union[Response, Tuple[Response, int]]:
     """Enables the use a POST request to call the benchmarking function."""
     try:
         model_name = unquote(model_name)
@@ -69,8 +70,22 @@ def call_benchmark(model_name: str) -> Union[Response, Tuple[Response, int]]:
         # Check and clean disk space if needed
         check_and_clean_space()
 
-        # Your benchmarking logic here
-        result = generate_and_log(config, MONGODB_URI, MONGODB_DB, MONGODB_COLLECTION)
+        # Main benchmarking function
+        metrics = generate(
+            config,
+            custom_token_counts=None,
+            llama=False,
+        )
+
+        # Log metrics to MongoDB
+        result = log_to_mongo(
+            config=config,
+            metrics=metrics,
+            uri=MONGODB_URI,
+            db_name=MONGODB_DB,
+            collection_name=MONGODB_COLLECTION,
+        )
+
         return jsonify(result), 200
     except Exception as e:
         logger.exception(f"Error in call_benchmark: {e}")

@@ -1,15 +1,12 @@
-"""Module for benchmarking llm infernce speeds and external logging."""
+"""LLM generation and benchmarking for HuggingFace Transformers library."""
 import gc
 import logging.config
 from datetime import datetime
 from time import time
-from typing import Dict
 from typing import List
 from typing import Optional
 
-import pymongo
 import torch
-from pymongo.collection import Collection
 
 from llm_benchmarks.config import ModelConfig
 
@@ -18,25 +15,6 @@ logger = logging.getLogger(__name__)
 
 
 T_S_CUTOFF = 5  # Tokens per second cutoff (to prevent long runs)
-
-
-def generate_and_log(
-    config,
-    uri: str,
-    db_name: str,
-    collection_name: str,
-    custom_token_counts: list = [],
-    llama: bool = False,
-) -> Dict:
-    """Main entry point. Generates and logs the data."""
-    logger.info(f"Beginning benchmarking for model {config.model_name}")
-    try:
-        metrics = generate(config, custom_token_counts, llama)
-        log_to_mongo(config, metrics, uri, db_name, collection_name)
-        return metrics
-    except Exception as e:
-        logger.exception(f"Error in generate_and_log: {e}")
-        raise
 
 
 def generate(
@@ -132,46 +110,3 @@ def generate(
     torch.cuda.empty_cache()
 
     return metrics
-
-
-def log_to_mongo(
-    config: ModelConfig,
-    metrics: Dict[str, List[float]],
-    uri: str,
-    db_name: str,
-    collection_name: str,
-) -> None:
-    """Logs the metrics to MongoDB."""
-
-    logger.info(f"Logging metrics to MongoDB for model {config.model_name}")
-    try:
-        collection = setup_database(uri, db_name, collection_name)
-
-        data = {
-            "run_ts": config.run_ts,
-            "model_name": config.model_name,
-            "quantization_bits": config.quantization_bits,
-            "torch_dtype": str(config.torch_dtype),
-            "temperature": config.temperature,
-            "gen_ts": metrics["gen_ts"],
-            "requested_tokens": metrics["requested_tokens"],
-            "output_tokens": metrics["output_tokens"],
-            "gpu_mem_usage": metrics["gpu_mem_usage"],
-            "generate_time": metrics["generate_time"],
-            "tokens_per_second": metrics["tokens_per_second"],
-        }
-        insert_into_benchmark_metrics(data, collection)
-        logger.info(f"Successfully logged metrics to MongoDB for model {config.model_name}")
-    except Exception as e:
-        logger.exception(f"Error in log_to_mongo: {e}")
-
-
-def setup_database(uri: str, db_name: str, collection_name: str) -> Collection:
-    client = pymongo.MongoClient(uri)
-    db = client[db_name]
-    collection = db[collection_name]
-    return collection
-
-
-def insert_into_benchmark_metrics(data: dict, collection: Collection) -> None:
-    collection.insert_one(data)

@@ -5,7 +5,7 @@ from typing import List
 import requests
 
 
-def fetch_and_benchmark_models(limit: int = 10, max_size_billion: int = 5, run_always: bool = False) -> None:
+def fetch_and_bench_tf(limit: int = 10, max_size_billion: int = 5, run_always: bool = False) -> None:
     # Fetch models
     params = {"sort": "downloads", "direction": "-1", "limit": limit, "filter": "text-generation"}
     response = requests.get("https://huggingface.co/api/models", params=params)
@@ -71,4 +71,4 @@ def fetch_and_benchmark_models(limit: int = 10, max_size_billion: int = 5, run_a
 
 
 if __name__ == "__main__":
-    fetch_and_benchmark_models(limit=50, max_size_billion=10, run_always=False)
+    fetch_and_bench_tf(limit=50, max_size_billion=10, run_always=False)

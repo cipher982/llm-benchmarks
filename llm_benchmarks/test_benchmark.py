@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 
 from llm_benchmarks.config import ModelConfig
-from llm_benchmarks.generation import generate
+from llm_benchmarks.transformers import generate
 
 logger = logging.getLogger(__name__)
 
