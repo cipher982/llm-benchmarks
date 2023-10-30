@@ -1,6 +1,8 @@
 import logging
 from datetime import datetime
 
+import torch
+
 from llm_benchmarks.config import ModelConfig
 from llm_benchmarks.transformers import generate
 
@@ -10,22 +12,20 @@ logger = logging.getLogger(__name__)
 def main():
     logger.info("Starting benchmarking...")
 
-    config = ModelConfig(
-        # quantization_bits="8bit",
-        quantization_bits=None,
-        # torch_dtype="float16",
-        torch_dtype="auto",
-        temperature=0.1,
-        run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    )
-
-    model_names = ["gpt2", "gpt2-medium", "gpt2-large", "gpt2-xl"]
+    model_names = ["gpt2", "gpt2-medium"]
 
     for model_name in model_names:
-        _ = generate(
+        config = ModelConfig(
             model_name=model_name,
+            # quantization_bits="8bit",
+            quantization_bits=None,
+            torch_dtype=torch.float16,
+            temperature=0.1,
+            run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        _ = generate(
             config=config,
-            custom_token_counts=[64, 128, 256],
+            custom_token_counts=[64, 128],
             llama=False,
         )
 
