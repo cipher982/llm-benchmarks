@@ -1,11 +1,11 @@
 version: '3'
 
 services:
-  llm_bench:
+  bench_transfomers:
     build:
       context: .
-      dockerfile: Dockerfile
-    image: llm_bench
+      dockerfile: Dockerfile-tf
+    image: bench_transformers_img
     runtime: nvidia
     env_file:
       - .env
