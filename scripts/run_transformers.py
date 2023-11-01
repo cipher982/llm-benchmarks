@@ -71,4 +71,4 @@ def fetch_and_bench_tf(limit: int = 10, max_size_billion: int = 5, run_always: b
 
 
 if __name__ == "__main__":
-    fetch_and_bench_tf(limit=50, max_size_billion=10, run_always=False)
+    fetch_and_bench_tf(limit=100, max_size_billion=10, run_always=False)

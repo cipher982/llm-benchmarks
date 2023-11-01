@@ -1,11 +1,11 @@
-version: '3'
+version: "3"
 
 services:
-  bench_transfomers:
+  bench_transformers:
+    image: bench_transformers_img
     build:
       context: .
       dockerfile: Dockerfile-tf
-    image: bench_transformers_img
     runtime: nvidia
     env_file:
       - .env
@@ -21,7 +21,27 @@ services:
       - ./logs/:/var/log
       - /data/hf:/data/hf
     network_mode: host
-    ports:
-      - "5000:5000" # for flask
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
+      - CUDA_VISIBLE_DEVICES=0
+  bench_cpp:
+    image: bench_cpp_img
+    build:
+      context: https://github.com/ggerganov/llama.cpp.git
+      dockerfile: .devops/full-cuda.Dockerfile
+    entrypoint: ["/bin/bash", "/app/llm_benchmarks/scripts/run_cpp.sh", "-auto"]
+    runtime: nvidia
+    env_file:
+      - .env
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 2
+              capabilities: [gpu]
+    volumes:
+      - ./scripts:/app/llm_benchmarks/scripts
+      - ./logs/:/var/log
+      - /data/cpp:/models
+    environment:
+      - CUDA_VISIBLE_DEVICES=1
