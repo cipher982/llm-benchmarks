@@ -28,10 +28,7 @@ def get_oldest_directory(directories: List[str]) -> str:
     return oldest_directory
 
 
-def check_and_clean_space():
-    threshold = 90.0  # Disk usage threshold
-    directory = "/data/hf"  # The directory where the models are stored
-
+def check_and_clean_space(directory: str, threshold: float = 90.0):
     # Check disk usage
     used_space = get_used_space_percent(directory)
     logger.info(f"Current disk usage: {used_space:.2f}%")

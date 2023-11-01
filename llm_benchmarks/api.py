@@ -68,7 +68,7 @@ def benchmark_transformers(model_name: str) -> Union[Response, Tuple[Response, i
             return jsonify({"status": "skipped", "reason": "Model has already been benchmarked"})
 
         # Check and clean disk space if needed
-        check_and_clean_space()
+        check_and_clean_space(directory="/rocket/hf", threshold=90.0)
 
         # Main benchmarking function
         metrics = generate(
