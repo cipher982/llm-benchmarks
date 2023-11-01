@@ -19,16 +19,15 @@ services:
     volumes:
       - ./llm_benchmarks:/app/llm_benchmarks
       - ./logs/:/var/log
-      - /data/hf:/data/hf
+      - /rocket/hf:/data/hf
     network_mode: host
     environment:
       - CUDA_VISIBLE_DEVICES=0
   bench_cpp:
     image: bench_cpp_img
     build:
-      context: https://github.com/ggerganov/llama.cpp.git
-      dockerfile: .devops/full-cuda.Dockerfile
-    entrypoint: ["/bin/bash", "/app/llm_benchmarks/scripts/run_cpp.sh", "-auto"]
+      context: https://github.com/abetlen/llama-cpp-python.git
+      dockerfile: docker/cuda_simple/Dockerfile
     runtime: nvidia
     env_file:
       - .env
@@ -42,6 +41,6 @@ services:
     volumes:
       - ./scripts:/app/llm_benchmarks/scripts
       - ./logs/:/var/log
-      - /data/cpp:/models
+      - /rocket/cpp:/models
     environment:
       - CUDA_VISIBLE_DEVICES=1
