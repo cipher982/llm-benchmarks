@@ -2,10 +2,19 @@ import re
 from typing import Dict
 from typing import List
 
+import click
 import requests
 
 
-def fetch_and_bench_tf(limit: int = 10, max_size_billion: int = 5, run_always: bool = False) -> None:
+@click.command()
+@click.option("--limit", default=10, type=int, help="Limit the number of models fetched.")
+@click.option("--max-size-billion", default=5, type=int, help="Maximum size of models in billion parameters.")
+@click.option("--run-always", is_flag=True, help="Flag to always run benchmarks.")
+def fetch_and_bench_tf(limit: int, max_size_billion: int, run_always: bool) -> None:
+    """
+    Fetch models from Hugging Face, filter them based on parameter count,
+    and benchmark the valid models.
+    """
     # Fetch models
     params = {"sort": "downloads", "direction": "-1", "limit": limit, "filter": "text-generation"}
     response = requests.get("https://huggingface.co/api/models", params=params)
@@ -13,8 +22,6 @@ def fetch_and_bench_tf(limit: int = 10, max_size_billion: int = 5, run_always: b
 
     # Extract model IDs
     model_ids = [entry["id"] for entry in model_data]
-
-    # model_ids = ["codellama/CodeLlama-34b-Instruct-hf"]
 
     # Filter models
     valid_models: List[str] = []
@@ -71,4 +78,4 @@ def fetch_and_bench_tf(limit: int = 10, max_size_billion: int = 5, run_always: b
 
 
 if __name__ == "__main__":
-    fetch_and_bench_tf(limit=100, max_size_billion=10, run_always=False)
+    fetch_and_bench_tf()
