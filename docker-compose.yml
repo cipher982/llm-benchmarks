@@ -19,7 +19,7 @@ services:
     volumes:
       - ./llm_benchmarks:/app/llm_benchmarks
       - ./logs/:/var/log
-      - /rocket/hf:/data/hf
+      - /rocket/hf:/rocket/hf
     network_mode: host
     environment:
       - CUDA_VISIBLE_DEVICES=0
@@ -29,6 +29,7 @@ services:
       context: https://github.com/abetlen/llama-cpp-python.git
       dockerfile: docker/cuda_simple/Dockerfile
     runtime: nvidia
+    entrypoint: ["/bin/bash", "-c", "ls ."]
     env_file:
       - .env
     deploy:
