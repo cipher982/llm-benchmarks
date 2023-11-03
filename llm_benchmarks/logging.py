@@ -27,9 +27,10 @@ def log_to_mongo(
 
         data = {
             "run_ts": config.run_ts,
+            "framework": config.framework,
             "model_name": config.model_name,
             "quantization_bits": config.quantization_bits,
-            "torch_dtype": str(config.torch_dtype),
+            "model_dtype": config.model_dtype,
             "temperature": config.temperature,
             "gen_ts": metrics["gen_ts"],
             "requested_tokens": metrics["requested_tokens"],

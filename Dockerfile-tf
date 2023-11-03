@@ -22,5 +22,5 @@ COPY ./scripts/run_transformers.py .
 # Set the working directory
 WORKDIR /app
 
-# Set the entrypoint
+# Run Flask
 ENTRYPOINT [ "python3", "-m", "llm_benchmarks.transformers.api" ]

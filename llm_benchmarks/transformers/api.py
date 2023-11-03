@@ -6,7 +6,6 @@ from typing import Tuple
 from typing import Union
 from urllib.parse import unquote
 
-import torch
 from flask import Flask
 from flask import jsonify
 from flask import request
@@ -44,9 +43,10 @@ def benchmark_transformers(model_name: str) -> Union[Response, Tuple[Response, i
 
         # Declare config defaults
         config = ModelConfig(
+            framework="transformers",
             model_name=model_name,
             quantization_bits=None,
-            torch_dtype=torch.float16,
+            model_dtype="torch.float16",
             temperature=0.1,
             run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         )
@@ -60,7 +60,7 @@ def benchmark_transformers(model_name: str) -> Union[Response, Tuple[Response, i
         existing_config = collection.find_one(
             {
                 "model_name": model_name,
-                "torch_dtype": str(config.torch_dtype),
+                "torch_dtype": str(config.model_dtype),
                 "quantization_bits": config.quantization_bits,
             }
         )

@@ -1,7 +1,6 @@
 import logging
 from typing import Optional
 
-from torch import dtype
 
 logger = logging.getLogger(__name__)
 
@@ -9,17 +8,29 @@ logger = logging.getLogger(__name__)
 class ModelConfig:
     def __init__(
         self,
+        framework: str,
         model_name: str,
         run_ts: str,
-        torch_dtype: dtype,
+        model_dtype: str,
         temperature: float,
         quantization_bits: Optional[str] = None,
     ):
+        self.framework = framework
         self.model_name = model_name
         self.run_ts = run_ts
-        self.torch_dtype = torch_dtype
+        self.model_dtype = model_dtype
         self.temperature = temperature
         self.quantization_bits = quantization_bits
+
+    @property
+    def framework(self):
+        return self._framework
+
+    @framework.setter
+    def framework(self, value):
+        if value not in ["transformers", "gguf"]:
+            raise ValueError("framework must be either 'transformers' or 'gguf'")
+        self._framework = value
 
     @property
     def load_in_4bit(self) -> bool:
@@ -28,3 +39,13 @@ class ModelConfig:
     @property
     def load_in_8bit(self) -> bool:
         return self.quantization_bits == "8bit" if self.quantization_bits is not None else False
+
+    def to_dict(self):
+        return {
+            "framework": self.framework,
+            "model_name": self.model_name,
+            "run_ts": self.run_ts,
+            "model_dtype": self.model_dtype,
+            "temperature": self.temperature,
+            "quantization_bits": self.quantization_bits,
+        }

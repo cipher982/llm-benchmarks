@@ -27,6 +27,7 @@ RUN CMAKE_ARGS="-DLLAMA_CUBLAS=on" pip install llama-cpp-python
 # Install extra libs for benchmarks
 RUN python3 -m pip install flask pymongo
 
-# Run the server
-WORKDIR /app/llm_benchmarks/gguf
-CMD python3 api.py
+
+# Run Flask
+WORKDIR /app
+ENTRYPOINT [ "python3", "-m", "llm_benchmarks.gguf.api" ]

@@ -37,7 +37,7 @@ def generate(
         config.model_name,
         load_in_4bit=config.load_in_4bit,
         load_in_8bit=config.load_in_8bit,
-        torch_dtype=config.torch_dtype,
+        torch_dtype=torch.float16 if config.model_dtype == "torch.float16" else torch.float32,
         device_map="auto",
         trust_remote_code=True,
     )
