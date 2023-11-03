@@ -31,12 +31,14 @@ app = Flask(__name__)
 @app.route("/benchmark/<path:model_name>", methods=["POST"])
 def benchmark_cpp(model_name: str) -> Union[Response, Tuple[Response, int]]:
     """Enables the use a POST request to call the benchmarking function."""
-    try:
-        model_path = f"/models/{model_name}"
-        query = request.form.get("query", "Tell me a short story.")
-        max_tokens = int(request.form.get("max_tokens", 32))
+    logger.info(f"Received request for model {model_name}")
 
-        logger.info(f"Received request for model {model_name}")
+    try:
+        # Load config from request
+        model_path = f"/models/{model_name}"
+        query = request.form.get("query", "User: Complain that I did not send a request.\nAI:")
+        max_tokens = int(request.form.get("max_tokens", 32))
+        n_gpu_layers = int(request.form.get("n_gpu_layers", 0))
 
         # Initialize MongoDB client and collection
         # client = MongoClient(MONGODB_URI)
@@ -44,8 +46,12 @@ def benchmark_cpp(model_name: str) -> Union[Response, Tuple[Response, int]]:
         # collection = db[MONGODB_COLLECTION]
 
         # Main benchmarking function
-        llm = Llama(model_path=model_path)
-        output = llm(query, max_tokens=max_tokens, echo=True)
+        llm = Llama(
+            model_path=model_path,
+            max_tokens=max_tokens,
+            n_gpu_layers=n_gpu_layers,
+        )
+        output = llm(query, echo=True)
 
         # Build config object
         config = {
