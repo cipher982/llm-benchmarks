@@ -71,18 +71,13 @@ def benchmark_cpp(model_name: str) -> Union[Response, Tuple[Response, int]]:
             run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         )
 
-        sleep(1)
-        logger.info("=" * 40)
-        logger.info("Benchmarking complete.")
-        logger.info(f"Model: {model_name}")
-        logger.info(f"Config:\n{json.dumps(config.to_dict(), indent=4)}")
-        logger.info(f"Output:\n{json.dumps(output, indent=4)}")
-        logger.info("=" * 40)
+        # Build metrics object
+        output_tokens = output["usage"]["completion_tokens"]
 
         metrics = {
             "gen_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "requested_tokens": [max_tokens],
-            "output_tokens": [output["usage"]["completion_tokens"]],
+            "output_tokens": [output_tokens],
             "gpu_mem_usage": [0],
             "generate_time": [0],
             "tokens_per_second": [0],
@@ -96,6 +91,14 @@ def benchmark_cpp(model_name: str) -> Union[Response, Tuple[Response, int]]:
             db_name=MONGODB_DB,
             collection_name=MONGODB_COLLECTION,
         )
+
+        sleep(1)
+        logger.info("=" * 40)
+        logger.info("Benchmarking complete.")
+        logger.info(f"Model: {model_name}")
+        logger.info(f"Config:\n{json.dumps(config.to_dict(), indent=4)}")
+        logger.info(f"Output:\n{json.dumps(output, indent=4)}")
+        logger.info("=" * 40)
 
         return jsonify(result), 200
     except Exception as e:
