@@ -23,10 +23,6 @@ app = Flask(__name__)
 # MONGODB_DB = os.environ.get("MONGODB_DB")
 # MONGODB_COLLECTION = os.environ.get("MONGODB_COLLECTION")
 
-MONGODB_URI = "mongodb+srv://drose:OspI9HFYG4wZ5K95@llm-bench.yuo8irx.mongodb.net/"
-MONGODB_DB = "llm-bench"
-MONGODB_COLLECTION = "metrics"
-
 # assert MONGODB_URI, "MONGODB_URI environment variable not set"
 # assert MONGODB_DB, "MONGODB_DB environment variable not set"
 # assert MONGODB_COLLECTION, "MONGODB_COLLECTION environment variable not set"
