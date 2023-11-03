@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from datetime import datetime
 from typing import Tuple
 from typing import Union
@@ -17,7 +18,7 @@ from llm_benchmarks.logging import log_to_mongo
 from llm_benchmarks.transformers import generate
 from llm_benchmarks.utils import check_and_clean_space
 
-logging.basicConfig(filename="/var/log/llm_benchmarks.log", level=logging.INFO)
+logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)

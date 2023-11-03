@@ -23,13 +23,12 @@ services:
     network_mode: host
     environment:
       - CUDA_VISIBLE_DEVICES=0
-  bench_cpp:
-    image: bench_cpp_img
+  bench_gguf:
+    image: bench_gguf_img
     build:
-      context: https://github.com/abetlen/llama-cpp-python.git
-      dockerfile: docker/cuda_simple/Dockerfile
+      context: .
+      dockerfile: Dockerfile-gguf
     runtime: nvidia
-    entrypoint: ["/bin/bash", "-c", "ls ."]
     env_file:
       - .env
     deploy:
@@ -40,8 +39,9 @@ services:
               count: 2
               capabilities: [gpu]
     volumes:
-      - ./scripts:/app/llm_benchmarks/scripts
+      - ./llm_benchmarks:/app/llm_benchmarks
       - ./logs/:/var/log
       - /rocket/cpp:/models
+    network_mode: host
     environment:
       - CUDA_VISIBLE_DEVICES=1
