@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import sys
 import time
 from datetime import datetime
 from typing import Tuple
@@ -18,7 +17,7 @@ from llm_benchmarks.config import ModelConfig
 from llm_benchmarks.logging import log_to_mongo
 
 
-logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+logging.basicConfig(filename="/var/log/llm_benchmarks.log", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
