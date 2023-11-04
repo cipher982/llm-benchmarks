@@ -61,7 +61,7 @@ def generate(
     # Generate samples
     should_continue = True
     for ix, token_count in enumerate(requested_tokens):
-        if ix == 1 and not should_continue:
+        if ix >= 2 and not should_continue:
             break
         logger.info(f"Generating sample for token count {token_count}")
         time0 = time()
@@ -101,7 +101,7 @@ def generate(
         logger.info(f"Generate time: {generate_time:.2f} s")
         logger.info(f"Tokens per second: {tokens_per_second:.2f}")
 
-        if ix == 0 and tokens_per_second < T_S_CUTOFF:
+        if tokens_per_second < T_S_CUTOFF:
             logger.info(f"Tokens per second is below {T_S_CUTOFF}. Limiting to the first two iterations.")
             should_continue = False
 

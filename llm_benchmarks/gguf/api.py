@@ -2,11 +2,12 @@ import json
 import logging
 import os
 import sys
+import time
 from datetime import datetime
-from time import sleep
 from typing import Tuple
 from typing import Union
 
+import pynvml
 from flask import Flask
 from flask import jsonify
 from flask import request
@@ -42,7 +43,7 @@ def benchmark_cpp(model_name: str) -> Union[Response, Tuple[Response, int]]:
         # Load config from request
         model_path = f"/models/{model_name}"
         query = request.form.get("query", "User: Complain that I did not send a request.\nAI:")
-        max_tokens = int(request.form.get("max_tokens", 128))
+        max_tokens = int(request.form.get("max_tokens", 512))
         n_gpu_layers = int(request.form.get("n_gpu_layers", 0))
 
         # Main benchmarking function
@@ -52,7 +53,18 @@ def benchmark_cpp(model_name: str) -> Union[Response, Tuple[Response, int]]:
             n_gpu_layers=n_gpu_layers,
             temperature=TEMPERATURE,
         )
+
+        # Get GPU memory usage
+        time.sleep(1)
+        pynvml.nvmlInit()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(1)  # second GPU
+        info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        pynvml.nvmlShutdown()
+
+        # Run benchmark
+        time0 = time.time()
         output = llm(query, echo=True)
+        time1 = time.time()
 
         # Build config object
         model_quantization_map = {
@@ -78,9 +90,9 @@ def benchmark_cpp(model_name: str) -> Union[Response, Tuple[Response, int]]:
             "gen_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "requested_tokens": [max_tokens],
             "output_tokens": [output_tokens],
-            "gpu_mem_usage": [0],
-            "generate_time": [0],
-            "tokens_per_second": [0],
+            "gpu_mem_usage": [info.used],
+            "generate_time": [time1 - time0],
+            "tokens_per_second": [output_tokens / (time1 - time0)],
         }
 
         # Log metrics to MongoDB
@@ -92,7 +104,6 @@ def benchmark_cpp(model_name: str) -> Union[Response, Tuple[Response, int]]:
             collection_name=MONGODB_COLLECTION,
         )
 
-        sleep(1)
         logger.info("=" * 40)
         logger.info("Benchmarking complete.")
         logger.info(f"Model: {model_name}")

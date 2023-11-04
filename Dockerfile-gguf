@@ -25,9 +25,12 @@ RUN python3 -m pip install --upgrade pip pytest cmake scikit-build setuptools fa
 RUN CMAKE_ARGS="-DLLAMA_CUBLAS=on" pip install llama-cpp-python
 
 # Install extra libs for benchmarks
-RUN python3 -m pip install flask pymongo
+RUN python3 -m pip install flask pymongo pynvml
 
+# Create log directory and file
+RUN mkdir -p /var/log_gguf
+RUN touch /var/log_gguf/gguf.log
 
 # Run Flask
 WORKDIR /app
-ENTRYPOINT [ "python3", "-m", "llm_benchmarks.gguf.api" ]
+ENTRYPOINT [ "sh", "-c", "python3 -m llm_benchmarks.gguf.api" ]
