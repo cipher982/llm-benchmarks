@@ -66,12 +66,12 @@ def benchmark_cpp(model_name: str) -> Union[Response, Tuple[Response, int]]:
         time1 = time.time()
 
         # Build config object
-        model_quantization_map = {
-            "q4_0": "4bit",
-            "q8_0": "8bit",
-            "f16": None,
-        }
-        quantization_bits = model_quantization_map.get(model_name, "unknown")
+        model_quantization_list = [
+            ("q4_0", "4bit"),
+            ("q8_0", "8bit"),
+            ("f16", None),
+        ]
+        quantization_bits = next((bits for key, bits in model_quantization_list if key in model_name), "unknown")
 
         config = ModelConfig(
             framework="gguf",
