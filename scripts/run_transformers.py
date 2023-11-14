@@ -9,8 +9,9 @@ import requests
 @click.command()
 @click.option("--limit", default=10, type=int, help="Limit the number of models fetched.")
 @click.option("--max-size-billion", default=5, type=int, help="Maximum size of models in billion parameters.")
+@click.option("--quantization-bits", default=None, type=str, help="Quantization bits for the model.")
 @click.option("--run-always", is_flag=True, help="Flag to always run benchmarks.")
-def fetch_and_bench_tf(limit: int, max_size_billion: int, run_always: bool) -> None:
+def fetch_and_bench_tf(limit: int, max_size_billion: int, quantization_bits: str, run_always: bool) -> None:
     """
     Fetch models from Hugging Face, filter them based on parameter count,
     and benchmark the valid models.
@@ -58,7 +59,7 @@ def fetch_and_bench_tf(limit: int, max_size_billion: int, run_always: bool) -> N
         print(f"Running benchmark: {model_id}")
 
         # Define params
-        params = {"run_always": str(run_always).lower()}
+        params = {"run_always": str(run_always).lower(), "quantization_bits": quantization_bits}
 
         # POST request with params
         response = requests.post(f"http://localhost:5000/benchmark/{encoded_model}", params=params)
@@ -73,7 +74,14 @@ def fetch_and_bench_tf(limit: int, max_size_billion: int, run_always: bool) -> N
     # Summary of benchmark runs
     print("Summary of benchmark runs:")
     for model, code in model_status.items():
-        print(f"Model: {model}, HTTP Response Code: {code} {'✅' if code == 200 else '❌'}")
+        if code == 200:
+            print(f"Model: {model}, {code} ✅ (Benchmark Successful)")
+        elif code == 304:
+            pass
+        elif code == 500:
+            print(f"Model: {model}, {code} ❌ (Benchmark Failed)")
+        else:
+            print(f"Model: {model}, {code} ❓ (Unknown Status)")
     print("🎊 Done 🎊")
 
 

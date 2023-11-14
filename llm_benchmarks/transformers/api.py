@@ -37,14 +37,14 @@ def benchmark_transformers(model_name: str) -> Union[Response, Tuple[Response, i
     try:
         model_name = unquote(model_name)
         run_always = request.args.get("run_always", default="False", type=str).lower() == "true"
-
-        logger.info(f"Received request for model {model_name}")
+        quantization_bits = request.args.get("quantization_bits", default=None, type=str)
+        logger.info(f"Received request for model: {model_name}, quant: {quantization_bits}")
 
         # Declare config defaults
         config = ModelConfig(
             framework="transformers",
             model_name=model_name,
-            quantization_bits=None,
+            quantization_bits=quantization_bits,
             model_dtype="torch.float16",
             temperature=0.1,
             run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -56,16 +56,23 @@ def benchmark_transformers(model_name: str) -> Union[Response, Tuple[Response, i
         collection = db[MONGODB_COLLECTION]
 
         # Check if the model has already been benchmarked
+        logger.info(f"Checking for model: {model_name}")
+        logger.info(f"dtype: {config.model_dtype}")
+        logger.info(f"quantization: {config.quantization_bits}")
+
         existing_config = collection.find_one(
             {
                 "model_name": model_name,
-                "torch_dtype": str(config.model_dtype),
-                "quantization_bits": config.quantization_bits,
+                "model_dtype": {"$in": [config.model_dtype, None]},
+                "quantization_bits": {"$in": [config.quantization_bits, None]},
             }
         )
-        if existing_config and not run_always:
-            logger.info(f"Model {model_name} has already been benchmarked. Skipping.")
-            return jsonify({"status": "skipped", "reason": "Model has already been benchmarked"})
+        if existing_config:
+            if run_always:
+                logger.info(f"Model {model_name} has been benchmarked, but run_always is set to True.")
+            else:
+                logger.info(f"Model {model_name} has already been benchmarked. Skipping.")
+                return jsonify({"status": "skipped", "reason": "Model has already been benchmarked"}), 304
 
         # Check and clean disk space if needed
         check_and_clean_space(directory="/rocket/hf", threshold=90.0)
