@@ -58,6 +58,7 @@ ptyprocess==0.7.0
 pyarrow==14.0.1
 pycparser==2.21
 pymongo==4.6.0
+pynvml==11.5.0
 pyproject_hooks==1.0.0
 python-dateutil==2.8.2
 pytz==2023.3.post1

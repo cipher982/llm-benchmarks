@@ -28,7 +28,7 @@ class ModelConfig:
 
     @framework.setter
     def framework(self, value):
-        if value not in ["transformers", "gguf"]:
+        if value not in ["transformers", "gguf", "hf-tgi"]:
             raise ValueError("framework must be either 'transformers' or 'gguf'")
         self._framework = value
 
