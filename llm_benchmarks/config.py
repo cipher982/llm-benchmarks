@@ -13,6 +13,7 @@ class ModelConfig:
         run_ts: str,
         model_dtype: str,
         temperature: float,
+        quantization_method: Optional[str] = None,
         quantization_bits: Optional[str] = None,
     ):
         self.framework = framework
@@ -20,6 +21,7 @@ class ModelConfig:
         self.run_ts = run_ts
         self.model_dtype = model_dtype
         self.temperature = temperature
+        self.quantization_method = quantization_method
         self.quantization_bits = quantization_bits
 
     @property
@@ -31,6 +33,16 @@ class ModelConfig:
         if value not in ["transformers", "gguf", "hf-tgi"]:
             raise ValueError("framework must be either 'transformers' or 'gguf'")
         self._framework = value
+
+    @property
+    def quantization_method(self):
+        return self._quantization_method
+
+    @quantization_method.setter
+    def quantization_method(self, value):
+        if value not in ["bitsandbytes", "gptq", None]:
+            raise ValueError(f"quant method must be 'bitsandbytes', 'gptq', or None. Got {value}")
+        self._quantization_method = value
 
     @property
     def load_in_4bit(self) -> bool:
@@ -47,5 +59,6 @@ class ModelConfig:
             "run_ts": self.run_ts,
             "model_dtype": self.model_dtype,
             "temperature": self.temperature,
+            "quantization_method": self.quantization_method,
             "quantization_bits": self.quantization_bits,
         }

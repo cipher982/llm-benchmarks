@@ -15,12 +15,14 @@ class DockerContainer:
         model: str,
         volume_path: str,
         gpu_device: int = 1,
-        quantization_bits: Optional[str] = None,
+        quant_method: Optional[str] = None,
+        quant_bits: Optional[str] = None,
     ):
         self.model = model
         self.volume_path = volume_path
         self.gpu_device = gpu_device
-        self.quantization_bits = quantization_bits
+        self.quant_method = quant_method
+        self.quant_bits = quant_bits
         self.container_id = None
 
     def __enter__(self):
@@ -51,23 +53,9 @@ class DockerContainer:
             self.model,
         ]
 
-        quantization_map = {
-            "gptq": {"command": ["--quantize", "gptq"], "message": "Starting Docker container with GPTQ quantization."},
-            "8bit": {
-                "command": ["--quantize", "bitsandbytes"],
-                "message": "Starting Docker container with 8bit quantization.",
-            },
-            "4bit": {
-                "command": ["--quantize", "bitsandbytes-nf4"],
-                "message": "Starting Docker container with 4bit quantization.",
-            },
-            "default": {"command": [], "message": "Starting Docker container without quantization."},
-        }
-
-        quantization_key = self.model.lower() if "gptq" in self.model.lower() else (self.quantization_bits or "default")
-        quantization_info = quantization_map.get(quantization_key, quantization_map["default"])
-        command.extend(quantization_info["command"])
-        logger.info(quantization_info["message"])
+        quant_info = self.get_quantization_info()
+        command.extend(quant_info["command"])
+        logger.info(quant_info["message"])
 
         try:
             process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -136,3 +124,27 @@ class DockerContainer:
 
             time.sleep(5)
         return False
+
+    def get_quantization_info(self):
+        if self.quant_method is None:
+            return {"command": [], "message": "Starting Docker container without quantization."}
+        elif self.quant_method == "gptq":
+            return {
+                "command": ["--quantize", "gptq"],
+                "message": "Starting Docker container with GPTQ quantization.",
+            }
+        elif self.quant_method == "bitsandbytes":
+            if self.quant_bits == "4bit":
+                return {
+                    "command": ["--quantize", "bitsandbytes-nf4"],
+                    "message": "Starting Docker container with 4bit quantization.",
+                }
+            elif self.quant_bits == "8bit":
+                return {
+                    "command": ["--quantize", "bitsandbytes"],
+                    "message": "Starting Docker container with 8bit quantization.",
+                }
+            else:
+                raise ValueError(f"Invalid quant_bits: {self.quant_bits}")
+        else:
+            raise ValueError(f"Invalid quant_method: {self.quant_method}")

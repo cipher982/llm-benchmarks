@@ -40,12 +40,16 @@ def benchmark_tgi_route(model_name: str):
         # Extract and validate request parameters
         model_name = unquote(model_name)
         volume_path = request.form.get("volume_path", "/rocket/hf")
-        quant_bits = request.form.get("quant_bits", None)
         query = request.form.get("query", "User: Tell me a story.")
         max_tokens = int(request.form.get("max_tokens", 512))
 
+        quant_method = request.form.get("quant_method", None)
+        quant_bits = request.form.get("quant_bits", None)
+        if "GPTQ" in model_name:
+            assert quant_method == "gptq", "Quantization method must be 'gptq' for GPTQ models"
+
         # Initialize Docker container and client
-        with DockerContainer(model_name, volume_path, GPU_DEVICE, quant_bits) as container:
+        with DockerContainer(model_name, volume_path, GPU_DEVICE, quant_method, quant_bits) as container:
             if container.is_ready():
                 logger.info("Docker container is ready.")
                 client = InferenceClient("http://127.0.0.0:8080")
@@ -73,6 +77,7 @@ def benchmark_tgi_route(model_name: str):
                 config = ModelConfig(
                     framework="hf-tgi",
                     model_name=model_name,
+                    quantization_method=quant_method,
                     quantization_bits=quant_bits,
                     model_dtype="torch.float16",
                     temperature=TEMPERATURE,

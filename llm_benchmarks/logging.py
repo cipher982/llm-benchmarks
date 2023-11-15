@@ -29,6 +29,7 @@ def log_to_mongo(
             "run_ts": config.run_ts,
             "framework": config.framework,
             "model_name": config.model_name,
+            "quantization_method": config.quantization_method,
             "quantization_bits": config.quantization_bits,
             "model_dtype": config.model_dtype,
             "temperature": config.temperature,
