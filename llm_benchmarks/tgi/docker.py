@@ -42,8 +42,12 @@ class DockerContainer:
 
         if self.quantization_bits == "8bit":
             command.extend(["--quantize", "bitsandbytes"])
+            logger.info("Starting Docker container with 8bit quantization.")
         elif self.quantization_bits == "4bit":
             command.extend(["--quantize", "bitsandbytes-nf4"])
+            logger.info("Starting Docker container with 4bit quantization.")
+        else:
+            logger.info("Starting Docker container without quantization.")
 
         try:
             process = subprocess.Popen(command, stdout=subprocess.PIPE)
