@@ -12,9 +12,8 @@ from huggingface_hub import InferenceClient
 from llm_benchmarks.config import ModelConfig
 from llm_benchmarks.logging import log_to_mongo
 from llm_benchmarks.tgi.docker import DockerContainer
-from llm_benchmarks.tgi.utils import get_vram_usage
-from llm_benchmarks.tgi.utils import is_container_ready
-from llm_benchmarks.tgi.utils import setup_logger
+from llm_benchmarks.utils import get_vram_usage
+from llm_benchmarks.utils import setup_logger
 
 app = Flask(__name__)
 
@@ -30,6 +29,7 @@ assert MONGODB_URI, "MONGODB_URI environment variable not set"
 assert MONGODB_DB, "MONGODB_DB environment variable not set"
 assert MONGODB_COLLECTION, "MONGODB_COLLECTION environment variable not set"
 TEMPERATURE = 0.1
+GPU_DEVICE = 1
 
 
 @app.route("/benchmark/<path:model_name>", methods=["POST"])
@@ -40,13 +40,13 @@ def benchmark_tgi_route(model_name: str):
         # Extract and validate request parameters
         model_name = unquote(model_name)
         volume_path = request.form.get("volume_path", "/rocket/hf")
-        quant_bits = request.form.get("quant_bits", "8bit")
+        quant_bits = request.form.get("quant_bits", None)
         query = request.form.get("query", "User: Tell me a story.")
         max_tokens = int(request.form.get("max_tokens", 512))
 
         # Initialize Docker container and client
-        with DockerContainer(model_name, volume_path, quant_bits):
-            if is_container_ready():
+        with DockerContainer(model_name, volume_path, GPU_DEVICE, quant_bits) as container:
+            if container.is_ready():
                 logger.info("Docker container is ready.")
                 client = InferenceClient("http://127.0.0.0:8080")
 
@@ -59,7 +59,7 @@ def benchmark_tgi_route(model_name: str):
 
                 # Process metrics
                 output_tokens = len(response.details.get("tokens", []))  # type: ignore
-                vram_usage = get_vram_usage()
+                vram_usage = get_vram_usage(GPU_DEVICE)
                 metrics = {
                     "gen_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "requested_tokens": [max_tokens],

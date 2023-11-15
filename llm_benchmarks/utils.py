@@ -1,8 +1,11 @@
-import logging
+import logging.config
 import os
 import re
 import shutil
+from typing import cast
 from typing import List
+
+import pynvml
 
 
 logger = logging.getLogger(__name__)
@@ -97,5 +100,47 @@ def filter_model_size(model_ids: List[str], max_size_million: int) -> List[str]:
 
     print(f"Keeping models: {', '.join(valid_models)}\n\n")
     print(f"Dropping models: {', '.join(dropped_models)}\n\n")
+    print(f"Model count after filtering {len(model_ids):,} -> {len(valid_models):,}")
 
     return valid_models
+
+
+def get_vram_usage(gpu_device: int) -> int:
+    pynvml.nvmlInit()
+    handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_device)
+    info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+    pynvml.nvmlShutdown()
+    return cast(int, info.used)
+
+
+# Logger Configuration
+def setup_logger():
+    """Set up logging configuration."""
+    logging_config = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "standard": {
+                "format": "tgi - %(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                "datefmt": "%Y-%m-%d %H:%M:%S",
+            },
+        },
+        "handlers": {
+            "console": {
+                "class": "logging.StreamHandler",
+                "formatter": "standard",
+                "level": logging.INFO,
+            },
+            "file": {
+                "class": "logging.FileHandler",
+                "filename": "./logs/llm_benchmarks.log",
+                "formatter": "standard",
+                "level": logging.DEBUG,
+            },
+        },
+        "root": {
+            "handlers": ["console", "file"],
+            "level": logging.DEBUG,
+        },
+    }
+    logging.config.dictConfig(logging_config)
