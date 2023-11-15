@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import shutil
 from typing import List
 
@@ -52,3 +53,49 @@ def check_and_clean_space(directory: str, threshold: float = 90.0):
         # Recheck disk usage
         used_space = get_used_space_percent(directory)
         logger.info(f"Updated disk usage: {used_space:.2f}%")
+
+
+def get_cached_models(directory: str) -> list[str]:
+    """
+    Get a list of cached HF models in the given directory.
+    """
+    print(f"Getting cached models from directory: {directory}")
+    files = os.listdir(directory)
+    model_files = [f for f in files if f.startswith("models--")]
+    formatted_names = [f.removeprefix("models--").replace("--", "/") for f in model_files]
+    print(f"Returning {len(formatted_names):,} model names")
+    return formatted_names
+
+
+def filter_model_size(model_ids: List[str], max_size_million: int) -> List[str]:
+    """
+    Filter models based on parameter count.
+    """
+    valid_models: List[str] = []
+    dropped_models: List[str] = []
+
+    for model_id in model_ids:
+        # Use regex to extract the parameter size
+        match = re.search(r"([0-9.]+[MmBb])", model_id)
+        param_count = match.group(1) if match else None
+
+        if not param_count:
+            dropped_models.append(model_id)
+            continue
+
+        # Normalize parameter count to millions
+        unit = param_count[-1].upper()
+        numerical_part = float(param_count[:-1])
+        if unit == "B":
+            numerical_part *= 1000  # Convert B to M
+
+        # Filter based on parameter count
+        if numerical_part <= max_size_million:
+            valid_models.append(model_id)
+        else:
+            dropped_models.append(model_id)
+
+    print(f"Keeping models: {', '.join(valid_models)}\n\n")
+    print(f"Dropping models: {', '.join(dropped_models)}\n\n")
+
+    return valid_models

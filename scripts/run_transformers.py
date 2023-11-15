@@ -1,9 +1,9 @@
-import re
 from typing import Dict
-from typing import List
 
 import click
 import requests
+
+from llm_benchmarks.utils import filter_model_size
 
 
 @click.command()
@@ -24,32 +24,8 @@ def fetch_and_bench_tf(limit: int, max_size_billion: int, quantization_bits: str
     # Extract model IDs
     model_ids = [entry["id"] for entry in model_data]
 
-    # Filter models
-    valid_models: List[str] = []
-    dropped_models: List[str] = []
-    for model_id in model_ids:
-        # Use regex to extract the parameter size
-        match = re.search(r"([0-9.]+[MmBb])", model_id)
-        param_count = match.group(1) if match else None
-
-        if not param_count:
-            dropped_models.append(model_id)
-            continue
-
-        # Normalize parameter count to billions
-        unit = param_count[-1].upper()
-        numerical_part = float(param_count[:-1])
-        if unit == "M":
-            numerical_part /= 1000  # Convert M to B
-
-        # Filter based on parameter count
-        if numerical_part <= max_size_billion:
-            valid_models.append(model_id)
-        else:
-            dropped_models.append(model_id)
-
-    print(f"Keeping models: {', '.join(valid_models)}\n\n")
-    print(f"Dropping models: {', '.join(dropped_models)}\n\n")
+    # Filter models based on parameter count
+    valid_models = filter_model_size(model_ids, max_size_billion * 1_000)
 
     # Benchmarking
     model_status: Dict[str, int] = {}
