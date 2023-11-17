@@ -3,10 +3,9 @@ from typing import Optional
 
 import click
 import requests
+from llm_bench_api.utils import filter_model_size
+from llm_bench_api.utils import get_cached_models
 from requests.exceptions import HTTPError
-
-from llm_benchmarks.utils import filter_model_size
-from llm_benchmarks.utils import get_cached_models
 
 
 QUANT_TYPES = [
@@ -23,8 +22,15 @@ assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
 
 @click.command()
 @click.option("--fetch-new-models", default=False, help="Fetch latest HF-Hub models.")
-@click.option("--limit", default=100, type=int, help="Limit the number of models fetched.")
-@click.option("--max-size-billion", default=5, type=int, help="Maximum size of models in billion parameters.")
+@click.option(
+    "--limit", default=100, type=int, help="Limit the number of models fetched."
+)
+@click.option(
+    "--max-size-billion",
+    default=5,
+    type=int,
+    help="Maximum size of models in billion parameters.",
+)
 @click.option("--run-always", is_flag=True, help="Flag to always run benchmarks.")
 def main(
     fetch_new_models: bool,
@@ -90,7 +96,9 @@ def run_benchmark(
         return False
     else:
         response_code = response.status_code
-        print(f"Finished benchmark: {model}, quant: {quant_str} with Status Code: {response_code}")
+        print(
+            f"Finished benchmark: {model}, quant: {quant_str} with Status Code: {response_code}"
+        )
 
         model_status[f"{model}_{quant_str}"] = response_code
         return len(model_status) >= limit
@@ -140,7 +148,12 @@ def bench_other(model, model_status, limit, run_always):
 
 def get_models_to_run(fetch_hub: bool, limit: int) -> list[str]:
     if fetch_hub:
-        params = {"sort": "downloads", "direction": "-1", "limit": limit, "filter": "text-generation"}
+        params = {
+            "sort": "downloads",
+            "direction": "-1",
+            "limit": limit,
+            "filter": "text-generation",
+        }
         response = requests.get("https://huggingface.co/api/models", params=params)
         model_data = response.json()
 

@@ -12,9 +12,8 @@ from flask import jsonify
 from flask import request
 from flask.wrappers import Response
 from llama_cpp import Llama
-
-from llm_benchmarks.config import ModelConfig
-from llm_benchmarks.logging import log_to_mongo
+from llm_bench_api.config import ModelConfig
+from llm_bench_api.logging import log_to_mongo
 
 
 logging.basicConfig(filename="/var/log/llm_benchmarks.log", level=logging.INFO)
@@ -41,7 +40,9 @@ def benchmark_cpp(model_name: str) -> Union[Response, Tuple[Response, int]]:
     try:
         # Load config from request
         model_path = f"/models/{model_name}"
-        query = request.form.get("query", "User: Complain that I did not send a request.\nAI:")
+        query = request.form.get(
+            "query", "User: Complain that I did not send a request.\nAI:"
+        )
         max_tokens = int(request.form.get("max_tokens", 512))
         n_gpu_layers = int(request.form.get("n_gpu_layers", 0))
 
@@ -71,7 +72,10 @@ def benchmark_cpp(model_name: str) -> Union[Response, Tuple[Response, int]]:
             ("q8_0", "8bit"),
             ("f16", None),
         ]
-        quantization_bits = next((bits for key, bits in model_quantization_list if key in model_name), "unknown")
+        quantization_bits = next(
+            (bits for key, bits in model_quantization_list if key in model_name),
+            "unknown",
+        )
 
         config = ModelConfig(
             framework="gguf",

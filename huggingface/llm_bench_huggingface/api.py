@@ -9,12 +9,11 @@ from flask import Flask
 from flask import jsonify
 from flask import request
 from flask.wrappers import Response
-
-from llm_benchmarks.config import ModelConfig
-from llm_benchmarks.config import MongoConfig
-from llm_benchmarks.logging import log_to_mongo
-from llm_benchmarks.utils import check_and_clean_space
-from llm_benchmarks.utils import has_existing_run
+from llm_bench_api.config import ModelConfig
+from llm_bench_api.config import MongoConfig
+from llm_bench_api.logging import log_to_mongo
+from llm_bench_api.utils import check_and_clean_space
+from llm_bench_api.utils import has_existing_run
 
 
 log_path = "/var/log/llm_benchmarks.log"
@@ -55,7 +54,9 @@ def call_huggingface(model_name: str) -> Union[Response, Tuple[Response, int]]:
 
         assert framework is not None, "framework is required"
 
-        quant_str = f"{quant_method}_{quant_bits}" if quant_method is not None else "none"
+        quant_str = (
+            f"{quant_method}_{quant_bits}" if quant_method is not None else "none"
+        )
         logger.info(f"Received request for model: {model_name}, quant: {quant_str}")
 
         # Create model config
@@ -82,17 +83,26 @@ def call_huggingface(model_name: str) -> Union[Response, Tuple[Response, int]]:
             collection=MONGODB_COLLECTION,
         )
         if not run_always and has_existing_run(model_name, model_config, mongo_config):
-            logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
-            return jsonify({"status": "skipped", "reason": "model has been benchmarked before"}), 200
-        logger.info(f"Model has not been benchmarked before: {model_name}, quant: {quant_str}")
+            logger.info(
+                f"Model has been benchmarked before: {model_name}, quant: {quant_str}"
+            )
+            return (
+                jsonify(
+                    {"status": "skipped", "reason": "model has been benchmarked before"}
+                ),
+                200,
+            )
+        logger.info(
+            f"Model has not been benchmarked before: {model_name}, quant: {quant_str}"
+        )
 
         # Check and clean disk space if needed
         check_and_clean_space(directory=CACHE_DIR, threshold=90.0)
 
         if framework == "hf-tgi":
-            from llm_benchmarks.huggingface.tgi import generate
+            from llm_bench_huggingface.tgi import generate
         elif framework == "transformers":
-            from llm_benchmarks.huggingface.transformers import generate
+            from llm_bench_huggingface.transformers import generate
         else:
             raise ValueError(f"Unknown framework: {framework}")
 

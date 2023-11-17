@@ -10,7 +10,7 @@ RUN apt-get update && \
 RUN python3 -m pip install --upgrade pip
 
 # Install any python packages you need
-COPY ./requirements.txt requirements.txt
+COPY ./huggingface/requirements.txt requirements.txt
 RUN python3 -m pip install -r requirements.txt
 
 # Install PyTorch and torchvision
@@ -23,4 +23,4 @@ COPY ./scripts/run_transformers.py .
 WORKDIR /app
 
 # Run Flask
-ENTRYPOINT [ "python3", "-m", "llm_benchmarks.huggingface.api" ]
+ENTRYPOINT [ "python3", "-m", "llm_bench_huggingface.api" ]

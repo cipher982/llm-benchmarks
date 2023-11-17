@@ -6,10 +6,9 @@ from datetime import datetime
 from time import time
 
 import torch
+from llm_bench_api.config import ModelConfig
+from llm_bench_api.utils import get_vram_usage
 from transformers import AutoModelForCausalLM  # type: ignore
-
-from llm_benchmarks.config import ModelConfig
-from llm_benchmarks.utils import get_vram_usage
 
 
 logger = logging.getLogger(__name__)
@@ -43,7 +42,9 @@ def generate(
         config.model_name,
         load_in_4bit=load_in_4bit,
         load_in_8bit=load_in_8bit,
-        torch_dtype=torch.float16 if config.model_dtype == "torch.float16" else torch.float32,
+        torch_dtype=torch.float16
+        if config.model_dtype == "torch.float16"
+        else torch.float32,
         device_map="auto",
         trust_remote_code=True,
     )
@@ -65,7 +66,11 @@ def generate(
     time1 = time()
 
     # Collect metrics
-    output_tokens = len(output.cpu().numpy().tolist()[0]) if output is not None and output.numel() > 0 else 0
+    output_tokens = (
+        len(output.cpu().numpy().tolist()[0])
+        if output is not None and output.numel() > 0
+        else 0
+    )
     vram_usage = get_vram_usage(int(GPU_DEVICE))
 
     metrics = {

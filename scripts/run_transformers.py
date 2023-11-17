@@ -3,10 +3,9 @@ from typing import Optional
 
 import click
 import requests
+from llm_bench_api.utils import filter_model_size
+from llm_bench_api.utils import get_cached_models
 from requests.exceptions import HTTPError
-
-from llm_benchmarks.utils import filter_model_size
-from llm_benchmarks.utils import get_cached_models
 
 
 QUANT_TYPES = [
@@ -23,10 +22,19 @@ assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
 
 
 @click.command()
-@click.option("--framework", help="Framework to use, must be 'hf-tgi' or 'transformers.")
+@click.option(
+    "--framework", help="Framework to use, must be 'hf-tgi' or 'transformers."
+)
 @click.option("--fetch-new-models", default=False, help="Fetch latest HF-Hub models.")
-@click.option("--limit", default=100, type=int, help="Limit the number of models fetched.")
-@click.option("--max-size-billion", default=5, type=int, help="Maximum size of models in billion parameters.")
+@click.option(
+    "--limit", default=100, type=int, help="Limit the number of models fetched."
+)
+@click.option(
+    "--max-size-billion",
+    default=5,
+    type=int,
+    help="Maximum size of models in billion parameters.",
+)
 @click.option("--run-always", default=False, help="Flag to always run benchmarks.")
 def main(
     framework: str,
@@ -45,11 +53,12 @@ def main(
     model_names = get_models_to_run(fetch_new_models, limit)
     valid_models = filter_model_size(model_names, max_size_billion * 1_000)
 
-    # valid_models = [
-    #     # "facebook/opt-125m",
-    #     "TheBloke/Llama-2-7B-Chat-GPTQ",
-    #     # "EleutherAI/pythia-160m",
-    # ]
+    valid_models = [
+        # "facebook/opt-125m",
+        "TheBloke/Llama-2-7B-Chat-GPTQ",
+        # "EleutherAI/pythia-160m",
+        # "TheBloke/Llama-2-7B-Chat-AWQ",
+    ]
 
     # Run benchmarks
     bench_all_models(framework, valid_models, model_status, limit, run_always)
@@ -63,9 +72,13 @@ def bench_all_models(framework, model_names, model_status, limit, run_always):
     print(f"Running benchmarks for {len(model_names)} models.")
     for model in model_names[:limit]:
         if "GPTQ" in model:
-            is_limit_reached = bench_gptq(framework, model, model_status, limit, run_always)
+            is_limit_reached = bench_gptq(
+                framework, model, model_status, limit, run_always
+            )
         else:
-            is_limit_reached = bench_other(framework, model, model_status, limit, run_always)
+            is_limit_reached = bench_other(
+                framework, model, model_status, limit, run_always
+            )
 
         if is_limit_reached:
             break
@@ -110,7 +123,9 @@ def run_benchmark(
         return False
     else:
         response_code = response.status_code
-        print(f"Finished benchmark: {model}, quant: {quant_str} with Status Code: {response_code}")
+        print(
+            f"Finished benchmark: {model}, quant: {quant_str} with Status Code: {response_code}"
+        )
 
         model_status[f"{model}_{quant_str}"] = response_code
         return len(model_status) >= limit
@@ -150,7 +165,12 @@ def bench_other(framework, model, model_status, limit, run_always):
 
 def get_models_to_run(fetch_hub: bool, limit: int) -> list[str]:
     if fetch_hub:
-        params = {"sort": "downloads", "direction": "-1", "limit": limit, "filter": "text-generation"}
+        params = {
+            "sort": "downloads",
+            "direction": "-1",
+            "limit": limit,
+            "filter": "text-generation",
+        }
         response = requests.get("https://huggingface.co/api/models", params=params)
         model_data = response.json()
 

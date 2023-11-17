@@ -3,30 +3,17 @@ requires = [ "poetry-core",]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
-name = "llm_benchmarks"
+name = "llm-bench-api"
 version = "0.1.0"
 description = "Benchmarking various LLMs inference speed"
 authors = [ "David Rose <david@drose.io>",]
 license = "MIT"
-readme = "README.md"
 
 [tool.black]
 line-length = 120
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.13"
-torch = "^2.1.0"
-transformers = "^4.35.1"
-bitsandbytes = "^0.41.2.post2"
-accelerate = "^0.24.1"
-einops = "^0.7.0"
-flask = "^3.0.0"
-numpy = "^1.26.2"
 pymongo = "^4.6.0"
-tqdm = "^4.66.1"
-triton = "^2.1.0"
-auto-gptq = "^0.5.1"
-scipy = "^1.11.3"
-xformers = "^0.0.22.post7"
 pynvml = "^11.5.0"
-optimum = "^1.14.1"
+click = "^8.1.7"

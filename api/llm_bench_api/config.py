@@ -33,7 +33,7 @@ class ModelConfig:
     @framework.setter
     def framework(self, value):
         if value not in ["transformers", "gguf", "hf-tgi"]:
-            raise ValueError("framework must be either 'transformers' or 'gguf'")
+            raise ValueError("framework must be: 'transformers', 'gguf', 'hf-tgi'")
         self._framework = value
 
     @property
@@ -43,16 +43,26 @@ class ModelConfig:
     @quantization_method.setter
     def quantization_method(self, value):
         if value not in ["bitsandbytes", "gptq", None]:
-            raise ValueError(f"quant method must be 'bitsandbytes', 'gptq', or None. Got {value}")
+            raise ValueError(
+                f"quant method must be 'bitsandbytes', 'gptq', or None. Got {value}"
+            )
         self._quantization_method = value
 
     @property
     def load_in_4bit(self) -> bool:
-        return self.quantization_bits == "4bit" if self.quantization_bits is not None else False
+        return (
+            self.quantization_bits == "4bit"
+            if self.quantization_bits is not None
+            else False
+        )
 
     @property
     def load_in_8bit(self) -> bool:
-        return self.quantization_bits == "8bit" if self.quantization_bits is not None else False
+        return (
+            self.quantization_bits == "8bit"
+            if self.quantization_bits is not None
+            else False
+        )
 
     def to_dict(self):
         return {
