@@ -9,26 +9,30 @@ from flask import Flask
 from flask import jsonify
 from flask import request
 from flask.wrappers import Response
-from pymongo import MongoClient
 
 from llm_benchmarks.config import ModelConfig
+from llm_benchmarks.config import MongoConfig
 from llm_benchmarks.logging import log_to_mongo
 from llm_benchmarks.transformers import generate
 from llm_benchmarks.utils import check_and_clean_space
+from llm_benchmarks.utils import has_existing_run
+
 
 logging.basicConfig(filename="/var/log/llm_benchmarks.log", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
-
+CACHE_DIR = os.environ.get("HUGGINGFACE_HUB_CACHE")
+assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
 
 MONGODB_URI = os.environ.get("MONGODB_URI")
 MONGODB_DB = os.environ.get("MONGODB_DB")
 MONGODB_COLLECTION = os.environ.get("MONGODB_COLLECTION")
-
 assert MONGODB_URI, "MONGODB_URI environment variable not set"
 assert MONGODB_DB, "MONGODB_DB environment variable not set"
 assert MONGODB_COLLECTION, "MONGODB_COLLECTION environment variable not set"
+
+
+app = Flask(__name__)
 
 
 @app.route("/benchmark/<path:model_name>", methods=["POST"])
@@ -36,61 +40,54 @@ def benchmark_transformers(model_name: str) -> Union[Response, Tuple[Response, i
     """Enables the use a POST request to call the benchmarking function."""
     try:
         model_name = unquote(model_name)
-        run_always = request.args.get("run_always", default="False", type=str).lower() == "true"
-        quantization_bits = request.args.get("quantization_bits", default=None, type=str)
-        logger.info(f"Received request for model: {model_name}, quant: {quantization_bits}")
+        # query = request.args.get("query", default=None, type=str) # TODO: query not needed since we have min tokens
+        quant_method = request.form.get("quant_method", default=None, type=str)
+        quant_bits = request.form.get("quant_bits", default=None, type=str)
+        max_tokens = request.form.get("max_tokens", default=512, type=int)
+        run_always = request.form.get("run_always", default=False, type=bool)
 
-        # Declare config defaults
-        config = ModelConfig(
+        quant_str = f"{quant_method}_{quant_bits}" if quant_method is not None else "none"
+        logger.info(f"Received request for model: {model_name}, quant: {quant_str}")
+
+        # Create model config
+        model_config = ModelConfig(
             framework="transformers",
             model_name=model_name,
-            quantization_bits=quantization_bits,
-            model_dtype="torch.float16",
-            temperature=0.1,
             run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            model_dtype="torch.float16",
+            quantization_method=quant_method,
+            quantization_bits=quant_bits,
+            temperature=0.1,
         )
 
-        # Initialize MongoDB client and collection
-        client = MongoClient(MONGODB_URI)
-        db = client[MONGODB_DB]
-        collection = db[MONGODB_COLLECTION]
-
-        # Check if the model has already been benchmarked
-        logger.info(f"Checking for model: {model_name}")
-        logger.info(f"dtype: {config.model_dtype}")
-        logger.info(f"quantization: {config.quantization_bits}")
-
-        existing_config = collection.find_one(
-            {
-                "model_name": model_name,
-                "model_dtype": {"$in": [config.model_dtype, None]},
-                "quantization_bits": {"$in": [config.quantization_bits, None]},
-            }
+        # Check if model has been benchmarked before
+        mongo_config = MongoConfig(
+            uri=MONGODB_URI,
+            db=MONGODB_DB,
+            collection=MONGODB_COLLECTION,
         )
-        if existing_config:
-            if run_always:
-                logger.info(f"Model {model_name} has been benchmarked, but run_always is set to True.")
-            else:
-                logger.info(f"Model {model_name} has already been benchmarked. Skipping.")
-                return jsonify({"status": "skipped", "reason": "Model has already been benchmarked"}), 304
+        if not run_always and has_existing_run(model_name, model_config, mongo_config):
+            logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
+            return jsonify({"status": "skipped", "reason": "model has been benchmarked before"}), 200
+        logger.info(f"Model has not been benchmarked before: {model_name}, quant: {quant_str}")
 
         # Check and clean disk space if needed
-        check_and_clean_space(directory="/rocket/hf", threshold=90.0)
+        check_and_clean_space(directory=CACHE_DIR, threshold=90.0)
 
         # Main benchmarking function
         metrics = generate(
-            config,
-            custom_token_counts=None,
+            model_config,
+            max_tokens=max_tokens,
             llama=False,
         )
 
         # Log metrics to MongoDB
         result = log_to_mongo(
-            config=config,
+            config=model_config,
             metrics=metrics,
-            uri=MONGODB_URI,
-            db_name=MONGODB_DB,
-            collection_name=MONGODB_COLLECTION,
+            uri=mongo_config.uri,
+            db_name=mongo_config.db,
+            collection_name=mongo_config.collection,
         )
 
         return jsonify(result), 200

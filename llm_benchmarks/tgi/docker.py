@@ -13,13 +13,13 @@ class DockerContainer:
     def __init__(
         self,
         model: str,
-        volume_path: str,
+        cache_dir: str,
         gpu_device: int = 1,
         quant_method: Optional[str] = None,
         quant_bits: Optional[str] = None,
     ):
         self.model = model
-        self.volume_path = volume_path
+        self.cache_dir = cache_dir
         self.gpu_device = gpu_device
         self.quant_method = quant_method
         self.quant_bits = quant_bits
@@ -47,7 +47,7 @@ class DockerContainer:
             "--hostname",
             "0.0.0.0",
             "-v",
-            f"{self.volume_path}:/data",
+            f"{self.cache_dir}:/data",
             "ghcr.io/huggingface/text-generation-inference:latest",
             "--model-id",
             self.model,

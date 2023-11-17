@@ -10,10 +10,14 @@ from flask import request
 from huggingface_hub import InferenceClient
 
 from llm_benchmarks.config import ModelConfig
+from llm_benchmarks.config import MongoConfig
 from llm_benchmarks.logging import log_to_mongo
 from llm_benchmarks.tgi.docker import DockerContainer
+from llm_benchmarks.utils import check_and_clean_space
 from llm_benchmarks.utils import get_vram_usage
+from llm_benchmarks.utils import has_existing_run
 from llm_benchmarks.utils import setup_logger
+
 
 app = Flask(__name__)
 
@@ -21,7 +25,9 @@ app = Flask(__name__)
 setup_logger()
 logger = logging.getLogger(__name__)
 
-# Environment variables and assertions
+CACHE_DIR = os.environ.get("HUGGINGFACE_HUB_CACHE")
+assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
+
 MONGODB_URI = os.environ.get("MONGODB_URI")
 MONGODB_DB = os.environ.get("MONGODB_DB")
 MONGODB_COLLECTION = os.environ.get("MONGODB_COLLECTION")
@@ -39,17 +45,44 @@ def benchmark_tgi_route(model_name: str):
     try:
         # Extract and validate request parameters
         model_name = unquote(model_name)
-        volume_path = request.form.get("volume_path", "/rocket/hf")
-        query = request.form.get("query", "User: Tell me a story.")
-        max_tokens = int(request.form.get("max_tokens", 512))
+        query = request.args.get("query", default=None, type=str)
+        quant_method = request.form.get("quant_method", default=None, type=str)
+        quant_bits = request.form.get("quant_bits", default=None, type=str)
+        max_tokens = request.form.get("max_tokens", default=512, type=int)
+        run_always = request.form.get("run_always", default=False, type=bool)
 
-        quant_method = request.form.get("quant_method", None)
-        quant_bits = request.form.get("quant_bits", None)
-        if "GPTQ" in model_name:
-            assert quant_method == "gptq", "Quantization method must be 'gptq' for GPTQ models"
+        assert query is not None, "query string is required"
+
+        quant_str = f"{quant_method}_{quant_bits}" if quant_method is not None else "none"
+        logger.info(f"Received request for model: {model_name}, quant: {quant_str}")
+
+        # Create model config
+        model_config = ModelConfig(
+            framework="hf-tgi",
+            model_name=model_name,
+            run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            model_dtype="torch.float16",
+            quantization_method=quant_method,
+            quantization_bits=quant_bits,
+            temperature=0.1,
+        )
+
+        # Check if model has been benchmarked before
+        mongo_config = MongoConfig(
+            uri=MONGODB_URI,
+            db=MONGODB_DB,
+            collection=MONGODB_COLLECTION,
+        )
+        if not run_always and has_existing_run(model_name, model_config, mongo_config):
+            logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
+            return jsonify({"status": "skipped", "reason": "model has been benchmarked before"}), 200
+        logger.info(f"Model has not been benchmarked before: {model_name}, quant: {quant_str}")
+
+        # Check and clean disk space if needed
+        check_and_clean_space(CACHE_DIR, 90.0)
 
         # Initialize Docker container and client
-        with DockerContainer(model_name, volume_path, GPU_DEVICE, quant_method, quant_bits) as container:
+        with DockerContainer(model_name, CACHE_DIR, GPU_DEVICE, quant_method, quant_bits) as container:
             if container.is_ready():
                 logger.info("Docker container is ready.")
                 client = InferenceClient("http://127.0.0.0:8080")
@@ -73,20 +106,9 @@ def benchmark_tgi_route(model_name: str):
                     "tokens_per_second": [output_tokens / (time1 - time0) if time1 > time0 else 0],
                 }
 
-                # Create config object
-                config = ModelConfig(
-                    framework="hf-tgi",
-                    model_name=model_name,
-                    quantization_method=quant_method,
-                    quantization_bits=quant_bits,
-                    model_dtype="torch.float16",
-                    temperature=TEMPERATURE,
-                    run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                )
-
                 # Log metrics to MongoDB
                 result = log_to_mongo(
-                    config=config,
+                    config=model_config,
                     metrics=metrics,
                     uri=MONGODB_URI,
                     db_name=MONGODB_DB,

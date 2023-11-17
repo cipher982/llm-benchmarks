@@ -62,3 +62,13 @@ class ModelConfig:
             "quantization_method": self.quantization_method,
             "quantization_bits": self.quantization_bits,
         }
+
+
+class MongoConfig:
+    def __init__(self, uri: str, db: str, collection: str):
+        """
+        Initialize the MongoDB configuration.
+        """
+        self.uri = uri
+        self.db = db
+        self.collection = collection
