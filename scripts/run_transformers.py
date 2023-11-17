@@ -23,11 +23,13 @@ assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
 
 
 @click.command()
+@click.option("--framework", help="Framework to use, must be 'hf-tgi' or 'transformers.")
 @click.option("--fetch-new-models", default=False, help="Fetch latest HF-Hub models.")
 @click.option("--limit", default=100, type=int, help="Limit the number of models fetched.")
 @click.option("--max-size-billion", default=5, type=int, help="Maximum size of models in billion parameters.")
 @click.option("--run-always", default=False, help="Flag to always run benchmarks.")
 def main(
+    framework: str,
     fetch_new_models: bool,
     limit: int,
     max_size_billion: int,
@@ -44,32 +46,33 @@ def main(
     valid_models = filter_model_size(model_names, max_size_billion * 1_000)
 
     # valid_models = [
-    #     "facebook/opt-125m",
+    #     # "facebook/opt-125m",
     #     "TheBloke/Llama-2-7B-Chat-GPTQ",
-    #     "EleutherAI/pythia-160m",
+    #     # "EleutherAI/pythia-160m",
     # ]
 
     # Run benchmarks
-    bench_all_models(valid_models, model_status, limit, run_always)
+    bench_all_models(framework, valid_models, model_status, limit, run_always)
 
     # Print summary
     print("All benchmark runs are finished.")
     print_summary(model_status)
 
 
-def bench_all_models(model_names, model_status, limit, run_always):
+def bench_all_models(framework, model_names, model_status, limit, run_always):
     print(f"Running benchmarks for {len(model_names)} models.")
     for model in model_names[:limit]:
         if "GPTQ" in model:
-            is_limit_reached = bench_gptq(model, model_status, limit, run_always)
+            is_limit_reached = bench_gptq(framework, model, model_status, limit, run_always)
         else:
-            is_limit_reached = bench_other(model, model_status, limit, run_always)
+            is_limit_reached = bench_other(framework, model, model_status, limit, run_always)
 
         if is_limit_reached:
             break
 
 
 def run_benchmark(
+    framework: str,
     model: str,
     model_status: dict[str, int],
     quant_method: Optional[str],
@@ -85,6 +88,7 @@ def run_benchmark(
     print(f"Running benchmark: {model}, quant: {quant_str}")
 
     flask_data = {
+        "framework": framework,
         "query": QUERY_TEXT,
         "quant_method": quant_method,
         "quant_bits": quant_bits,
@@ -112,8 +116,9 @@ def run_benchmark(
         return len(model_status) >= limit
 
 
-def bench_gptq(model, model_status, limit, run_always):
+def bench_gptq(framework, model, model_status, limit, run_always):
     is_limit_reached = run_benchmark(
+        framework,
         model,
         model_status=model_status,
         quant_method="gptq",
@@ -126,10 +131,11 @@ def bench_gptq(model, model_status, limit, run_always):
     return False
 
 
-def bench_other(model, model_status, limit, run_always):
+def bench_other(framework, model, model_status, limit, run_always):
     for quant in QUANT_TYPES:
         quant_method = "bitsandbytes" if quant is not None else None
         is_limit_reached = run_benchmark(
+            framework,
             model,
             model_status=model_status,
             quant_method=quant_method,

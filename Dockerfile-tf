@@ -23,4 +23,4 @@ COPY ./scripts/run_transformers.py .
 WORKDIR /app
 
 # Run Flask
-ENTRYPOINT [ "python3", "-m", "llm_benchmarks.transformers.api" ]
+ENTRYPOINT [ "python3", "-m", "llm_benchmarks.huggingface.api" ]

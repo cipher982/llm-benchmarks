@@ -22,7 +22,7 @@ services:
       - /rocket/hf:/rocket/hf
     network_mode: host
     environment:
-      - CUDA_VISIBLE_DEVICES=0
+      - CUDA_VISIBLE_DEVICES=1
   bench_gguf:
     image: bench_gguf_img
     build:

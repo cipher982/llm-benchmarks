@@ -41,10 +41,10 @@ def main(
     model_names = get_models_to_run(fetch_new_models, limit)
     valid_models = filter_model_size(model_names, max_size_billion * 1_000)
 
-    # model_names = [
-    #     "facebook/opt-125m",
-    #     "TheBloke/Llama-2-7B-Chat-GPTQ",
-    # ]
+    valid_models = [
+        "facebook/opt-125m",
+        # "TheBloke/Llama-2-7B-Chat-GPTQ",
+    ]
 
     # Run benchmarks
     bench_all_models(valid_models, model_status, limit, run_always)
