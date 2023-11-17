@@ -68,8 +68,8 @@ def generate(
     try:
         output = model.generate(
             input_tokens,
-            do_sample=True,
-            temperature=config.temperature,
+            do_sample=config.misc.get("do_sample"),
+            temperature=config.temperature if config.misc.get("do_sample") else None,
             min_length=max_tokens,
             max_length=max_tokens,
         )

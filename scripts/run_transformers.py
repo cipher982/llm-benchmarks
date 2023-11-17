@@ -16,6 +16,7 @@ QUANT_TYPES = [
 ]
 QUERY_TEXT = "User: Tell me a long story about the history of the world.\nAI:"
 MAX_TOKENS = 512
+TEMPERATURE = 0.1
 FLASK_URL = "http://localhost:5000/benchmark/{}"
 CACHE_DIR = os.environ.get("HUGGINGFACE_HUB_CACHE")
 assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
@@ -25,7 +26,7 @@ assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
 @click.option("--fetch-new-models", default=False, help="Fetch latest HF-Hub models.")
 @click.option("--limit", default=100, type=int, help="Limit the number of models fetched.")
 @click.option("--max-size-billion", default=5, type=int, help="Maximum size of models in billion parameters.")
-@click.option("--run-always", is_flag=True, help="Flag to always run benchmarks.")
+@click.option("--run-always", default=False, help="Flag to always run benchmarks.")
 def main(
     fetch_new_models: bool,
     limit: int,
@@ -88,6 +89,7 @@ def run_benchmark(
         "quant_method": quant_method,
         "quant_bits": quant_bits,
         "max_tokens": MAX_TOKENS,
+        "temperature": TEMPERATURE,
         "run_always": run_always,
     }
     try:

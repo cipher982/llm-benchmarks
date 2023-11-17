@@ -15,6 +15,7 @@ class ModelConfig:
         temperature: float,
         quantization_method: Optional[str] = None,
         quantization_bits: Optional[str] = None,
+        misc: dict = {},
     ):
         self.framework = framework
         self.model_name = model_name
@@ -23,6 +24,7 @@ class ModelConfig:
         self.temperature = temperature
         self.quantization_method = quantization_method
         self.quantization_bits = quantization_bits
+        self.misc = misc
 
     @property
     def framework(self):
@@ -61,6 +63,7 @@ class ModelConfig:
             "temperature": self.temperature,
             "quantization_method": self.quantization_method,
             "quantization_bits": self.quantization_bits,
+            "misc": self.misc,
         }
 
 

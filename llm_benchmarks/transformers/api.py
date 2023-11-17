@@ -31,6 +31,8 @@ assert MONGODB_URI, "MONGODB_URI environment variable not set"
 assert MONGODB_DB, "MONGODB_DB environment variable not set"
 assert MONGODB_COLLECTION, "MONGODB_COLLECTION environment variable not set"
 
+DO_SAMPLE = False
+
 
 app = Flask(__name__)
 
@@ -44,6 +46,7 @@ def benchmark_transformers(model_name: str) -> Union[Response, Tuple[Response, i
         quant_method = request.form.get("quant_method", default=None, type=str)
         quant_bits = request.form.get("quant_bits", default=None, type=str)
         max_tokens = request.form.get("max_tokens", default=512, type=int)
+        temperature = request.form.get("temperature", default=0.1, type=float)
         run_always = request.form.get("run_always", default=False, type=bool)
 
         quant_str = f"{quant_method}_{quant_bits}" if quant_method is not None else "none"
@@ -57,7 +60,8 @@ def benchmark_transformers(model_name: str) -> Union[Response, Tuple[Response, i
             model_dtype="torch.float16",
             quantization_method=quant_method,
             quantization_bits=quant_bits,
-            temperature=0.1,
+            temperature=temperature,
+            misc={"do_sample": DO_SAMPLE},
         )
 
         # Check if model has been benchmarked before

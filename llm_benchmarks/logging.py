@@ -39,6 +39,7 @@ def log_to_mongo(
             "gpu_mem_usage": metrics["gpu_mem_usage"],
             "generate_time": metrics["generate_time"],
             "tokens_per_second": metrics["tokens_per_second"],
+            "misc": config.misc,
         }
         insert_into_benchmark_metrics(data, collection)
         logger.info(f"Successfully logged metrics to MongoDB for model {config.model_name}")
