@@ -42,27 +42,17 @@ class ModelConfig:
 
     @quantization_method.setter
     def quantization_method(self, value):
-        if value not in ["bitsandbytes", "gptq", None]:
-            raise ValueError(
-                f"quant method must be 'bitsandbytes', 'gptq', or None. Got {value}"
-            )
+        if value not in ["bitsandbytes", "gptq", "awq"]:
+            raise ValueError(f"quant method must be one of 'bitsandbytes', 'gptq', 'awq', None. Got {value}")
         self._quantization_method = value
 
     @property
     def load_in_4bit(self) -> bool:
-        return (
-            self.quantization_bits == "4bit"
-            if self.quantization_bits is not None
-            else False
-        )
+        return self.quantization_bits == "4bit" if self.quantization_bits is not None else False
 
     @property
     def load_in_8bit(self) -> bool:
-        return (
-            self.quantization_bits == "8bit"
-            if self.quantization_bits is not None
-            else False
-        )
+        return self.quantization_bits == "8bit" if self.quantization_bits is not None else False
 
     def to_dict(self):
         return {

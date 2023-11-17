@@ -29,6 +29,9 @@ def generate(
     if config.quantization_method == "gptq":
         load_in_4bit = False
         load_in_8bit = False
+    elif config.quantization_method == "awq":
+        load_in_4bit = False
+        load_in_8bit = False
     elif config.quantization_method == "bitsandbytes":
         load_in_4bit = config.load_in_4bit
         load_in_8bit = config.load_in_8bit
@@ -42,9 +45,7 @@ def generate(
         config.model_name,
         load_in_4bit=load_in_4bit,
         load_in_8bit=load_in_8bit,
-        torch_dtype=torch.float16
-        if config.model_dtype == "torch.float16"
-        else torch.float32,
+        torch_dtype=torch.float16 if config.model_dtype == "torch.float16" else torch.float32,
         device_map="auto",
         trust_remote_code=True,
     )
@@ -66,11 +67,7 @@ def generate(
     time1 = time()
 
     # Collect metrics
-    output_tokens = (
-        len(output.cpu().numpy().tolist()[0])
-        if output is not None and output.numel() > 0
-        else 0
-    )
+    output_tokens = len(output.cpu().numpy().tolist()[0]) if output is not None and output.numel() > 0 else 0
     vram_usage = get_vram_usage(int(GPU_DEVICE))
 
     metrics = {
