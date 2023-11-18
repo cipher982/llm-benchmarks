@@ -42,7 +42,7 @@ class ModelConfig:
 
     @quantization_method.setter
     def quantization_method(self, value):
-        if value not in ["bitsandbytes", "gptq", "awq"]:
+        if value not in ["bitsandbytes", "gptq", "awq", None]:
             raise ValueError(f"quant method must be one of 'bitsandbytes', 'gptq', 'awq', None. Got {value}")
         self._quantization_method = value
 

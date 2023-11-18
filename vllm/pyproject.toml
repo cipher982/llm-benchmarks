@@ -7,3 +7,4 @@ authors = ["David Rose <david@drose.io>"]
 [tool.poetry.dependencies]
 python = ">=3.11,<3.13"
 llm-bench-api = { path = "../api" }
+vllm = "^0.2.1.post1"

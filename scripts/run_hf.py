@@ -46,7 +46,7 @@ def main(
     model_status: dict[str, int] = {}
 
     # Gather models to run
-    model_names = get_models_to_run(fetch_new_models, limit)
+    model_names = get_models_to_run(fetch_new_models)
     valid_models = filter_model_size(model_names, max_size_billion * 1_000)
 
     # valid_models = [
@@ -170,12 +170,12 @@ def bench_other(framework, model, model_status, limit, run_always):
     return False
 
 
-def get_models_to_run(fetch_hub: bool, limit: int) -> list[str]:
+def get_models_to_run(fetch_hub: bool) -> list[str]:
     if fetch_hub:
         params = {
             "sort": "downloads",
             "direction": "-1",
-            "limit": limit,
+            "limit": 1_000,
             "filter": "text-generation",
         }
         response = requests.get("https://huggingface.co/api/models", params=params)
