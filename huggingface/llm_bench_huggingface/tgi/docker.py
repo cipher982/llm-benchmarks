@@ -156,5 +156,7 @@ class DockerContainer:
                 }
             else:
                 raise ValueError(f"Invalid quant_bits: {self.quant_bits}")
+        elif self.quant_method == "awq":
+            raise NotImplementedError("AWQ not implemented yet.")
         else:
             raise ValueError(f"Invalid quant_method: {self.quant_method}")
