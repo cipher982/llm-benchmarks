@@ -54,9 +54,7 @@ def call_huggingface(model_name: str) -> Union[Response, Tuple[Response, int]]:
 
         assert framework is not None, "framework is required"
 
-        quant_str = (
-            f"{quant_method}_{quant_bits}" if quant_method is not None else "none"
-        )
+        quant_str = f"{quant_method}_{quant_bits}" if quant_method is not None else "none"
         logger.info(f"Received request for model: {model_name}, quant: {quant_str}")
 
         # Create model config
@@ -82,19 +80,12 @@ def call_huggingface(model_name: str) -> Union[Response, Tuple[Response, int]]:
             db=MONGODB_DB,
             collection=MONGODB_COLLECTION,
         )
-        if not run_always and has_existing_run(model_name, model_config, mongo_config):
-            logger.info(
-                f"Model has been benchmarked before: {model_name}, quant: {quant_str}"
-            )
-            return (
-                jsonify(
-                    {"status": "skipped", "reason": "model has been benchmarked before"}
-                ),
-                200,
-            )
-        logger.info(
-            f"Model has not been benchmarked before: {model_name}, quant: {quant_str}"
-        )
+        existing_run = has_existing_run(model_name, model_config, mongo_config)
+        if not run_always and existing_run:
+            logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
+            return jsonify({"status": "skipped", "reason": "model has been benchmarked before"}), 200
+
+        logger.info(f"Model has not been benchmarked before: {model_name}, quant: {quant_str}")
 
         # Check and clean disk space if needed
         check_and_clean_space(directory=CACHE_DIR, threshold=90.0)
@@ -111,7 +102,7 @@ def call_huggingface(model_name: str) -> Union[Response, Tuple[Response, int]]:
             model_config,
             run_config,
         )
-        assert metrics is not None
+        assert metrics, "metrics is empty"
 
         # logger.info metrics
         logger.info(f"===== Model: {model_name} =====")
