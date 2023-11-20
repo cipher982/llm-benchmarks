@@ -15,3 +15,4 @@ line-length = 120
 python = ">=3.11,<3.13"
 llm-bench-api = { path = "../api" }
 vllm = "^0.2.1.post1"
+flask = "^3.0.0"

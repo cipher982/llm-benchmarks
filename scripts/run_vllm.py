@@ -16,13 +16,13 @@ QUANT_TYPES = [
 QUERY_TEXT = "User: Tell me a long story about the history of the world.\nAI:"
 MAX_TOKENS = 512
 TEMPERATURE = 0.1
-FLASK_URL = "http://localhost:5000/benchmark/{}"
+FLASK_URL = "http://localhost:5002/benchmark/{}"
 CACHE_DIR = os.environ.get("HUGGINGFACE_HUB_CACHE")
 assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
 
 
 @click.command()
-@click.option("--framework", help="LLM API to call. Must be one of 'transformers', 'hf-tgi', 'vllm'.")
+@click.option("--framework", help="Framework to use, must be 'vllm'.")
 @click.option("--fetch-new-models", default=False, help="Fetch latest HF-Hub models.")
 @click.option("--limit", default=100, type=int, help="Limit the number of models fetched.")
 @click.option(
@@ -52,10 +52,10 @@ def main(
     print(f"Filtered down to {len(valid_models)} models")
 
     valid_models = [
-        "facebook/opt-125m",
+        # "facebook/opt-125m",
         # "TheBloke/Llama-2-7B-Chat-GPTQ",
         # "EleutherAI/pythia-160m",
-        # "TheBloke/Llama-2-7B-Chat-AWQ",
+        "TheBloke/Llama-2-7B-Chat-AWQ",
     ]
 
     # Run benchmarks

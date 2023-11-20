@@ -90,10 +90,10 @@ def call_huggingface(model_name: str) -> Union[Response, Tuple[Response, int]]:
         # Check and clean disk space if needed
         check_and_clean_space(directory=CACHE_DIR, threshold=90.0)
 
-        if framework == "hf-tgi":
-            from llm_bench_huggingface.tgi import generate
-        elif framework == "transformers":
+        if framework == "transformers":
             from llm_bench_huggingface.transformers import generate
+        elif framework == "hf-tgi":
+            from llm_bench_huggingface.tgi import generate
         else:
             raise ValueError(f"Unknown framework: {framework}")
 

@@ -40,9 +40,7 @@ def benchmark_cpp(model_name: str) -> Union[Response, Tuple[Response, int]]:
     try:
         # Load config from request
         model_path = f"/models/{model_name}"
-        query = request.form.get(
-            "query", "User: Complain that I did not send a request.\nAI:"
-        )
+        query = request.form.get("query", "User: Complain that I did not send a request.\nAI:")
         max_tokens = int(request.form.get("max_tokens", 512))
         n_gpu_layers = int(request.form.get("n_gpu_layers", 0))
 
@@ -62,9 +60,9 @@ def benchmark_cpp(model_name: str) -> Union[Response, Tuple[Response, int]]:
         pynvml.nvmlShutdown()
 
         # Run benchmark
-        time0 = time.time()
+        time_0 = time.time()
         output = llm(query, echo=True)
-        time1 = time.time()
+        time_1 = time.time()
 
         # Build config object
         model_quantization_list = [
@@ -94,8 +92,8 @@ def benchmark_cpp(model_name: str) -> Union[Response, Tuple[Response, int]]:
             "requested_tokens": [max_tokens],
             "output_tokens": [output_tokens],
             "gpu_mem_usage": [info.used],
-            "generate_time": [time1 - time0],
-            "tokens_per_second": [output_tokens / (time1 - time0)],
+            "generate_time": [time_1 - time_0],
+            "tokens_per_second": [output_tokens / (time_1 - time_0) if time_1 > time_0 else 0],
         }
 
         # Log metrics to MongoDB

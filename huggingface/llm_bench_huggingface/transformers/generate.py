@@ -51,7 +51,7 @@ def generate(
     )
 
     # Generate samples
-    time0 = time()
+    time_0 = time()
     output = None
     try:
         output = model.generate(
@@ -62,9 +62,9 @@ def generate(
             max_length=run_config["max_tokens"],
         )
     except Exception as e:
-        logger.error(f"Error generating sample: {e}")
+        logger.error(f"Error generating tokens: {e}")
         raise e
-    time1 = time()
+    time_1 = time()
 
     # Collect metrics
     output_tokens = len(output.cpu().numpy().tolist()[0]) if output is not None and output.numel() > 0 else 0
@@ -75,8 +75,8 @@ def generate(
         "requested_tokens": [run_config["max_tokens"]],
         "output_tokens": [output_tokens],
         "gpu_mem_usage": [vram_usage],
-        "generate_time": [time1 - time0],
-        "tokens_per_second": [output_tokens / (time1 - time0) if time1 > time0 else 0],
+        "generate_time": [time_1 - time_0],
+        "tokens_per_second": [output_tokens / (time_1 - time_0) if time_1 > time_0 else 0],
     }
 
     del model

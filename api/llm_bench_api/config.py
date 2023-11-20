@@ -32,8 +32,8 @@ class ModelConfig:
 
     @framework.setter
     def framework(self, value):
-        if value not in ["transformers", "gguf", "hf-tgi"]:
-            raise ValueError("framework must be: 'transformers', 'gguf', 'hf-tgi'")
+        if value not in ["transformers", "gguf", "hf-tgi", "vllm"]:
+            raise ValueError("framework must be: 'transformers', 'gguf', 'hf-tgi', 'vllm'")
         self._framework = value
 
     @property

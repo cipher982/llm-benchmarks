@@ -1,0 +1,12 @@
+[build-system]
+requires = [ "poetry-core",]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "llm-bench-gguf"
+version = "0.1.0"
+description = "API and generation for benchmarking llama-cpp / GGUF models"
+authors = ["David Rose <david@drose.io>"]
+
+[tool.black]
+line-length = 120
