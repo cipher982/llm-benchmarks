@@ -38,7 +38,7 @@ def get_oldest_directory(directories: List[str]) -> str:
 def check_and_clean_space(directory: str, threshold: float = 90.0):
     # Check disk usage
     used_space = get_used_space_percent(directory)
-    logger.info(f"Current disk usage: {used_space:.2f}%")
+    logger.info(f"Current disk usage: {used_space:.2f}% ({directory})")
 
     while used_space > threshold:
         # Get model directories
@@ -68,9 +68,7 @@ def get_cached_models(directory: str) -> list[str]:
     print(f"Getting cached models from directory: {directory}")
     files = os.listdir(directory)
     model_files = [f for f in files if f.startswith("models--")]
-    formatted_names = [
-        f.removeprefix("models--").replace("--", "/") for f in model_files
-    ]
+    formatted_names = [f.removeprefix("models--").replace("--", "/") for f in model_files]
     print(f"Returning {len(formatted_names):,} model names")
     return formatted_names
 
@@ -151,9 +149,7 @@ def setup_logger():
     logging.config.dictConfig(logging_config)
 
 
-def has_existing_run(
-    model_name: str, model_config: ModelConfig, mongo_config: MongoConfig
-) -> bool:
+def has_existing_run(model_name: str, model_config: ModelConfig, mongo_config: MongoConfig) -> bool:
     # Initialize MongoDB client and collection
     client = MongoClient(mongo_config.uri)
     db = client[mongo_config.db]
