@@ -31,7 +31,7 @@ assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
     type=int,
     help="Maximum size of models in billion parameters.",
 )
-@click.option("--run-always", default=False, help="Flag to always run benchmarks.")
+@click.option("--run-always", is_flag=True, help="Flag to always run benchmarks.")
 def main(
     framework: str,
     fetch_new_models: bool,
@@ -44,6 +44,7 @@ def main(
     Can fetch latest models from the Hub or use the cached models.
     """
     model_status: dict[str, int] = {}
+    print(f"Initial run_always value: {run_always}")
 
     # Gather models to run
     model_names = get_models_to_run(fetch_new_models)
@@ -52,10 +53,10 @@ def main(
     print(f"Filtered down to {len(valid_models)} models")
 
     valid_models = [
-        # "facebook/opt-125m",
+        "facebook/opt-125m",
         # "TheBloke/Llama-2-7B-Chat-GPTQ",
         # "EleutherAI/pythia-160m",
-        "TheBloke/Llama-2-7B-Chat-AWQ",
+        # "TheBloke/Llama-2-7B-Chat-AWQ",
     ]
 
     # Run benchmarks

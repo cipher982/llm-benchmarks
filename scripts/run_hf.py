@@ -31,7 +31,7 @@ assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
     type=int,
     help="Maximum size of models in billion parameters.",
 )
-@click.option("--run-always", default=False, help="Flag to always run benchmarks.")
+@click.option("--run-always", is_flag=True, help="Flag to always run benchmarks.")
 def main(
     framework: str,
     fetch_new_models: bool,

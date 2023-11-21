@@ -50,7 +50,9 @@ def call_huggingface(model_name: str) -> Union[Response, Tuple[Response, int]]:
         quant_bits = request.form.get("quant_bits", default=None, type=str)
         max_tokens = request.form.get("max_tokens", default=512, type=int)
         temperature = request.form.get("temperature", default=0.1, type=float)
-        run_always = request.form.get("run_always", default=False, type=bool)
+
+        run_always_str = request.form.get("run_always", "False").lower()
+        run_always = run_always_str == "true"
 
         assert framework is not None, "framework is required"
 
@@ -81,11 +83,15 @@ def call_huggingface(model_name: str) -> Union[Response, Tuple[Response, int]]:
             collection=MONGODB_COLLECTION,
         )
         existing_run = has_existing_run(model_name, model_config, mongo_config)
-        if not run_always and existing_run:
-            logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
-            return jsonify({"status": "skipped", "reason": "model has been benchmarked before"}), 200
-
-        logger.info(f"Model has not been benchmarked before: {model_name}, quant: {quant_str}")
+        if existing_run:
+            if run_always:
+                logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
+                logger.info("Re-running benchmark anyway because run_always is True")
+            else:
+                logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
+                return jsonify({"status": "skipped", "reason": "model has been benchmarked before"}), 200
+        else:
+            logger.info(f"Model has not been benchmarked before: {model_name}, quant: {quant_str}")
 
         # Check and clean disk space if needed
         check_and_clean_space(directory=CACHE_DIR, threshold=90.0)
