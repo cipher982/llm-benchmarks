@@ -33,7 +33,7 @@ def generate(config: ModelConfig, run_config: dict) -> dict:
         # Load model within a context manager
         with torch.no_grad():
             # Load model
-            model = LLM(model=config.model_name)
+            model = LLM(model=config.model_name, download_dir=os.environ.get("HUGGINGFACE_HUB_CACHE"))
 
             # Set params
             sampling_params = SamplingParams(temperature=0.1, top_p=0.95)
