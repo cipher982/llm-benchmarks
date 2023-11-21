@@ -12,9 +12,8 @@ from flask import jsonify
 from flask import request
 from flask.wrappers import Response
 from llama_cpp import Llama
-
-from llm_benchmarks.config import ModelConfig
-from llm_benchmarks.logging import log_to_mongo
+from llm_bench_api.config import ModelConfig
+from llm_bench_api.logging import log_to_mongo
 
 
 logging.basicConfig(filename="/var/log/llm_benchmarks.log", level=logging.INFO)
@@ -61,9 +60,9 @@ def benchmark_cpp(model_name: str) -> Union[Response, Tuple[Response, int]]:
         pynvml.nvmlShutdown()
 
         # Run benchmark
-        time0 = time.time()
+        time_0 = time.time()
         output = llm(query, echo=True)
-        time1 = time.time()
+        time_1 = time.time()
 
         # Build config object
         model_quantization_list = [
@@ -71,7 +70,10 @@ def benchmark_cpp(model_name: str) -> Union[Response, Tuple[Response, int]]:
             ("q8_0", "8bit"),
             ("f16", None),
         ]
-        quantization_bits = next((bits for key, bits in model_quantization_list if key in model_name), "unknown")
+        quantization_bits = next(
+            (bits for key, bits in model_quantization_list if key in model_name),
+            "unknown",
+        )
 
         config = ModelConfig(
             framework="gguf",
@@ -90,8 +92,8 @@ def benchmark_cpp(model_name: str) -> Union[Response, Tuple[Response, int]]:
             "requested_tokens": [max_tokens],
             "output_tokens": [output_tokens],
             "gpu_mem_usage": [info.used],
-            "generate_time": [time1 - time0],
-            "tokens_per_second": [output_tokens / (time1 - time0)],
+            "generate_time": [time_1 - time_0],
+            "tokens_per_second": [output_tokens / (time_1 - time_0) if time_1 > time_0 else 0],
         }
 
         # Log metrics to MongoDB

@@ -4,9 +4,8 @@ from typing import Dict
 from typing import List
 
 import pymongo
+from llm_bench_api.config import ModelConfig
 from pymongo.collection import Collection
-
-from llm_benchmarks.config import ModelConfig
 
 
 logger = logging.getLogger(__name__)
@@ -42,7 +41,9 @@ def log_to_mongo(
             "misc": config.misc,
         }
         insert_into_benchmark_metrics(data, collection)
-        logger.info(f"Successfully logged metrics to MongoDB for model {config.model_name}")
+        logger.info(
+            f"Successfully logged metrics to MongoDB for model {config.model_name}"
+        )
     except Exception as e:
         logger.exception(f"Error in log_to_mongo: {e}")
 

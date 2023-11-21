@@ -9,12 +9,11 @@ from flask import Flask
 from flask import jsonify
 from flask import request
 from flask.wrappers import Response
-
-from llm_benchmarks.config import ModelConfig
-from llm_benchmarks.config import MongoConfig
-from llm_benchmarks.logging import log_to_mongo
-from llm_benchmarks.utils import check_and_clean_space
-from llm_benchmarks.utils import has_existing_run
+from llm_bench_api.config import ModelConfig
+from llm_bench_api.config import MongoConfig
+from llm_bench_api.logging import log_to_mongo
+from llm_bench_api.utils import check_and_clean_space
+from llm_bench_api.utils import has_existing_run
 
 
 log_path = "/var/log/llm_benchmarks.log"
@@ -51,7 +50,9 @@ def call_huggingface(model_name: str) -> Union[Response, Tuple[Response, int]]:
         quant_bits = request.form.get("quant_bits", default=None, type=str)
         max_tokens = request.form.get("max_tokens", default=512, type=int)
         temperature = request.form.get("temperature", default=0.1, type=float)
-        run_always = request.form.get("run_always", default=False, type=bool)
+
+        run_always_str = request.form.get("run_always", "False").lower()
+        run_always = run_always_str == "true"
 
         assert framework is not None, "framework is required"
 
@@ -81,18 +82,24 @@ def call_huggingface(model_name: str) -> Union[Response, Tuple[Response, int]]:
             db=MONGODB_DB,
             collection=MONGODB_COLLECTION,
         )
-        if not run_always and has_existing_run(model_name, model_config, mongo_config):
-            logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
-            return jsonify({"status": "skipped", "reason": "model has been benchmarked before"}), 200
-        logger.info(f"Model has not been benchmarked before: {model_name}, quant: {quant_str}")
+        existing_run = has_existing_run(model_name, model_config, mongo_config)
+        if existing_run:
+            if run_always:
+                logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
+                logger.info("Re-running benchmark anyway because run_always is True")
+            else:
+                logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
+                return jsonify({"status": "skipped", "reason": "model has been benchmarked before"}), 200
+        else:
+            logger.info(f"Model has not been benchmarked before: {model_name}, quant: {quant_str}")
 
         # Check and clean disk space if needed
         check_and_clean_space(directory=CACHE_DIR, threshold=90.0)
 
-        if framework == "hf-tgi":
-            from llm_benchmarks.huggingface.tgi import generate
-        elif framework == "transformers":
-            from llm_benchmarks.huggingface.transformers import generate
+        if framework == "transformers":
+            from llm_bench_huggingface.transformers import generate
+        elif framework == "hf-tgi":
+            from llm_bench_huggingface.tgi import generate
         else:
             raise ValueError(f"Unknown framework: {framework}")
 
@@ -101,7 +108,7 @@ def call_huggingface(model_name: str) -> Union[Response, Tuple[Response, int]]:
             model_config,
             run_config,
         )
-        assert metrics is not None
+        assert metrics, "metrics is empty"
 
         # logger.info metrics
         logger.info(f"===== Model: {model_name} =====")

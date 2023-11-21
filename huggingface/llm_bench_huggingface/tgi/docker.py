@@ -58,7 +58,9 @@ class DockerContainer:
         logger.info(quant_info["message"])
 
         try:
-            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            process = subprocess.Popen(
+                command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            )
             stdout, stderr = process.communicate()
             if stdout:
                 logger.info(f"Docker process stdout: {stdout.decode()}")
@@ -93,7 +95,12 @@ class DockerContainer:
             return ""
 
         try:
-            result = subprocess.run(["docker", "logs", self.container_id], capture_output=True, text=True, check=True)
+            result = subprocess.run(
+                ["docker", "logs", self.container_id],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
             return result.stdout
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to fetch Docker logs: {e}")
@@ -127,7 +134,10 @@ class DockerContainer:
 
     def get_quantization_info(self):
         if self.quant_method is None:
-            return {"command": [], "message": "Starting Docker container without quantization."}
+            return {
+                "command": [],
+                "message": "Starting Docker container without quantization.",
+            }
         elif self.quant_method == "gptq":
             return {
                 "command": ["--quantize", "gptq"],
@@ -146,5 +156,7 @@ class DockerContainer:
                 }
             else:
                 raise ValueError(f"Invalid quant_bits: {self.quant_bits}")
+        elif self.quant_method == "awq":
+            raise NotImplementedError("AWQ not implemented yet.")
         else:
             raise ValueError(f"Invalid quant_method: {self.quant_method}")

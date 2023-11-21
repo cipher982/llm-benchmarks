@@ -17,7 +17,8 @@ services:
               count: 2
               capabilities: [gpu]
     volumes:
-      - ./llm_benchmarks:/app/llm_benchmarks
+      - ./api/llm_bench_api:/app/llm_bench_api
+      - ./huggingface/llm_bench_huggingface:/app/llm_bench_huggingface
       - ./logs/:/var/log
       - /rocket/hf:/rocket/hf
     network_mode: host
@@ -39,7 +40,31 @@ services:
               count: 2
               capabilities: [gpu]
     volumes:
-      - ./llm_benchmarks:/app/llm_benchmarks
+      - ./api/llm_bench_api:/app/llm_bench_api
+      - ./gguf/llm_bench_gguf:/app/llm_bench_gguf
+      - ./logs/:/var/log
+      - /rocket/cpp:/models
+    network_mode: host
+    environment:
+      - CUDA_VISIBLE_DEVICES=1
+  bench_vllm:
+    image: bench_vllm_img
+    build:
+      context: .
+      dockerfile: Dockerfile-vllm
+    runtime: nvidia
+    env_file:
+      - .env
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 2
+              capabilities: [gpu]
+    volumes:
+      - ./api/llm_bench_api:/app/llm_bench_api
+      - ./vllm/llm_bench_vllm:/app/llm_bench_vllm
       - ./logs/:/var/log
       - /rocket/cpp:/models
     network_mode: host

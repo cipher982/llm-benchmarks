@@ -6,10 +6,9 @@ from typing import cast
 from typing import List
 
 import pynvml
+from llm_bench_api.config import ModelConfig
+from llm_bench_api.config import MongoConfig
 from pymongo import MongoClient
-
-from llm_benchmarks.config import ModelConfig
-from llm_benchmarks.config import MongoConfig
 
 
 logger = logging.getLogger(__name__)
@@ -69,7 +68,9 @@ def get_cached_models(directory: str) -> list[str]:
     print(f"Getting cached models from directory: {directory}")
     files = os.listdir(directory)
     model_files = [f for f in files if f.startswith("models--")]
-    formatted_names = [f.removeprefix("models--").replace("--", "/") for f in model_files]
+    formatted_names = [
+        f.removeprefix("models--").replace("--", "/") for f in model_files
+    ]
     print(f"Returning {len(formatted_names):,} model names")
     return formatted_names
 
@@ -150,7 +151,9 @@ def setup_logger():
     logging.config.dictConfig(logging_config)
 
 
-def has_existing_run(model_name: str, model_config: ModelConfig, mongo_config: MongoConfig) -> bool:
+def has_existing_run(
+    model_name: str, model_config: ModelConfig, mongo_config: MongoConfig
+) -> bool:
     # Initialize MongoDB client and collection
     client = MongoClient(mongo_config.uri)
     db = client[mongo_config.db]

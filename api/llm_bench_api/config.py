@@ -32,8 +32,8 @@ class ModelConfig:
 
     @framework.setter
     def framework(self, value):
-        if value not in ["transformers", "gguf", "hf-tgi"]:
-            raise ValueError("framework must be either 'transformers' or 'gguf'")
+        if value not in ["transformers", "gguf", "hf-tgi", "vllm"]:
+            raise ValueError("framework must be: 'transformers', 'gguf', 'hf-tgi', 'vllm'")
         self._framework = value
 
     @property
@@ -42,8 +42,8 @@ class ModelConfig:
 
     @quantization_method.setter
     def quantization_method(self, value):
-        if value not in ["bitsandbytes", "gptq", None]:
-            raise ValueError(f"quant method must be 'bitsandbytes', 'gptq', or None. Got {value}")
+        if value not in ["bitsandbytes", "gptq", "awq", None]:
+            raise ValueError(f"quant method must be one of 'bitsandbytes', 'gptq', 'awq', None. Got {value}")
         self._quantization_method = value
 
     @property
