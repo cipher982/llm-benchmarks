@@ -51,12 +51,12 @@ def main(
     valid_models = filter_model_size(model_names, max_size_billion * 1_000)
     print(f"Filtered down to {len(valid_models)} models")
 
-    valid_models = [
-        "facebook/opt-125m",
-        # "TheBloke/Llama-2-7B-Chat-GPTQ",
-        # "EleutherAI/pythia-160m",
-        # "TheBloke/Llama-2-7B-Chat-AWQ",
-    ]
+    # valid_models = [
+    #     "facebook/opt-125m",
+    #     # "TheBloke/Llama-2-7B-Chat-GPTQ",
+    #     # "EleutherAI/pythia-160m",
+    #     # "TheBloke/Llama-2-7B-Chat-AWQ",
+    # ]
 
     # Run benchmarks
     bench_all_models(framework, valid_models, model_status, limit, run_always)

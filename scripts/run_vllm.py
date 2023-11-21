@@ -9,8 +9,6 @@ from requests.exceptions import HTTPError
 
 
 QUANT_TYPES = [
-    "4bit",
-    "8bit",
     None,
 ]
 QUERY_TEXT = "User: Tell me a long story about the history of the world.\nAI:"
@@ -84,7 +82,7 @@ def bench_all_models(framework, model_names, model_status, limit, run_always):
 def run_benchmark(
     framework: str,
     model: str,
-    model_status: dict[str, int],
+    model_status: dict[str, dict],
     quant_method: Optional[str],
     quant_bits: Optional[str],
     limit: int,
@@ -112,17 +110,18 @@ def run_benchmark(
         response.raise_for_status()
     except HTTPError as http_err:
         print(f"HTTP error occurred: {http_err}")
-        model_status[f"{model}_{quant_str}"] = 500  # Log the failed model
+        model_status[f"{model}_{quant_str}"] = {"status_code": 500, "json": {}}
         return False
     except Exception as err:
         print(f"Other error occurred: {err}")
-        model_status[f"{model}_{quant_str}"] = 500  # Log the failed model
+        model_status[f"{model}_{quant_str}"] = {"status_code": 500, "json": {}}
         return False
     else:
         response_code = response.status_code
+        response_json = response.json()
         print(f"Finished benchmark: {model}, quant: {quant_str} with Status Code: {response_code}")
 
-        model_status[f"{model}_{quant_str}"] = response_code
+        model_status[f"{model}_{quant_str}"] = {"status_code": response_code, "json": response_json}
         return len(model_status) >= limit
 
 
@@ -192,18 +191,31 @@ def get_models_to_run(fetch_hub: bool) -> list[str]:
     return model_names
 
 
-def print_summary(model_status: dict[str, int]) -> None:
+def print_summary(model_status: dict[str, dict]) -> None:
     """
     Print a summary of the benchmark runs.
     """
     print("Summary of benchmark runs:")
-    for model, code in model_status.items():
-        if code == 200:
-            print(f"Model: {model}, {code} ✅ (Benchmark Successful)")
-        elif code == 500:
-            print(f"Model: {model}, {code} ❌ (Benchmark Failed)")
+    skipped_models = []
+    for model, response in model_status.items():
+        status = response["json"]["status"] if "json" in response and "status" in response["json"] else "unknown"
+        if status == "skipped":
+            skipped_models.append(model)
+            continue
+
+    if skipped_models:
+        print(f"Skipped models: {', '.join(skipped_models)} ⏭️")
+
+    for model, response in model_status.items():
+        status = response["json"]["status"] if "json" in response and "status" in response["json"] else "unknown"
+        if status == "skipped":
+            continue
+        elif response["status_code"] == 200:
+            print(f"Model: {model}, {response['status_code']} ✅ (Benchmark Successful)")
+        elif response["status_code"] == 500:
+            print(f"Model: {model}, {response['status_code']} ❌ (Benchmark Failed)")
         else:
-            print(f"Model: {model}, {code} ❓ (Unknown Status)")
+            print(f"Model: {model}, {response['status_code']} ❓ (Unknown Status)")
     print("🎊 Done 🎊")
 
 
