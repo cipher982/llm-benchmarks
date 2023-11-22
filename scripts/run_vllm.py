@@ -3,6 +3,7 @@ from typing import Optional
 
 import click
 import requests
+from llm_bench.api.api import print_summary
 from llm_bench_api.utils import filter_model_size
 from llm_bench_api.utils import get_cached_models
 from requests.exceptions import HTTPError
@@ -41,7 +42,7 @@ def main(
     Main entrypoint for benchmarking HuggingFace Transformers models.
     Can fetch latest models from the Hub or use the cached models.
     """
-    model_status: dict[str, int] = {}
+    model_status: dict[str, dict] = {}
     print(f"Initial run_always value: {run_always}")
 
     # Gather models to run
@@ -51,10 +52,10 @@ def main(
     print(f"Filtered down to {len(valid_models)} models")
 
     # valid_models = [
-    #     "facebook/opt-125m",
-    #     # "TheBloke/Llama-2-7B-Chat-GPTQ",
+    #     # "facebook/opt-125m",
+    #     "TheBloke/Llama-2-7B-Chat-GPTQ",
     #     # "EleutherAI/pythia-160m",
-    #     # "TheBloke/Llama-2-7B-Chat-AWQ",
+    #     "TheBloke/Llama-2-7B-Chat-AWQ",
     # ]
 
     # Run benchmarks
@@ -189,34 +190,6 @@ def get_models_to_run(fetch_hub: bool) -> list[str]:
         model_names = get_cached_models(CACHE_DIR)
 
     return model_names
-
-
-def print_summary(model_status: dict[str, dict]) -> None:
-    """
-    Print a summary of the benchmark runs.
-    """
-    print("Summary of benchmark runs:")
-    skipped_models = []
-    for model, response in model_status.items():
-        status = response["json"]["status"] if "json" in response and "status" in response["json"] else "unknown"
-        if status == "skipped":
-            skipped_models.append(model)
-            continue
-
-    if skipped_models:
-        print(f"Skipped models: {', '.join(skipped_models)} ⏭️")
-
-    for model, response in model_status.items():
-        status = response["json"]["status"] if "json" in response and "status" in response["json"] else "unknown"
-        if status == "skipped":
-            continue
-        elif response["status_code"] == 200:
-            print(f"Model: {model}, {response['status_code']} ✅ (Benchmark Successful)")
-        elif response["status_code"] == 500:
-            print(f"Model: {model}, {response['status_code']} ❌ (Benchmark Failed)")
-        else:
-            print(f"Model: {model}, {response['status_code']} ❓ (Unknown Status)")
-    print("🎊 Done 🎊")
 
 
 if __name__ == "__main__":
