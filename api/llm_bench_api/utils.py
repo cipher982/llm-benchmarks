@@ -6,12 +6,43 @@ from typing import cast
 from typing import List
 
 import pynvml
+import requests
 from llm_bench_api.config import ModelConfig
 from llm_bench_api.config import MongoConfig
 from pymongo import MongoClient
 
 
 logger = logging.getLogger(__name__)
+
+
+def fetch_hf_models(fetch_hub: bool, cache_dir: str) -> list[str]:
+    if fetch_hub:
+        try:
+            response = requests.get(
+                "https://huggingface.co/api/models",
+                params={
+                    "sort": "downloads",
+                    "direction": "-1",
+                    "limit": 1_000,
+                    "filter": "text-generation",
+                },
+            )
+            response.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching models from HuggingFace Hub: {e}")
+            return []
+
+        # If the request was successful
+        model_data = response.json()
+        model_names = [entry["id"] for entry in model_data]
+    else:
+        try:
+            model_names = get_cached_models(cache_dir)
+        except Exception as e:
+            print(f"Error fetching cached models: {e}")
+            return []
+
+    return model_names
 
 
 def get_used_space_percent(directory: str) -> float:

@@ -3,7 +3,6 @@ import os
 from datetime import datetime
 from typing import Tuple
 from typing import Union
-from urllib.parse import unquote
 
 from flask import Flask
 from flask import jsonify
@@ -39,11 +38,11 @@ DO_SAMPLE = False
 app = Flask(__name__)
 
 
-@app.route("/benchmark/<path:model_name>", methods=["POST"])
-def call_huggingface(model_name: str) -> Union[Response, Tuple[Response, int]]:
+@app.route("/benchmark", methods=["POST"])
+def call_huggingface() -> Union[Response, Tuple[Response, int]]:
     """Enables the use a POST request to call the benchmarking function."""
     try:
-        model_name = unquote(model_name)
+        model_name = request.form.get("model_name", type=str)
         framework = request.form.get("framework", type=str)
         query = request.form.get("query", default=None, type=str)
         quant_method = request.form.get("quant_method", default=None, type=str)
