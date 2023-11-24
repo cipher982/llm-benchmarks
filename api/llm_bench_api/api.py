@@ -10,7 +10,7 @@ from requests.exceptions import HTTPError
 
 logger = logging.getLogger(__name__)
 
-FLASK_URL = "http://localhost:{}/benchmark/"
+FLASK_URL = "http://localhost:{}/benchmark"
 
 CACHE_DIR = os.environ.get("HUGGINGFACE_HUB_CACHE")
 assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"

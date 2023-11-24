@@ -20,4 +20,4 @@ RUN python3 -m pip install -r requirements.txt
 WORKDIR /app
 
 # Run Flask
-ENTRYPOINT [ "python3", "-m", "llm_bench_huggingface.api" ]
+ENTRYPOINT [ "python3", "-m", "llm_bench_huggingface.server" ]

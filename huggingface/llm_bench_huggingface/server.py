@@ -103,10 +103,7 @@ def call_huggingface() -> Union[Response, Tuple[Response, int]]:
             raise ValueError(f"Unknown framework: {framework}")
 
         # Main benchmarking function
-        metrics = generate(
-            model_config,
-            run_config,
-        )
+        metrics = generate(model_config, run_config)
         assert metrics, "metrics is empty"
 
         # logger.info metrics
@@ -118,7 +115,7 @@ def call_huggingface() -> Union[Response, Tuple[Response, int]]:
         logger.info(f"Tokens per second: {metrics['tokens_per_second'][0]:.2f}")
 
         # Log metrics to MongoDB
-        result = log_to_mongo(
+        log_to_mongo(
             config=model_config,
             metrics=metrics,
             uri=mongo_config.uri,
@@ -126,7 +123,7 @@ def call_huggingface() -> Union[Response, Tuple[Response, int]]:
             collection_name=mongo_config.collection,
         )
 
-        return jsonify(result), 200
+        return jsonify({"status": "success"}), 200
     except Exception as e:
         logger.exception(f"Error in call_benchmark: {e}")
         return jsonify({"status": "error", "reason": str(e)}), 500
