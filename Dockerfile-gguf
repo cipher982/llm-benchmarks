@@ -34,4 +34,3 @@ RUN touch /var/log_gguf/gguf.log
 # Run Flask
 WORKDIR /app
 ENTRYPOINT [ "python3", "-m", "llm_bench_gguf.server" ]
-# ENTRYPOINT [ "sh", "-c", "python3 -m llm_bench_gguf.server" ]
