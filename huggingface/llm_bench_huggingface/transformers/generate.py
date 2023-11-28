@@ -49,18 +49,20 @@ def generate(
         device_map="auto",
         trust_remote_code=True,
     )
+    model.eval()
 
     # Generate samples
     time_0 = time()
     output = None
     try:
-        output = model.generate(
-            torch.tensor([[0, 1, 2]]).to("cuda"),
-            do_sample=config.misc.get("do_sample"),
-            temperature=config.temperature if config.misc.get("do_sample") else None,
-            min_length=run_config["max_tokens"],
-            max_length=run_config["max_tokens"],
-        )
+        with torch.no_grad():
+            output = model.generate(
+                torch.tensor([[0, 1, 2]]).to("cuda"),
+                do_sample=config.misc.get("do_sample"),
+                temperature=config.temperature if config.misc.get("do_sample") else None,
+                min_length=run_config["max_tokens"],
+                max_length=run_config["max_tokens"],
+            )
     except Exception as e:
         logger.error(f"Error generating tokens: {e}")
         raise e
