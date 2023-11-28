@@ -20,7 +20,6 @@ assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
 
 @click.command()
 @click.option("--framework", help="Framework to use, must be 'vllm'.")
-@click.option("--fetch-new-models", default=False, help="Fetch latest HF-Hub models.")
 @click.option("--limit", default=100, type=int, help="Limit the number of models fetched.")
 @click.option(
     "--max-size-billion",
@@ -29,6 +28,7 @@ assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
     help="Maximum size of models in billion parameters.",
 )
 @click.option("--run-always", is_flag=True, help="Flag to always run benchmarks.")
+@click.option("--fetch-new-models", is_flag=True, help="Fetch latest HF-Hub models.")
 def main(
     framework: str,
     fetch_new_models: bool,
