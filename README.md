@@ -1,13 +1,13 @@
 # llm-benchmarks
 Benchmarking LLM Inference Speeds
 
-- *UPDATE 2023-10-23:* Moving everything to an automated process. HF Hub -> Docker eval -> dashboard
-- *UPDATE 2023-10-31:* Dashboard is up and running! https://llm-benchmarks.com/
-
 ## (NEW) Dashboard
 I now have a dashboard up and running to track the results of these benchmarks. I am using a combination of Docker with various frameworks (vLLM, Transformers, Text-Generation-Inference, llama-cpp) to automate the benchmarks and then upload the results to the dashboard. Most frameworks fetch the models from the HuggingFace Hub most downloaded or trending and cache them to my server storage which allows them to be loaded on-demand. The exception is the llama-cpp/GGUF framework that requires specially compiled model formats unique to the framework.
 
-Dashboard Repo: https://github.com/cipher982/llm-benchmarks-dashboard
+Dashboard is built in React and Node and utilizes MongoDB to store results.
+
+Dashboard: https://llm-benchmarks.com
+Code: https://github.com/cipher982/llm-benchmarks-dashboard
 
 ## Summary
 A collection of benchmarks for various open-source models to get an idea of the relation between different models and the inference speeds we could hope to see. There are a few things to be aware of here:
