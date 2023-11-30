@@ -2,7 +2,7 @@
 Benchmarking LLM Inference Speeds
 
 - *UPDATE 2023-10-23:* Moving everything to an automated process. HF Hub -> Docker eval -> dashboard
-- *UPDATE 2023-10-31:* Dashboard is up and running! https://llm-benchmarks-frontend.vercel.app/
+- *UPDATE 2023-10-31:* Dashboard is up and running! https://llm-benchmarks.com/
 
 Dashboard Repo: https://github.com/cipher982/llm-benchmarks-dashboard
 
