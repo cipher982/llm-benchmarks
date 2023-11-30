@@ -13,6 +13,7 @@ from transformers import AutoModelForCausalLM  # type: ignore
 
 logger = logging.getLogger(__name__)
 
+HF_TOKEN = os.environ.get("HF_TOKEN", None)
 GPU_DEVICE = os.environ.get("GPU_DEVICE_TF")
 assert GPU_DEVICE, "GPU_DEVICE_TRANSFORMERS environment variable not set"
 
@@ -48,6 +49,7 @@ def generate(
         torch_dtype=torch.float16 if config.model_dtype == "torch.float16" else torch.float32,
         device_map="auto",
         trust_remote_code=True,
+        token=HF_TOKEN,
     )
     model.eval()
 
