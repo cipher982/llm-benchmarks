@@ -6,8 +6,8 @@ I now have a dashboard up and running to track the results of these benchmarks. 
 
 Dashboard is built in React and Node and utilizes MongoDB to store results.
 
-Dashboard: https://llm-benchmarks.com
-Code: https://github.com/cipher982/llm-benchmarks-dashboard
+- Dashboard: https://llm-benchmarks.com
+- Code: https://github.com/cipher982/llm-benchmarks-dashboard
 
 ## Summary
 A collection of benchmarks for various open-source models to get an idea of the relation between different models and the inference speeds we could hope to see. There are a few things to be aware of here:
