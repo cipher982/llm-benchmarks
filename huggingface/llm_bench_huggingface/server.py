@@ -129,4 +129,5 @@ def call_huggingface() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"status": "error", "reason": str(e)}), 500
 
 
-app.run(host="0.0.0.0", port=5000)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)

@@ -20,6 +20,7 @@ assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
 
 def generate(config: ModelConfig, run_config: dict):
     """Run TGI inference and return metrics."""
+    time.sleep(1)
 
     quant_str = f"{config.quantization_method}_{config.quantization_bits}" or "none"
     logger.info(f"Running benchmark: {config.model_name}, quant: {quant_str}")
@@ -47,9 +48,7 @@ def generate(config: ModelConfig, run_config: dict):
             time1 = time.time()
 
             # Process metrics
-            output_tokens = (
-                len(response.details.tokens) if response.details is not None else 0
-            )
+            output_tokens = len(response.details.tokens) if response.details is not None else 0
             vram_usage = get_vram_usage(int(GPU_DEVICE))
             metrics = {
                 "gen_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -57,9 +56,7 @@ def generate(config: ModelConfig, run_config: dict):
                 "output_tokens": [output_tokens],
                 "gpu_mem_usage": [vram_usage],
                 "generate_time": [time1 - time0],
-                "tokens_per_second": [
-                    output_tokens / (time1 - time0) if time1 > time0 else 0
-                ],
+                "tokens_per_second": [output_tokens / (time1 - time0) if time1 > time0 else 0],
             }
 
             return metrics
