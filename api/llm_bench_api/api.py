@@ -46,6 +46,26 @@ class BenchmarkConfig:
         self.flask_port = flask_port
 
 
+class CloudConfig:
+    def __init__(
+        self,
+        provider: str,
+        model: str,
+        query: str,
+        max_tokens: int,
+        temperature: float,
+        limit: int,
+        run_always: bool,
+    ):
+        self.provider = provider
+        self.model = model
+        self.query = query
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.limit = limit
+        self.run_always = run_always
+
+
 def determine_model_type(model_name: str) -> ModelType:
     if "GPTQ" in model_name:
         return ModelType.GPTQ

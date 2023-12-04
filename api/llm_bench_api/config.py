@@ -6,6 +6,10 @@ logger = logging.getLogger(__name__)
 
 
 class ModelConfig:
+    """
+    Configuration for a local model run.
+    """
+
     def __init__(
         self,
         framework: str,
@@ -63,6 +67,34 @@ class ModelConfig:
             "temperature": self.temperature,
             "quantization_method": self.quantization_method,
             "quantization_bits": self.quantization_bits,
+            "misc": self.misc,
+        }
+
+
+class CloudConfig:
+    def __init__(
+        self,
+        provider: str,
+        model_name: str,
+        run_ts: str,
+        temperature: float,
+        misc: dict = {},
+    ):
+        """
+        Configuration for a cloud model run.
+        """
+        self.provider = provider
+        self.model_name = model_name
+        self.run_ts = run_ts
+        self.temperature = temperature
+        self.misc = misc
+
+    def to_dict(self):
+        return {
+            "provider": self.provider,
+            "model_name": self.model_name,
+            "run_ts": self.run_ts,
+            "temperature": self.temperature,
             "misc": self.misc,
         }
 
