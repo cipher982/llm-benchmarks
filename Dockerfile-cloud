@@ -25,4 +25,4 @@ WORKDIR /app
 COPY . /app
 
 # Set the entrypoint
-ENTRYPOINT [ "python3", "-m", "llm_bench_api.server" ]
+ENTRYPOINT [ "python3", "-m", "llm_bench_api.cloud.server" ]
