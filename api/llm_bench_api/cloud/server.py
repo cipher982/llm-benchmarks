@@ -23,10 +23,10 @@ logger = logging.getLogger(__name__)
 
 MONGODB_URI = os.environ.get("MONGODB_URI")
 MONGODB_DB = os.environ.get("MONGODB_DB")
-MONGODB_COLLECTION = os.environ.get("MONGODB_COLLECTION")
+MONGODB_COLLECTION_CLOUD = os.environ.get("MONGODB_COLLECTION_CLOUD")
 assert MONGODB_URI, "MONGODB_URI environment variable not set"
 assert MONGODB_DB, "MONGODB_DB environment variable not set"
-assert MONGODB_COLLECTION, "MONGODB_COLLECTION environment variable not set"
+assert MONGODB_COLLECTION_CLOUD, "MONGODB_COLLECTION_CLOUD environment variable not set"
 
 
 app = Flask(__name__)
@@ -71,7 +71,7 @@ def call_openai() -> Union[Response, Tuple[Response, int]]:
         mongo_config = MongoConfig(
             uri=MONGODB_URI,
             db=MONGODB_DB,
-            collection=MONGODB_COLLECTION,
+            collection=MONGODB_COLLECTION_CLOUD,
         )
         existing_run = has_existing_run(model_name, model_config, mongo_config)
         if existing_run:
@@ -96,7 +96,7 @@ def call_openai() -> Union[Response, Tuple[Response, int]]:
         logger.info(f"Tokens per second: {metrics['tokens_per_second'][0]:.2f}")
 
         log_to_mongo(
-            model_type="local",
+            model_type="cloud",
             config=model_config,
             metrics=metrics,
             uri=mongo_config.uri,

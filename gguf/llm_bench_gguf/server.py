@@ -23,11 +23,10 @@ app = Flask(__name__)
 
 MONGODB_URI = os.environ.get("MONGODB_URI")
 MONGODB_DB = os.environ.get("MONGODB_DB")
-MONGODB_COLLECTION = os.environ.get("MONGODB_COLLECTION")
-
+MONGODB_COLLECTION_LOCAL = os.environ.get("MONGODB_COLLECTION_LOCAL")
 assert MONGODB_URI, "MONGODB_URI environment variable not set"
 assert MONGODB_DB, "MONGODB_DB environment variable not set"
-assert MONGODB_COLLECTION, "MONGODB_COLLECTION environment variable not set"
+assert MONGODB_COLLECTION_LOCAL, "MONGODB_COLLECTION_LOCAL environment variable not set"
 
 
 @app.route("/benchmark", methods=["POST"])
@@ -99,7 +98,7 @@ def benchmark_cpp() -> Union[Response, Tuple[Response, int]]:
         mongo_config = MongoConfig(
             uri=MONGODB_URI,
             db=MONGODB_DB,
-            collection=MONGODB_COLLECTION,
+            collection=MONGODB_COLLECTION_LOCAL,
         )
 
         # Log metrics to MongoDB

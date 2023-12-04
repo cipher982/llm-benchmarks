@@ -27,10 +27,10 @@ assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
 
 MONGODB_URI = os.environ.get("MONGODB_URI")
 MONGODB_DB = os.environ.get("MONGODB_DB")
-MONGODB_COLLECTION = os.environ.get("MONGODB_COLLECTION")
+MONGODB_COLLECTION_LOCAL = os.environ.get("MONGODB_COLLECTION_LOCAL")
 assert MONGODB_URI, "MONGODB_URI environment variable not set"
 assert MONGODB_DB, "MONGODB_DB environment variable not set"
-assert MONGODB_COLLECTION, "MONGODB_COLLECTION environment variable not set"
+assert MONGODB_COLLECTION_LOCAL, "MONGODB_COLLECTION_LOCAL environment variable not set"
 
 DO_SAMPLE = False
 
@@ -79,7 +79,7 @@ def call_huggingface() -> Union[Response, Tuple[Response, int]]:
         mongo_config = MongoConfig(
             uri=MONGODB_URI,
             db=MONGODB_DB,
-            collection=MONGODB_COLLECTION,
+            collection=MONGODB_COLLECTION_LOCAL,
         )
         existing_run = has_existing_run(model_name, model_config, mongo_config)
         if existing_run:

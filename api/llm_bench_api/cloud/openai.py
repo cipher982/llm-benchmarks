@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 def generate(config: CloudConfig, run_config: dict) -> dict:
     """Run OpenAI inference and return metrics."""
 
+    assert config.provider == "openai", "provider must be openai"
+    assert "query" in run_config, "query must be in run_config"
+    assert "max_tokens" in run_config, "max_tokens must be in run_config"
+
     # Set up connection
     client = OpenAI()
 
@@ -18,7 +22,8 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     time_0 = time.time()
     response = client.chat.completions.create(
         model=config.model_name,
-        messages=[{"role": "user", "content": "Say this is a test"}],
+        messages=[{"role": "user", "content": run_config["query"]}],
+        max_tokens=run_config["max_tokens"],
         stream=False,
     )
     time_1 = time.time()
@@ -33,7 +38,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
 
     metrics = {
         "gen_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "request_tokens": [run_config["max_tokens"]],
+        "requested_tokens": [run_config["max_tokens"]],
         "output_tokens": [output_tokens],
         "generate_time": [time_1 - time_0],
         "tokens_per_second": [tokens_per_second],
