@@ -4,9 +4,11 @@ import re
 import shutil
 from typing import cast
 from typing import List
+from typing import Union
 
 import pynvml
 import requests
+from llm_bench_api.config import CloudConfig
 from llm_bench_api.config import ModelConfig
 from llm_bench_api.config import MongoConfig
 from pymongo import MongoClient
@@ -180,22 +182,32 @@ def setup_logger():
     logging.config.dictConfig(logging_config)
 
 
-def has_existing_run(model_name: str, model_config: ModelConfig, mongo_config: MongoConfig) -> bool:
+def has_existing_run(model_name: str, model_config: Union[CloudConfig, ModelConfig], mongo_config: MongoConfig) -> bool:
     # Initialize MongoDB client and collection
     client = MongoClient(mongo_config.uri)
     db = client[mongo_config.db]
     collection = db[mongo_config.collection]
 
     # Check if model has been benchmarked before
-    existing_config = collection.find_one(
-        {
-            "framework": model_config.framework,
-            "model_name": model_name,
-            "model_dtype": {"$in": [model_config.model_dtype, None]},
-            "quantization_method": {"$in": [model_config.quantization_method, None]},
-            "quantization_bits": {"$in": [model_config.quantization_bits, None]},
-        }
-    )
+    if isinstance(model_config, CloudConfig):
+        existing_config = collection.find_one(
+            {
+                "provider": model_config.provider,
+                "model_name": model_name,
+            }
+        )
+    elif isinstance(model_config, ModelConfig):
+        existing_config = collection.find_one(
+            {
+                "framework": model_config.framework,
+                "model_name": model_name,
+                "model_dtype": {"$in": [model_config.model_dtype, None]},
+                "quantization_method": {"$in": [model_config.quantization_method, None]},
+                "quantization_bits": {"$in": [model_config.quantization_bits, None]},
+            }
+        )
+    else:
+        raise Exception(f"Invalid model_config type: {type(model_config)}")
 
     if existing_config:
         logger.info("Model already benchmarked.")
