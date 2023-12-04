@@ -1,8 +1,10 @@
 ARG CUDA_IMAGE="12.1.1-devel-ubuntu22.04"
 
-
 FROM nvidia/cuda:${CUDA_IMAGE} AS llama_build
 
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
 
 RUN apt-get update && apt-get upgrade -y \
     && apt-get install -y git build-essential \
