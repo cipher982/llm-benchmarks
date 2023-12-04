@@ -116,6 +116,7 @@ def call_huggingface() -> Union[Response, Tuple[Response, int]]:
 
         # Log metrics to MongoDB
         log_to_mongo(
+            model_type="local",
             config=model_config,
             metrics=metrics,
             uri=mongo_config.uri,

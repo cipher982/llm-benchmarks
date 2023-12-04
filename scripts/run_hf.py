@@ -21,7 +21,7 @@ assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
 
 @click.command()
 @click.option("--framework", help="LLM API to call. Must be one of 'transformers', 'hf-tgi'")
-@click.option("--limit", default=100, type=int, help="Limit the number of models fetched.")
+@click.option("--limit", default=100, type=int, help="Limit the number of models run.")
 @click.option(
     "--max-size-billion",
     default=5,
@@ -52,9 +52,10 @@ def main(
 
     # valid_models = [
     #     "facebook/opt-125m",
-    #     # "TheBloke/Llama-2-7B-Chat-GPTQ",
-    #     # "EleutherAI/pythia-160m",
-    #     # "TheBloke/Llama-2-7B-Chat-AWQ",
+    #     "TheBloke/Llama-2-7B-Chat-GPTQ",
+    #     "EleutherAI/pythia-160m",
+    #     "TheBloke/Llama-2-7B-Chat-AWQ",
+    #     "meta-llama/Llama-2-7b-chat-hf",
     # ]
 
     # Run benchmarks
