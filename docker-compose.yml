@@ -20,7 +20,7 @@ services:
       - ./api/llm_bench_api:/app/llm_bench_api
       - ./huggingface/llm_bench_huggingface:/app/llm_bench_huggingface
       - ./logs/:/var/log
-      - /rocket/hf:/rocket/hf
+      - /gemini/hf:/gemini/hf
     network_mode: host
     environment:
       - CUDA_VISIBLE_DEVICES=1
@@ -66,7 +66,7 @@ services:
       - ./api/llm_bench_api:/app/llm_bench_api
       - ./vllm/llm_bench_vllm:/app/llm_bench_vllm
       - ./logs/:/var/log
-      - /rocket/hf:/rocket/hf
+      - /gemini/hf:/gemini/hf
     network_mode: host
     environment:
       - CUDA_VISIBLE_DEVICES=1

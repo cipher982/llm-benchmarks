@@ -54,6 +54,8 @@ def call_vllm() -> Union[Response, Tuple[Response, int]]:
         logger.info(f"Received request for model: {model_name}, quant: {quant_str}")
         logger.info(f"run_always: {run_always}")
 
+        assert model_name, "model_name not set"
+
         # Create model config
         model_config = ModelConfig(
             framework=FRAMEWORK,
