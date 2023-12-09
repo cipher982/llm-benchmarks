@@ -13,7 +13,7 @@ except PermissionError:
 logger = logging.getLogger(__name__)
 
 QUERY_TEXT = "Tell me a long story about the history of the world."
-MAX_TOKENS = 512
+MAX_TOKENS = 256
 TEMPERATURE = 0.1
 FLASK_URL = "http://localhost:{}/benchmark"
 FLASK_PORT = 5004
@@ -35,7 +35,22 @@ def main(
     assert provider == "openai", "Provider must be 'openai'"
 
     # Gather models to run
-    model_names = ["gpt-4"]
+    model_names = [
+        "gpt-4-1106-preview",
+        "gpt-4",
+        "gpt-4-vision-preview",
+        # "gpt-4-32k",  # no access
+        "gpt-4-0613",
+        # "gpt-4-32k-0613",  # no access
+        "gpt-4-0314",
+        # "gpt-4-32k-0314",  # no model
+        "gpt-3.5-turbo-1106",
+        "gpt-3.5-turbo",
+        "gpt-3.5-turbo-16k",
+        "gpt-3.5-turbo-instruct",  # use v1-completions (not chat)
+        "gpt-3.5-turbo-0613",
+        "gpt-3.5-turbo-16k-0613",
+    ]
     print(f"Fetched {len(model_names)} models")
 
     # Run benchmarks
@@ -55,15 +70,15 @@ def main(
             response = requests.post(FLASK_URL.format(FLASK_PORT), data=flask_data)
             response.raise_for_status()
         except HTTPError as http_err:
-            print(f"HTTP error occurred: {http_err}")
+            print(f"❌ Fail {model}, HTTP error: {http_err}")
             model_status[model] = {"status_code": 500, "json": {}}
         except Exception as err:
-            print(f"Other error occurred: {err}")
+            print(f"❌ Fail {model}, other error: {err}")
             model_status[model] = {"status_code": 500, "json": {}}
         else:
             response_code = response.status_code
             response_json = response.json()
-            print(f"Finished benchmark: {model} with Status Code: {response_code}")
+            print(f"✅ Pass {model}, {model}: {response_code}")
 
             model_status[model] = {"status_code": response_code, "json": response_json}
 

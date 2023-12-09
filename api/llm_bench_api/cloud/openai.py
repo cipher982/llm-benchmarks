@@ -8,6 +8,9 @@ from openai import OpenAI
 logger = logging.getLogger(__name__)
 
 
+NON_CHAT_MODELS = ["gpt-3.5-turbo-instruct"]
+
+
 def generate(config: CloudConfig, run_config: dict) -> dict:
     """Run OpenAI inference and return metrics."""
 
@@ -20,12 +23,20 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
 
     # Generate
     time_0 = time.time()
-    response = client.chat.completions.create(
-        model=config.model_name,
-        messages=[{"role": "user", "content": run_config["query"]}],
-        max_tokens=run_config["max_tokens"],
-        stream=False,
-    )
+    if config.model_name in NON_CHAT_MODELS:
+        response = client.completions.create(
+            model=config.model_name,
+            prompt=run_config["query"],
+            max_tokens=run_config["max_tokens"],
+            stream=False,
+        )
+    else:
+        response = client.chat.completions.create(
+            model=config.model_name,
+            messages=[{"role": "user", "content": run_config["query"]}],
+            max_tokens=run_config["max_tokens"],
+            stream=False,
+        )
     time_1 = time.time()
 
     # Calculate metrics

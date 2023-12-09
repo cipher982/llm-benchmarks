@@ -47,6 +47,7 @@ def call_openai() -> Union[Response, Tuple[Response, int]]:
         run_always = run_always_str == "true"
 
         assert provider == "openai", "provider must be openai"
+        assert model_name, "model_name must be set"
 
         logger.info(f"Received request for model: {model_name}")
 
