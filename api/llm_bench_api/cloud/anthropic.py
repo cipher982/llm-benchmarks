@@ -30,7 +30,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         raise NotImplementedError
     else:
         response = anthropic.completions.create(
-            model="claude-2",
+            model=config.model_name,
             max_tokens_to_sample=run_config["max_tokens"],
             prompt=f"{HUMAN_PROMPT} {run_config['query']} {AI_PROMPT}",
         )
