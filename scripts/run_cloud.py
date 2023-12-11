@@ -1,4 +1,6 @@
+import json
 import logging
+import os
 
 import click
 import requests
@@ -19,8 +21,14 @@ FLASK_URL = "http://localhost:{}/benchmark"
 FLASK_PORT = 5004
 
 
+script_dir = os.path.dirname(os.path.abspath(__file__))
+json_file_path = os.path.join(script_dir, "../models/cloud.json")
+with open(json_file_path) as f:
+    provider_models = json.load(f)
+
+
 @click.command()
-@click.option("--provider", help="Provider to use, must be 'openai'.")
+@click.option("--provider", help="Provider to use, must be 'openai' or 'anthropic'.")
 @click.option("--limit", default=100, type=int, help="Limit the number of models run.")
 @click.option("--run-always", is_flag=True, help="Flag to always run benchmarks.")
 def main(
@@ -29,28 +37,13 @@ def main(
     run_always: bool,
 ) -> None:
     """
-    Main entrypoint for benchmarking OpenAI models.
+    Main entrypoint for benchmarking cloud models.
     """
 
-    assert provider == "openai", "Provider must be 'openai'"
+    assert provider in ["openai", "anthropic"], "provider must be either 'openai' or 'anthropic'"
 
     # Gather models to run
-    model_names = [
-        "gpt-4-1106-preview",
-        "gpt-4",
-        "gpt-4-vision-preview",
-        # "gpt-4-32k",  # no access
-        "gpt-4-0613",
-        # "gpt-4-32k-0613",  # no access
-        "gpt-4-0314",
-        # "gpt-4-32k-0314",  # no model
-        "gpt-3.5-turbo-1106",
-        "gpt-3.5-turbo",
-        "gpt-3.5-turbo-16k",
-        "gpt-3.5-turbo-instruct",  # use v1-completions (not chat)
-        "gpt-3.5-turbo-0613",
-        "gpt-3.5-turbo-16k-0613",
-    ]
+    model_names = provider_models[provider]
     print(f"Fetched {len(model_names)} models")
 
     # Run benchmarks

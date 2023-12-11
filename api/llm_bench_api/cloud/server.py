@@ -8,7 +8,6 @@ from flask import Flask
 from flask import jsonify
 from flask import request
 from flask.wrappers import Response
-from llm_bench_api.cloud.openai import generate
 from llm_bench_api.config import CloudConfig
 from llm_bench_api.config import MongoConfig
 from llm_bench_api.logging import log_to_mongo
@@ -33,7 +32,7 @@ app = Flask(__name__)
 
 
 @app.route("/benchmark", methods=["POST"])
-def call_openai() -> Union[Response, Tuple[Response, int]]:
+def call_cloud() -> Union[Response, Tuple[Response, int]]:
     """Enables the use a POST request to call the benchmarking function."""
 
     try:
@@ -46,7 +45,7 @@ def call_openai() -> Union[Response, Tuple[Response, int]]:
         run_always_str = request.form.get("run_always", "False").lower()
         run_always = run_always_str == "true"
 
-        assert provider == "openai", "provider must be openai"
+        assert provider in ["openai", "anthropic"], "provider must be either 'openai' or 'anthropic'"
         assert model_name, "model_name must be set"
 
         logger.info(f"Received request for model: {model_name}")
@@ -86,6 +85,12 @@ def call_openai() -> Union[Response, Tuple[Response, int]]:
             logger.info(f"Model has not been benchmarked before: {model_name}")
 
         # Main benchmarking function
+        if provider == "openai":
+            from llm_bench_api.cloud.openai import generate
+        elif provider == "anthropic":
+            from llm_bench_api.cloud.anthropic import generate
+        else:
+            raise Exception(f"provider {provider} not supported")
         metrics = generate(model_config, run_config)
         assert metrics, "metrics is empty"
 
