@@ -12,7 +12,7 @@ RUN apt-get update && \
         python3-pip
 
 # Install openai library
-RUN pip3 install openai anthropic
+RUN pip3 install openai anthropic tiktoken
 
 # Install any python packages you need
 COPY ./api/requirements.txt requirements.txt

@@ -55,6 +55,8 @@ def log_to_mongo(
             data.update(
                 {
                     "provider": config.provider,
+                    "time_to_first_token": metrics["time_to_first_token"],
+                    "times_between_tokens": metrics["times_between_tokens"],
                 }
             )
 

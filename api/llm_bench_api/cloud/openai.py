@@ -2,6 +2,7 @@ import logging
 import time
 from datetime import datetime
 
+import tiktoken
 from llm_bench_api.config import CloudConfig
 from openai import OpenAI
 
@@ -10,6 +11,30 @@ logger = logging.getLogger(__name__)
 
 
 NON_CHAT_MODELS = ["gpt-3.5-turbo-instruct"]
+
+
+def process_non_chat_model(client, config, run_config):
+    return (
+        client.completions.create(
+            model=config.model_name,
+            prompt=run_config["query"],
+            max_tokens=run_config["max_tokens"],
+            stream=True,
+        ),
+        "text",
+    )
+
+
+def process_chat_model(client, config, run_config):
+    return (
+        client.chat.completions.create(
+            model=config.model_name,
+            messages=[{"role": "user", "content": run_config["query"]}],
+            max_tokens=run_config["max_tokens"],
+            stream=True,
+        ),
+        "choices",
+    )
 
 
 def generate(config: CloudConfig, run_config: dict) -> dict:
@@ -26,27 +51,23 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     time_0 = time.time()
     first_token_received = False
     previous_token_time = None
-    output_tokens = 0
+    output_chunks = 0
     times_between_tokens = []
+    time_to_first_token = 0
+    response_str = ""
 
-    if config.model_name in NON_CHAT_MODELS:
-        stream = client.completions.create(
-            model=config.model_name,
-            prompt=run_config["query"],
-            max_tokens=run_config["max_tokens"],
-            stream=True,
-        )
-    else:
-        stream = client.chat.completions.create(
-            model=config.model_name,
-            messages=[{"role": "user", "content": run_config["query"]}],
-            max_tokens=run_config["max_tokens"],
-            stream=True,
-        )
+    process_func = process_non_chat_model if config.model_name in NON_CHAT_MODELS else process_chat_model
+    stream, response_key = process_func(client, config, run_config)
 
-    time_to_first_token = None
     for chunk in stream:
-        if chunk.choices[0].delta.content is not None:
+        if config.model_name in NON_CHAT_MODELS:
+            response = chunk.choices[0]
+            response_content = getattr(response, response_key)
+        else:
+            response = chunk.choices[0].delta
+            response_content = response.content if response is not None else None
+
+        if response_content is not None:
             current_time = time.time()
             if not first_token_received:
                 time_to_first_token = current_time - time_0
@@ -55,10 +76,15 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
                 assert previous_token_time is not None
                 times_between_tokens.append(current_time - previous_token_time)
             previous_token_time = current_time
-            output_tokens += len(chunk.choices[0].delta.content.split())
+            response_str += response_content
+            output_chunks += 1
 
     time_1 = time.time()
     generate_time = time_1 - time_0
+
+    # Calculate tokens
+    encoder = tiktoken.encoding_for_model(config.model_name)
+    output_tokens = len(encoder.encode(response_str))
     tokens_per_second = output_tokens / generate_time if generate_time > 0 else 0
 
     metrics = {
