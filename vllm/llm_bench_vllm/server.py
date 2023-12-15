@@ -32,6 +32,7 @@ assert MONGODB_COLLECTION_LOCAL, "MONGODB_COLLECTION_LOCAL environment variable 
 
 DO_SAMPLE = False
 FRAMEWORK = "vllm"
+FLASK_PORT = 5002
 
 app = Flask(__name__)
 
@@ -120,4 +121,4 @@ def call_vllm() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"status": "error", "reason": str(e)}), 500
 
 
-app.run(host="0.0.0.0", port=5002)
+app.run(host="0.0.0.0", port=FLASK_PORT)

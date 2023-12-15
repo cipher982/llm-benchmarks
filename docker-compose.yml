@@ -70,14 +70,3 @@ services:
     network_mode: host
     environment:
       - CUDA_VISIBLE_DEVICES=1
-  bench_cloud:
-    image: bench_cloud_img
-    build:
-      context: .
-      dockerfile: Dockerfile-cloud
-    env_file:
-      - .env
-    volumes:
-      - ./api/llm_bench_api:/app/llm_bench_api
-      - ./logs/:/var/log
-    network_mode: host

@@ -58,9 +58,7 @@ class DockerContainer:
         logger.info(quant_info["message"])
 
         try:
-            process = subprocess.Popen(
-                command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = process.communicate()
             if stdout:
                 logger.info(f"Docker process stdout: {stdout.decode()}")
@@ -119,6 +117,8 @@ class DockerContainer:
                 return True
             if error_pattern in logs:
                 logger.error("Error detected in Docker logs.")
+                error_log = logs.split("Error:")[1].split("\n")[0]
+                logger.error(f"Docker logs error: {error_log}")
                 return False
 
             # Check if container's service is responding

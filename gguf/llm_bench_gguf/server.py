@@ -28,6 +28,8 @@ assert MONGODB_URI, "MONGODB_URI environment variable not set"
 assert MONGODB_DB, "MONGODB_DB environment variable not set"
 assert MONGODB_COLLECTION_LOCAL, "MONGODB_COLLECTION_LOCAL environment variable not set"
 
+FLASK_PORT = 5003
+
 
 @app.route("/benchmark", methods=["POST"])
 def benchmark_cpp() -> Union[Response, Tuple[Response, int]]:
@@ -124,4 +126,4 @@ def benchmark_cpp() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"status": "error", "reason": str(e)}), 500
 
 
-app.run(host="0.0.0.0", port=5001)
+app.run(host="0.0.0.0", port=FLASK_PORT)

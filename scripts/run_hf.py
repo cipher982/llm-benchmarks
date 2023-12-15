@@ -14,7 +14,8 @@ QUANT_TYPES = [
 QUERY_TEXT = "User: Tell me a long story about the history of the world.\nAI:"
 MAX_TOKENS = 512
 TEMPERATURE = 0.1
-FLASK_PORT = 5000
+FLASK_PORT_TF = 5000
+FLASK_PORT_TGI = 5001
 CACHE_DIR = os.environ.get("HUGGINGFACE_HUB_CACHE")
 assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
 
@@ -50,6 +51,14 @@ def main(
     valid_models = filter_model_size(model_names, max_size_billion * 1_000)
     print(f"Filtered down to {len(valid_models)} models")
 
+    # Set port
+    if framework == "transformers":
+        flask_port = FLASK_PORT_TF
+    elif framework == "hf-tgi":
+        flask_port = FLASK_PORT_TGI
+    else:
+        raise ValueError(f"Invalid framework: {framework}")
+
     # valid_models = [
     #     "facebook/opt-125m",
     #     "TheBloke/Llama-2-7B-Chat-GPTQ",
@@ -70,7 +79,7 @@ def main(
         QUERY_TEXT,
         MAX_TOKENS,
         TEMPERATURE,
-        FLASK_PORT,
+        flask_port,
     )
 
     # Print summary

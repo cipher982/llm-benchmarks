@@ -4,6 +4,9 @@ import click
 import requests
 
 
+FLASK_PORT = 5003
+
+
 @click.command()
 @click.option("--limit", default=50, type=int, help="Limit the number of models to run for debugging.")
 def bench_gguf(limit: int) -> None:
@@ -34,7 +37,7 @@ def bench_gguf(limit: int) -> None:
                 "max_tokens": 256,
                 "n_gpu_layers": -1,
             }
-            response = requests.post(f"http://localhost:5001/benchmark/{full_model}", data=config)
+            response = requests.post(f"http://localhost:{FLASK_PORT}/benchmark/{full_model}", data=config)
 
             response_code = response.status_code
             print(f"Finished benchmark: {full_model} with Status Code: {response_code}")

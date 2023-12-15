@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Tuple
 from typing import Union
 
+import click
 from flask import Flask
 from flask import jsonify
 from flask import request
@@ -130,5 +131,11 @@ def call_huggingface() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"status": "error", "reason": str(e)}), 500
 
 
+@click.command()
+@click.option("--port", required=True, help="Port to run the server on")
+def main(port):
+    app.run(host="0.0.0.0", port=port)
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    main()
