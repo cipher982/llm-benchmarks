@@ -97,9 +97,9 @@ def call_cloud() -> Union[Response, Tuple[Response, int]]:
         # Log it all
         logger.info(f"===== Model: {provider}/{model_name} =====")
         logger.info(f"provider: {model_config.provider}")
-        logger.info(f"Output tokens: {metrics['output_tokens'][0]}")
-        logger.info(f"Generate time: {metrics['generate_time'][0]:.2f} s")
-        logger.info(f"Tokens per second: {metrics['tokens_per_second'][0]:.2f}")
+        logger.info(f"Output tokens: {metrics['output_tokens']}")
+        logger.info(f"Generate time: {metrics['generate_time']:.2f} s")
+        logger.info(f"Tokens per second: {metrics['tokens_per_second']:.2f}")
 
         log_to_mongo(
             model_type="cloud",

@@ -14,8 +14,8 @@ except PermissionError:
     logging.basicConfig(filename="./logs/llm_benchmarks.log", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-QUERY_TEXT = "Tell me a long story about the history of the world."
-MAX_TOKENS = 256
+QUERY_TEXT = "Tell me a long story about the history of WW2."
+MAX_TOKENS = 512
 TEMPERATURE = 0.1
 FLASK_URL = "http://localhost:{}/benchmark"
 FLASK_PORT = 5004
