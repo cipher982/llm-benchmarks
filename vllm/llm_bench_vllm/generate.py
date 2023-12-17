@@ -2,8 +2,8 @@
 import gc
 import logging.config
 import os
+import time
 from datetime import datetime
-from time import time
 
 import torch
 from llm_bench_api.config import ModelConfig
@@ -29,38 +29,38 @@ def generate(config: ModelConfig, run_config: dict) -> dict:
     output_tokens, vram_usage, time_0, time_1 = 0, 0, 0, 0
     model = None
 
-    try:
-        # Load model within a context manager
-        with torch.no_grad():
+    with torch.no_grad():
+        try:
             # Load model
             model = LLM(
                 model=config.model_name,
                 download_dir=os.environ.get("HUGGINGFACE_HUB_CACHE"),
                 trust_remote_code=True,
             )
-
             # Set params
             sampling_params = SamplingParams(temperature=0.1, top_p=0.95)
 
             # Generate tokens
-            time_0 = time()
+            time_0 = time.time()
             output = model.generate(run_config["query"], sampling_params)
-            time_1 = time()
+            time_1 = time.time()
 
             # Collect metrics
             output_tokens = len(output[0].outputs[0].token_ids)
             vram_usage = get_vram_usage(int(GPU_DEVICE))
-    except Exception as e:
-        logger.error(f"Error during vLLM generation: {e}")
-        raise e
-    finally:
-        # Ensure model and CUDA memory is cleaned up
-        destroy_model_parallel()
-        if model is not None:
-            del model
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        except Exception as e:
+            logger.error(f"Error during vLLM generation: {e}")
+            raise e
+        finally:
+            # Ensure model and CUDA memory is cleaned up
+            destroy_model_parallel()
+            if model is not None:
+                del model
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            time.sleep(3)
 
     metrics = {
         "gen_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
