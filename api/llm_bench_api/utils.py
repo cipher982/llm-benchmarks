@@ -201,9 +201,8 @@ def has_existing_run(model_name: str, model_config: Union[CloudConfig, ModelConf
             {
                 "framework": model_config.framework,
                 "model_name": model_name,
-                "model_dtype": {"$in": [model_config.model_dtype, None]},
-                "quantization_method": {"$in": [model_config.quantization_method, None]},
-                "quantization_bits": {"$in": [model_config.quantization_bits, None]},
+                "quantization_method": model_config.quantization_method,
+                "quantization_bits": model_config.quantization_bits,
             }
         )
     else:
