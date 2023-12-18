@@ -55,6 +55,7 @@ def call_huggingface() -> Union[Response, Tuple[Response, int]]:
         run_always = run_always_str == "true"
 
         assert framework is not None, "framework is required"
+        assert model_name is not None, "model_name is required"
 
         quant_str = f"{quant_method}_{quant_bits}" if quant_method is not None else "none"
         logger.info(f"Received request for model: {model_name}, quant: {quant_str}")
