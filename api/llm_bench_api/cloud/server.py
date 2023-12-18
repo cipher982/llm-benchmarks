@@ -13,11 +13,12 @@ from llm_bench_api.config import MongoConfig
 from llm_bench_api.logging import log_to_mongo
 from llm_bench_api.utils import has_existing_run
 
-log_path = "/var/log/llm_benchmarks.log"
+
+log_path = "/var/log/bench_cloud.log"
 try:
     logging.basicConfig(filename=log_path, level=logging.INFO)
 except PermissionError:
-    logging.basicConfig(filename="./logs/llm_benchmarks.log", level=logging.INFO)
+    logging.basicConfig(filename="./logs/bench_cloud.log", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 MONGODB_URI = os.environ.get("MONGODB_URI")

@@ -42,6 +42,7 @@ def generate(
 
     # Load model
     logger.info(f"Loading pretrained model: {config.model_name}, quant: {quant_str}")
+    logger.info(f"Config: {config.to_dict()}")
     model = AutoModelForCausalLM.from_pretrained(
         config.model_name,
         load_in_4bit=load_in_4bit,
