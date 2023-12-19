@@ -19,5 +19,10 @@
         "claude-2.1",
         "claude-instant-1",
         "claude-2"
+    ],
+    "bedrock": [
+        "anthropic.claude-instant-v1",
+        "anthropic.claude-v1",
+        "anthropic.claude-v2"
     ]
 }

@@ -46,7 +46,7 @@ def call_cloud() -> Union[Response, Tuple[Response, int]]:
         run_always_str = request.form.get("run_always", "False").lower()
         run_always = run_always_str == "true"
 
-        assert provider in ["openai", "anthropic"], "provider must be either 'openai' or 'anthropic'"
+        assert provider in ["openai", "anthropic", "bedrock"], "provider must be 'openai', 'anthropic', or 'bedrock'"
         assert model_name, "model_name must be set"
 
         logger.info(f"Received request for model: {model_name}")
@@ -90,6 +90,8 @@ def call_cloud() -> Union[Response, Tuple[Response, int]]:
             from llm_bench_api.cloud.openai import generate
         elif provider == "anthropic":
             from llm_bench_api.cloud.anthropic import generate
+        elif provider == "bedrock":
+            from llm_bench_api.cloud.bedrock import generate
         else:
             raise Exception(f"provider {provider} not supported")
         metrics = generate(model_config, run_config)

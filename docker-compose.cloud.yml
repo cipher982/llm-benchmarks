@@ -11,4 +11,5 @@ services:
     volumes:
       - ./api/llm_bench_api:/app/llm_bench_api
       - ./logs/:/var/log
+      - /home/drose/.aws:/root/.aws
     network_mode: host

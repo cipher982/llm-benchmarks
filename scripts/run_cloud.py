@@ -29,7 +29,7 @@ with open(json_file_path) as f:
 
 
 @click.command()
-@click.option("--providers", multiple=True, help="Providers to use, must be 'openai' or 'anthropic'.")
+@click.option("--providers", multiple=True, help="Providers to use for benchmarking.")
 @click.option("--limit", default=100, type=int, help="Limit the number of models run.")
 @click.option("--run-always", is_flag=True, help="Flag to always run benchmarks.")
 def main(
@@ -42,7 +42,7 @@ def main(
     """
 
     for provider in providers:
-        assert provider in ["openai", "anthropic"], "provider must be either 'openai' or 'anthropic'"
+        assert provider in ["openai", "anthropic", "bedrock"], "provider must be 'openai', 'anthropic', or 'bedrock'"
 
         # Gather models to run
         model_names = provider_models[provider]
