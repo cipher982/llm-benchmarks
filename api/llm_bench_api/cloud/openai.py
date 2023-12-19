@@ -64,7 +64,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
             response = chunk.choices[0]
             response_content = getattr(response, response_key)
         else:
-            response = chunk.choices[0].delta
+            response = chunk.choices[0].delta  # type: ignore
             response_content = response.content if response is not None else None
 
         if response_content is not None:
