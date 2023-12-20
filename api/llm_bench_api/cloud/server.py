@@ -43,6 +43,9 @@ def call_cloud() -> Union[Response, Tuple[Response, int]]:
         max_tokens = request.form.get("max_tokens", default=512, type=int)
         temperature = request.form.get("temperature", default=0.1, type=float)
 
+        streaming_str = request.form.get("streaming", "False").lower()
+        streaming = streaming_str == "true"
+
         run_always_str = request.form.get("run_always", "False").lower()
         run_always = run_always_str == "true"
 
@@ -59,6 +62,7 @@ def call_cloud() -> Union[Response, Tuple[Response, int]]:
             model_name=model_name,
             run_ts=run_ts,
             temperature=temperature,
+            streaming=streaming,
             misc={},  # TODO: anything to add here?
         )
 

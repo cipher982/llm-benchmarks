@@ -78,6 +78,7 @@ class CloudConfig:
         model_name: str,
         run_ts: str,
         temperature: float,
+        streaming: bool,
         misc: dict = {},
     ):
         """
@@ -87,6 +88,7 @@ class CloudConfig:
         self.model_name = model_name
         self.run_ts = run_ts
         self.temperature = temperature
+        self.streaming = streaming
         self.misc = misc
 
     def to_dict(self):
@@ -95,6 +97,7 @@ class CloudConfig:
             "model_name": self.model_name,
             "run_ts": self.run_ts,
             "temperature": self.temperature,
+            "streaming": self.streaming,
             "misc": self.misc,
         }
 

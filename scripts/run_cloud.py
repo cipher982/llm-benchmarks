@@ -30,10 +30,12 @@ with open(json_file_path) as f:
 
 @click.command()
 @click.option("--providers", multiple=True, help="Providers to use for benchmarking.")
+@click.option("--streaming", is_flag=True, help="Flag to enable streaming.")
 @click.option("--limit", default=100, type=int, help="Limit the number of models run.")
 @click.option("--run-always", is_flag=True, help="Flag to always run benchmarks.")
 def main(
     providers: Tuple[str, ...],
+    streaming: bool,
     limit: int,
     run_always: bool,
 ) -> None:
@@ -59,6 +61,7 @@ def main(
                 "max_tokens": MAX_TOKENS,
                 "temperature": TEMPERATURE,
                 "run_always": run_always,
+                "streaming": streaming,
             }
 
             try:

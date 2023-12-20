@@ -23,6 +23,14 @@
     "bedrock": [
         "anthropic.claude-instant-v1",
         "anthropic.claude-v1",
-        "anthropic.claude-v2"
+        "anthropic.claude-v2",
+        "amazon.titan-tg1-large",
+        "amazon.titan-text-lite-v1",
+        "amazon.titan-text-express-v1"
+    ],
+    "bedrock2": [
+        "amazon.titan-tg1-large",
+        "amazon.titan-text-lite-v1",
+        "amazon.titan-text-express-v1"
     ]
 }

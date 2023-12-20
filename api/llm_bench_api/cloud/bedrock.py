@@ -30,36 +30,53 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     output_tokens = 0
     times_between_tokens = []
 
-    body = json.dumps(
-        {
+    if "anthropic" in config.model_name:
+        body = {
             "prompt": f"{HUMAN_PROMPT} {run_config['query']} {AI_PROMPT}",
             "max_tokens_to_sample": run_config["max_tokens"],
             "temperature": config.temperature,
         }
-    )
-    response = bedrock.invoke_model_with_response_stream(
-        body=body,
-        modelId=config.model_name,
-    )
-    stream = response.get("body")
-    last_chunk = None
-    if stream:
-        for event in stream:
-            chunk = event.get("chunk")
-            if chunk:
-                last_chunk = chunk
-                current_time = time.time()
-                if not first_token_received:
-                    time_to_first_token = current_time - time_0
-                    first_token_received = True
-                else:
-                    assert previous_token_time is not None
-                    times_between_tokens.append(current_time - previous_token_time)
-                previous_token_time = current_time
+    elif "amazon" in config.model_name:
+        body = {
+            "inputText": "Human: Tell me a long history of WW2. \n\nAssistant:",
+            "textGenerationConfig": {
+                "maxTokenCount": run_config["max_tokens"],
+                "temperature": config.temperature,
+            },
+        }
+    else:
+        raise ValueError(f"Unknown model name: {config.model_name}")
 
-    if last_chunk:
-        metrics = json.loads(last_chunk.get("bytes").decode()).get("amazon-bedrock-invocationMetrics", {})
-        output_tokens = metrics.get("outputTokenCount")
+    if config.streaming:
+        response = bedrock.invoke_model_with_response_stream(
+            body=json.dumps(body),
+            modelId=config.model_name,
+        )
+        stream = response.get("body")
+        last_chunk = None
+        if stream:
+            for event in stream:
+                chunk = event.get("chunk")
+                if chunk:
+                    last_chunk = chunk
+                    current_time = time.time()
+                    if not first_token_received:
+                        time_to_first_token = current_time - time_0
+                        first_token_received = True
+                    else:
+                        assert previous_token_time is not None
+                        times_between_tokens.append(current_time - previous_token_time)
+                    previous_token_time = current_time
+
+        if last_chunk:
+            response_metrics = json.loads(last_chunk.get("bytes").decode()).get("amazon-bedrock-invocationMetrics", {})
+            output_tokens = response_metrics.get("outputTokenCount")
+    else:
+        response = bedrock.invoke_model(
+            body=json.dumps(body),
+            modelId=config.model_name,
+        )
+        output_tokens = int(response["ResponseMetadata"]["HTTPHeaders"]["x-amzn-bedrock-output-token-count"])
 
     time_1 = time.time()
     generate_time = time_1 - time_0
