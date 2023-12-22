@@ -1,0 +1,77 @@
+import logging
+import time
+from datetime import datetime
+
+import vertexai
+from llm_bench_api.config import CloudConfig
+from vertexai.preview.generative_models import GenerationConfig
+from vertexai.preview.generative_models import GenerativeModel
+
+
+logger = logging.getLogger(__name__)
+
+
+def generate(config: CloudConfig, run_config: dict) -> dict:
+    """Run Google inference and return metrics."""
+
+    assert config.provider == "google", "provider must be google"
+    assert "query" in run_config, "query must be in run_config"
+    assert "max_tokens" in run_config, "max_tokens must be in run_config"
+
+    # Set up connection
+    vertexai.init(project="llm-bench")
+    llm = GenerativeModel(config.model_name)
+
+    # Set up config
+    generation_config = GenerationConfig(
+        # temperature=run_config["temperature"],
+        candidate_count=1,
+        # max_output_tokens=run_config["max_tokens"],
+        max_output_tokens=512,
+    )
+
+    logger.info(f"Running inference for model: {config.model_name}")
+    logger.info(f"run_config: {run_config}")
+    logger.info(f"Query: {run_config['query']}")
+
+    # Generate
+    time_0 = time.time()
+    first_token_received = False
+    previous_token_time = None
+    time_to_first_token = None
+    output_tokens = 0
+    times_between_tokens = []
+
+    stream = llm.generate_content(
+        run_config["query"],
+        generation_config=generation_config,
+        stream=True,
+    )
+
+    for chunk in stream:
+        current_time = time.time()
+        if not first_token_received:
+            time_to_first_token = current_time - time_0
+            first_token_received = True
+        else:
+            assert previous_token_time is not None
+            times_between_tokens.append(current_time - previous_token_time)
+        previous_token_time = current_time
+
+    logger.info("Finished!!")
+    time_1 = time.time()
+    generate_time = time_1 - time_0
+    output_tokens = chunk._raw_response.usage_metadata.candidates_token_count
+    tokens_per_second = output_tokens / generate_time if generate_time > 0 else 0
+
+    metrics = {
+        "gen_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "requested_tokens": run_config["max_tokens"],
+        "output_tokens": output_tokens,
+        "generate_time": generate_time,
+        "tokens_per_second": tokens_per_second,
+        "time_to_first_token": time_to_first_token,
+        "times_between_tokens": times_between_tokens,
+    }
+
+    return metrics

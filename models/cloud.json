@@ -28,9 +28,7 @@
         "amazon.titan-text-lite-v1",
         "amazon.titan-text-express-v1"
     ],
-    "bedrock2": [
-        "amazon.titan-tg1-large",
-        "amazon.titan-text-lite-v1",
-        "amazon.titan-text-express-v1"
+    "google": [
+        "gemini-pro"
     ]
 }
