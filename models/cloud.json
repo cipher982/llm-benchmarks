@@ -29,6 +29,16 @@
         "amazon.titan-text-express-v1"
     ],
     "google": [
-        "gemini-pro"
+        "gemini-pro",
+        "text-bison@002"
+    ],
+    "google_todo": [
+        "gemini-pro",
+        "Llama2-7B-001",
+        "meta/llama2",
+        "mistralai/Mistral-7B-v0.1",
+        "Dolly-v2-7b",
+        "chat-bison@002",
+        "text-bison@002"
     ]
 }

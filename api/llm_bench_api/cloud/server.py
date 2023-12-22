@@ -120,7 +120,7 @@ def call_cloud() -> Union[Response, Tuple[Response, int]]:
         )
         return jsonify({"status": "success"}), 200
     except Exception as e:
-        logger.exception(f"Error in openai benchmark: {e}")
+        logger.exception(f"Error in cloud benchmark: {e}")
         return jsonify({"status": "error", "reason": str(e)}), 500
 
 

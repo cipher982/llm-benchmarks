@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 QUERY_TEXT = "Tell me a long story of the history of the world."
-MAX_TOKENS = 512
+MAX_TOKENS = 256
 TEMPERATURE = 0.1
 FLASK_URL = "http://localhost:{}/benchmark"
 FLASK_PORT = 5004
