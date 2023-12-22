@@ -30,10 +30,6 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         max_output_tokens=512,
     )
 
-    logger.info(f"Running inference for model: {config.model_name}")
-    logger.info(f"run_config: {run_config}")
-    logger.info(f"Query: {run_config['query']}")
-
     # Generate
     time_0 = time.time()
     first_token_received = False
