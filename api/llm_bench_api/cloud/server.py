@@ -114,6 +114,9 @@ def call_cloud() -> Union[Response, Tuple[Response, int]]:
         logger.info(f"Generate time: {metrics['generate_time']:.2f} s")
         logger.info(f"Tokens per second: {metrics['tokens_per_second']:.2f}")
 
+        # Check to ensure metrics are valid
+        assert metrics["tokens_per_second"] > 0, "tokens_per_second must be greater than 0"
+
         log_to_mongo(
             model_type="cloud",
             config=model_config,

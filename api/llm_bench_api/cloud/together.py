@@ -57,6 +57,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     first_token_received = False
     previous_token_time = None
     output_chunks = 0
+    output_tokens = 0
     times_between_tokens = []
     time_to_first_token = 0
     response_str = ""
@@ -83,12 +84,13 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
             previous_token_time = current_time
             response_str += response_content
             output_chunks += 1
+            if len(chunk.choices) == 1:
+                output_tokens += 1
+            else:
+                raise ValueError("Unexpected number of choices")
 
     time_1 = time.time()
     generate_time = time_1 - time_0
-
-    # Calculate tokens
-    output_tokens = chunk.usage["completion_tokens"]  # type: ignore
     tokens_per_second = output_tokens / generate_time if generate_time > 0 else 0
 
     metrics = {
