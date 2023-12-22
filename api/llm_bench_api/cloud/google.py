@@ -17,9 +17,9 @@ v1_models = ["text-bison@002", "chat-bison@002"]
 
 
 def generate(config: CloudConfig, run_config: dict) -> dict:
-    """Run Google inference and return metrics."""
+    """Run Vertex inference and return metrics."""
 
-    assert config.provider == "google", "provider must be google"
+    assert config.provider == "vertex", "provider must be Vertex"
     assert "query" in run_config, "query must be in run_config"
     assert "max_tokens" in run_config, "max_tokens must be in run_config"
 
@@ -104,5 +104,5 @@ def count_v1_tokens(max_tokens: int, response_str: str) -> int:
     encoder = tiktoken.get_encoding("cl100k_base")
     openai_tokens = len(encoder.encode(response_str))
     if not 0.9 * max_tokens <= openai_tokens <= 1.1 * max_tokens:
-        raise ValueError(f"Output tokens {openai_tokens} not within 10% of max tokens {max_tokens}")
+        raise ValueError(f"Openai tokens {openai_tokens} not within 10% of max tokens {max_tokens}")
     return max_tokens

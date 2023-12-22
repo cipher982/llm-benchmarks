@@ -28,11 +28,11 @@
         "amazon.titan-text-lite-v1",
         "amazon.titan-text-express-v1"
     ],
-    "google": [
+    "vertex": [
         "gemini-pro",
         "text-bison@002"
     ],
-    "google_todo": [
+    "vertex_todo": [
         "gemini-pro",
         "Llama2-7B-001",
         "meta/llama2",
@@ -40,5 +40,21 @@
         "Dolly-v2-7b",
         "chat-bison@002",
         "text-bison@002"
+    ],
+    "anyscale": [
+        "meta-llama/Llama-2-7b-chat-hf",
+        "meta-llama/Llama-2-13b-chat-hf",
+        "meta-llama/Llama-2-70b-chat-hf",
+        "mistralai/Mistral-7B-Instruct-v0.1",
+        "mistralai/Mixtral-8x7B-Instruct-v0.1"
+    ],
+    "together": [
+        "togethercomputer/llama-2-7b-chat",
+        "togethercomputer/llama-2-13b-chat",
+        "togethercomputer/llama-2-70b-chat",
+        "togethercomputer/falcon-7b",
+        "togethercomputer/falcon-40b",
+        "mistralai/Mistral-7B-Instruct-v0.2",
+        "mistralai/Mixtral-8x7B-Instruct-v0.1"
     ]
 }
