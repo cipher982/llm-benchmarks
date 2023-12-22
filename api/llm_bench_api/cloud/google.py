@@ -102,7 +102,7 @@ def count_v1_tokens(max_tokens: int, response_str: str) -> int:
     A bit of a hack as vertex token counter is broken.
     """
     encoder = tiktoken.get_encoding("cl100k_base")
-    output_tokens = len(encoder.encode(response_str))
-    if not 0.9 * max_tokens <= output_tokens <= 1.1 * max_tokens:
-        raise ValueError(f"Output tokens {output_tokens} not within 10% of max tokens {max_tokens}")
-    return output_tokens
+    openai_tokens = len(encoder.encode(response_str))
+    if not 0.9 * max_tokens <= openai_tokens <= 1.1 * max_tokens:
+        raise ValueError(f"Output tokens {openai_tokens} not within 10% of max tokens {max_tokens}")
+    return max_tokens
