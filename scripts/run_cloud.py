@@ -27,6 +27,8 @@ json_file_path = os.path.join(script_dir, "../models/cloud.json")
 with open(json_file_path) as f:
     provider_models = json.load(f)
 
+ALL_PROVIDERS = ["openai", "anthropic", "bedrock", "vertex", "anyscale", "together"]
+
 
 @click.command()
 @click.option("--providers", multiple=True, help="Providers to use for benchmarking.")
@@ -43,8 +45,11 @@ def main(
     Main entrypoint for benchmarking cloud models.
     """
 
+    if "all" in providers:
+        providers = tuple(ALL_PROVIDERS)
+
     for provider in providers:
-        assert provider in ["openai", "anthropic", "bedrock", "vertex", "anyscale", "together"]
+        assert provider in ALL_PROVIDERS, f"invalid provider: {provider}"
 
         # Gather models to run
         model_names = provider_models[provider]

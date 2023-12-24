@@ -49,7 +49,14 @@ def call_cloud() -> Union[Response, Tuple[Response, int]]:
         run_always_str = request.form.get("run_always", "False").lower()
         run_always = run_always_str == "true"
 
-        assert provider in ["openai", "anthropic", "bedrock", "vertex", "anyscale", "together"]
+        assert provider in [
+            "openai",
+            "anthropic",
+            "bedrock",
+            "vertex",
+            "anyscale",
+            "together",
+        ], f"invalid provider: {provider}"
         assert model_name, "model_name must be set"
 
         logger.info(f"Received request for model: {model_name}")
