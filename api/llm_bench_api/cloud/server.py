@@ -56,6 +56,7 @@ def call_cloud() -> Union[Response, Tuple[Response, int]]:
             "vertex",
             "anyscale",
             "together",
+            "openrouter",
         ], f"invalid provider: {provider}"
         assert model_name, "model_name must be set"
 
@@ -104,6 +105,7 @@ def call_cloud() -> Union[Response, Tuple[Response, int]]:
             "vertex": "llm_bench_api.cloud.google",
             "anyscale": "llm_bench_api.cloud.anyscale",
             "together": "llm_bench_api.cloud.together",
+            "openrouter": "llm_bench_api.cloud.openrouter",
         }
         try:
             module_name = provider_modules[provider]

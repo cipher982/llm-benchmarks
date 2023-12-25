@@ -56,5 +56,12 @@
         "togethercomputer/falcon-40b",
         "mistralai/Mistral-7B-Instruct-v0.2",
         "mistralai/Mixtral-8x7B-Instruct-v0.1"
+    ],
+    "openrouter": [
+        "meta-llama/llama-2-13b-chat",
+        "meta-llama/llama-2-70b-chat",
+        "mistralai/mistral-7b-instruct",
+        "mistralai/mixtral-8x7b-instruct",
+        "01-ai/yi-34b-chat"
     ]
 }

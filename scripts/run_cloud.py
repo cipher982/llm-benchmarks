@@ -27,7 +27,7 @@ json_file_path = os.path.join(script_dir, "../models/cloud.json")
 with open(json_file_path) as f:
     provider_models = json.load(f)
 
-ALL_PROVIDERS = ["openai", "anthropic", "bedrock", "vertex", "anyscale", "together"]
+ALL_PROVIDERS = ["openai", "anthropic", "bedrock", "vertex", "anyscale", "together", "openrouter"]
 
 
 @click.command()
