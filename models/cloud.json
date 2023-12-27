@@ -63,5 +63,10 @@
         "mistralai/mistral-7b-instruct",
         "mistralai/mixtral-8x7b-instruct",
         "01-ai/yi-34b-chat"
+    ],
+    "azure": [
+        "llama-2-7b-chat",
+        "llama-2-13b-chat",
+        "llama-2-70b-chat"
     ]
 }
