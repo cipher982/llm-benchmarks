@@ -36,6 +36,7 @@ ALL_PROVIDERS = [
     "together",
     "openrouter",
     "azure",
+    "runpod",
 ]
 
 
