@@ -28,6 +28,17 @@ assert MONGODB_URI, "MONGODB_URI environment variable not set"
 assert MONGODB_DB, "MONGODB_DB environment variable not set"
 assert MONGODB_COLLECTION_CLOUD, "MONGODB_COLLECTION_CLOUD environment variable not set"
 
+PROVIDER_MODULES = {
+    "openai": "llm_bench_api.cloud.openai",
+    "anthropic": "llm_bench_api.cloud.anthropic",
+    "bedrock": "llm_bench_api.cloud.bedrock",
+    "vertex": "llm_bench_api.cloud.google",
+    "anyscale": "llm_bench_api.cloud.anyscale",
+    "together": "llm_bench_api.cloud.together",
+    "openrouter": "llm_bench_api.cloud.openrouter",
+    "azure": "llm_bench_api.cloud.azure",
+    "runpod": "llm_bench_api.cloud.runpod",
+}
 
 app = Flask(__name__)
 
@@ -49,17 +60,7 @@ def call_cloud() -> Union[Response, Tuple[Response, int]]:
         run_always_str = request.form.get("run_always", "False").lower()
         run_always = run_always_str == "true"
 
-        assert provider in [
-            "openai",
-            "anthropic",
-            "bedrock",
-            "vertex",
-            "anyscale",
-            "together",
-            "openrouter",
-            "azure",
-            "runpod",
-        ], f"invalid provider: {provider}"
+        assert provider in PROVIDER_MODULES, f"invalid provider: {provider}"
         assert model_name, "model_name must be set"
 
         logger.info(f"Received request for model: {model_name}")
@@ -100,19 +101,8 @@ def call_cloud() -> Union[Response, Tuple[Response, int]]:
             logger.info(f"Model has not been benchmarked before: {model_name}")
 
         # Main benchmarking function
-        provider_modules = {
-            "openai": "llm_bench_api.cloud.openai",
-            "anthropic": "llm_bench_api.cloud.anthropic",
-            "bedrock": "llm_bench_api.cloud.bedrock",
-            "vertex": "llm_bench_api.cloud.google",
-            "anyscale": "llm_bench_api.cloud.anyscale",
-            "together": "llm_bench_api.cloud.together",
-            "openrouter": "llm_bench_api.cloud.openrouter",
-            "azure": "llm_bench_api.cloud.azure",
-            "runpod": "llm_bench_api.cloud.runpod",
-        }
         try:
-            module_name = provider_modules[provider]
+            module_name = PROVIDER_MODULES[provider]
             module = __import__(module_name, fromlist=["generate"])
             generate = module.generate
         except KeyError:
