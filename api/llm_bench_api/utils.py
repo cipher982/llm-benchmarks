@@ -4,6 +4,8 @@ import re
 import shutil
 from typing import cast
 from typing import List
+from typing import Optional
+from typing import Tuple
 from typing import Union
 
 import pynvml
@@ -106,6 +108,35 @@ def get_cached_models(directory: str) -> list[str]:
     return formatted_names
 
 
+def extract_param_count(model_id: str) -> Optional[Tuple[str, float]]:
+    """
+    Extract the parameter count from the model name.
+
+    Returns a tuple of the model name and its parameter count in millions,
+    or None if the pattern does not match.
+    """
+    # Use regex to extract the parameter size with a specific pattern
+    match = re.search(r"(\d+)x(\d+\.\d+|\d+)([MmBb])", model_id)
+    if not match:
+        # If no multiplier pattern is found, try matching without multiplier
+        match = re.search(r"(\d+\.\d+|\d+)([MmBb])", model_id)
+        if not match:
+            return None
+        numerical_part = float(match.group(1))
+        unit = match.group(2).upper()
+    else:
+        # If multiplier pattern is found, calculate the total size
+        multiplier, size_str, unit = match.groups()
+        numerical_part = float(size_str) * int(multiplier)
+        unit = unit.upper()
+
+    # Normalize parameter count to millions
+    if unit == "B":
+        numerical_part *= 1000  # Convert B to M
+
+    return model_id, numerical_part
+
+
 def filter_model_size(model_ids: List[str], max_size_million: int) -> List[str]:
     """
     Filter models based on parameter count.
@@ -114,22 +145,16 @@ def filter_model_size(model_ids: List[str], max_size_million: int) -> List[str]:
     dropped_models: List[str] = []
 
     for model_id in model_ids:
-        # Use regex to extract the parameter size
-        match = re.search(r"([0-9.]+[MmBb])", model_id)
-        param_count = match.group(1) if match else None
-
-        if not param_count:
+        result = extract_param_count(model_id)
+        if not result:
             dropped_models.append(model_id)
             continue
 
-        # Normalize parameter count to millions
-        unit = param_count[-1].upper()
-        numerical_part = float(param_count[:-1])
-        if unit == "B":
-            numerical_part *= 1000  # Convert B to M
+        # Unpack the model name and its parameter count
+        _, param_count_million = result
 
         # Filter based on parameter count
-        if numerical_part <= max_size_million:
+        if param_count_million <= max_size_million:
             valid_models.append(model_id)
         else:
             dropped_models.append(model_id)
