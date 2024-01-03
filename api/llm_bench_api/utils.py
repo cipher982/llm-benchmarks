@@ -115,20 +115,26 @@ def extract_param_count(model_id: str) -> Optional[Tuple[str, float]]:
     Returns a tuple of the model name and its parameter count in millions,
     or None if the pattern does not match.
     """
-    # Use regex to extract the parameter size with a specific pattern
-    match = re.search(r"(\d+)x(\d+\.\d+|\d+)([MmBb])", model_id)
-    if not match:
-        # If no multiplier pattern is found, try matching without multiplier
-        match = re.search(r"(\d+\.\d+|\d+)([MmBb])", model_id)
-        if not match:
-            return None
-        numerical_part = float(match.group(1))
-        unit = match.group(2).upper()
+    # Special case for 'mixtral' models
+    if "mixtral" in model_id.lower():
+        # If it's a 'mixtral' model, set the numerical part to 56 billion
+        numerical_part = 56.0
+        unit = "B"
     else:
-        # If multiplier pattern is found, calculate the total size
-        multiplier, size_str, unit = match.groups()
-        numerical_part = float(size_str) * int(multiplier)
-        unit = unit.upper()
+        # Use regex to extract the parameter size with a specific pattern
+        match = re.search(r"(\d+)x(\d+\.\d+|\d+)([MmBb])", model_id)
+        if not match:
+            # If no multiplier pattern is found, try matching without multiplier
+            match = re.search(r"(\d+\.\d+|\d+)([MmBb])", model_id)
+            if not match:
+                return None
+            numerical_part = float(match.group(1))
+            unit = match.group(2).upper()
+        else:
+            # If multiplier pattern is found, calculate the total size
+            multiplier, size_str, unit = match.groups()
+            numerical_part = float(size_str) * int(multiplier)
+            unit = unit.upper()
 
     # Normalize parameter count to millions
     if unit == "B":
