@@ -46,6 +46,9 @@ def fetch_hf_models(fetch_hub: bool, cache_dir: str) -> list[str]:
             print(f"Error fetching cached models: {e}")
             return []
 
+    # Filter out gguf models (use these in llama-cpp instead)
+    model_names = [name for name in model_names if "gguf" not in name.lower()]
+
     return model_names
 
 
