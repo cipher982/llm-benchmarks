@@ -1,8 +1,12 @@
 import argparse
 import os
+import shutil
 import subprocess
 
 from huggingface_hub import snapshot_download
+
+# Define the constant for the final output directory
+OUTPUT_DIR = "/gemini/gguf"
 
 
 def main() -> None:
@@ -10,14 +14,19 @@ def main() -> None:
     parser.add_argument("-m", "--model", required=True, help="Model ID from the Hugging Face Hub.")
     args = parser.parse_args()
 
-    cleaned_model_id = "./" + clean_model_id(args.model)
-    download_model(model_id=args.model, local_dir=cleaned_model_id)
+    cleaned_model_id = clean_model_id(args.model)
+    tmp_dir = "/tmp/" + cleaned_model_id
+    download_model(model_id=args.model, local_dir=tmp_dir)
 
     # Format the outfile path
-    outfile_path = os.path.join(cleaned_model_id, "m-f16.gguf")
-
+    outfile_path = os.path.join(OUTPUT_DIR, cleaned_model_id, "m-f16.gguf")
+    # Ensure the output directory exists
+    os.makedirs(os.path.dirname(outfile_path), exist_ok=True)
     # Run convert.py on the downloaded file
-    subprocess.run(["python", "convert.py", cleaned_model_id, "--outfile", outfile_path, "--padvocab"], check=True)
+    subprocess.run(["python", "convert.py", tmp_dir, "--outfile", outfile_path, "--padvocab"], check=True)
+
+    # Delete the temporary directory
+    shutil.rmtree(tmp_dir)
 
 
 def download_model(model_id: str, local_dir: str, revision: str = "main") -> None:
