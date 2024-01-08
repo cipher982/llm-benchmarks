@@ -10,3 +10,8 @@ authors = ["David Rose <david@drose.io>"]
 
 [tool.black]
 line-length = 120
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.13"
+llama-cpp-python = "^0.2.27"
+huggingface-hub = "^0.20.2"
