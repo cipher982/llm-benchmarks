@@ -2,6 +2,7 @@ import argparse
 import os
 import shutil
 import subprocess
+import sys
 
 from huggingface_hub import snapshot_download
 
@@ -14,11 +15,18 @@ def main() -> None:
     parser.add_argument("-m", "--model", required=True, help="Model ID from the Hugging Face Hub.")
     args = parser.parse_args()
 
-    # Download the model
+    # Clean the model id
     cleaned_model_id = clean_model_id(args.model)
+
+    # Check if the model already exists
+    model_path = os.path.join(OUTPUT_DIR, cleaned_model_id, "m-f16.gguf")
+    if os.path.exists(model_path):
+        print(f"Model {args.model} already exists at {model_path}. Exiting.")
+        sys.exit(0)
+
+    # Download the model
     tmp_dir = "/tmp/" + cleaned_model_id
     download_model(model_id=args.model, local_dir=tmp_dir)
-
     # Convert the model to the gguf format
     print("Converting model to gguf format...")
     outfile_path = os.path.join(OUTPUT_DIR, cleaned_model_id, "m-f16.gguf")
