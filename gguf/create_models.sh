@@ -12,5 +12,5 @@ export HUGGINGFACE_HUB_CACHE="/tmp"
 # Loop over the model names
 for model in "${model_names[@]}"
 do
-  python ./create_model.py -m meta-llama/${model}
+  python ./llm_bench_gguf/create_model.py -m meta-llama/${model}
 done
