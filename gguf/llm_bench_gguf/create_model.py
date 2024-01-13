@@ -31,20 +31,24 @@ def main() -> None:
     print("Converting model to gguf format...")
     outfile_path = os.path.join(OUTPUT_DIR, cleaned_model_id, "m-f16.gguf")
     os.makedirs(os.path.dirname(outfile_path), exist_ok=True)
-    process = subprocess.run(
-        [
-            "python",
-            "../prep/llama.cpp/convert.py",
-            tmp_dir,
-            "--outfile",
-            outfile_path,
-            "--padvocab",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        check=True,
-    )
+    try:
+        process = subprocess.run(
+            [
+                "python",
+                "../prep/llama.cpp/convert.py",
+                tmp_dir,
+                "--outfile",
+                outfile_path,
+                "--padvocab",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"Error occurred while running convert.py: {e.stderr}")
+        sys.exit(1)
 
     # Filter the output
     for line in process.stdout.split("\n"):
