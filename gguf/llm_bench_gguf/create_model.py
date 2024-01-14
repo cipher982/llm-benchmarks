@@ -21,7 +21,7 @@ def main() -> None:
     # Check if the model already exists
     model_path = os.path.join(OUTPUT_DIR, cleaned_model_id, "m-f16.gguf")
     if os.path.exists(model_path):
-        print(f"Model {args.model} already exists at {model_path}. Exiting.")
+        print(f"Model {args.model} already exists at {model_path}. Skipping.")
         sys.exit(0)
 
     # Download the model
@@ -35,7 +35,7 @@ def main() -> None:
         process = subprocess.run(
             [
                 "python",
-                "../prep/llama.cpp/convert.py",
+                "./prep/llama.cpp/convert.py",
                 tmp_dir,
                 "--outfile",
                 outfile_path,
@@ -56,6 +56,7 @@ def main() -> None:
             print(line)
 
     shutil.rmtree(tmp_dir)
+    print(f"Model {args.model} converted to gguf format and saved to {outfile_path}")
 
 
 def download_model(model_id: str, local_dir: str, revision: str = "main") -> None:
