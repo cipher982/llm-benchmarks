@@ -43,7 +43,7 @@ services:
       - ./api/llm_bench_api:/app/llm_bench_api
       - ./gguf/llm_bench_gguf:/app/llm_bench_gguf
       - ./logs/:/var/log
-      - /rocket/cpp:/models
+      - /gemini/gguf:/models
     network_mode: host
     environment:
       - CUDA_VISIBLE_DEVICES=1
