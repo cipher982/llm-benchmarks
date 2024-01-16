@@ -43,6 +43,8 @@ def benchmark_cpp() -> Union[Response, Tuple[Response, int]]:
         temperature = request.form.get("temperature", default=0.1, type=float)
         n_gpu_layers = int(request.form.get("n_gpu_layers", 0))
 
+        assert model_name, "model_name not set"
+
         logger.info(f"Received request for model {model_name}")
 
         # Main benchmarking function
