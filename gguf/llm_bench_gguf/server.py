@@ -32,7 +32,7 @@ FLASK_PORT = 5003
 
 
 @app.route("/benchmark", methods=["POST"])
-def benchmark_cpp() -> Union[Response, Tuple[Response, int]]:
+def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
     """Enables the use a POST request to call the benchmarking function."""
     try:
         # Load config from request

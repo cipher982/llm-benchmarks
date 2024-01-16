@@ -9,37 +9,45 @@ FLASK_PORT = 5003
 
 @click.command()
 @click.option("--limit", default=50, type=int, help="Limit the number of models to run for debugging.")
-def bench_gguf(limit: int) -> None:
+@click.option("--run-always", is_flag=True, help="Flag to always run benchmarks.")
+def bench_gguf(limit: int, run_always: bool) -> None:
     """Benchmark all models on the gguf server."""
 
     # Get all models and quant types from disk
     model_dir = "/gemini/gguf"
     model_names, quant_types = get_models_and_quant_types(model_dir)
 
+    # Manually drop some models
+    drop_models = [
+        "meta-llama--Llama-2-70b-chat-hf/m-f16.gguf",
+    ]
+    model_names = [model for model in model_names if model not in drop_models]
+
     # Run benchmarks
     model_status: Dict[str, int] = {}
     stop = False
     for model in model_names:
-        for quant in quant_types:
-            if stop:
-                break
-            full_model = model + quant
-            print(f"Running benchmark: {full_model}")
+        if stop:
+            break
+        quant = get_quant_type(model)
+        print(f"Running benchmark: {model}, quant: {quant}")
 
-            config = {
-                "query": "User: Tell me a long story about the history of the world.\nAI:",
-                "max_tokens": 256,
-                "n_gpu_layers": -1,
-            }
-            response = requests.post(f"http://localhost:{FLASK_PORT}/benchmark/{full_model}", data=config)
+        config = {
+            "model_name": model,
+            "query": "User: Tell me a long story about the history of the world.\nAI:",
+            "max_tokens": 256,
+            "n_gpu_layers": -1,
+        }
+        request_path = f"http://localhost:{FLASK_PORT}/benchmark"
+        response = requests.post(request_path, data=config)
 
-            response_code = response.status_code
-            print(f"Finished benchmark: {full_model} with Status Code: {response_code}")
+        response_code = response.status_code
+        print(f"Finished benchmark: {model} with Status Code: {response_code}")
 
-            model_status[full_model] = response_code
+        model_status[model] = response_code
 
-            if len(model_status) >= limit:
-                stop = True
+        if len(model_status) >= limit:
+            stop = True
 
     print("All benchmark runs are finished.")
 
@@ -64,13 +72,13 @@ def get_quant_type(file: str) -> str:
 
 def get_models_and_quant_types(model_dir: str = "/gemini/gguf") -> tuple:
     """Get list of .gguf models and their quant types from any dirs in model_dir."""
+
     model_names = []
     quant_types = []
-
     for root, dirs, files in os.walk(model_dir):
         for file in files:
             if file.endswith(".gguf"):
-                model_name = os.path.basename(root)
+                model_name = os.path.join(os.path.basename(root), file)
                 model_names.append(model_name)
                 quant_type = get_quant_type(file)
                 quant_types.append(quant_type)
