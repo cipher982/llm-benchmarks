@@ -88,7 +88,7 @@ def benchmark_cpp() -> Union[Response, Tuple[Response, int]]:
         )
 
         # Build metrics object
-        output_tokens = output["usage"]["completion_tokens"]
+        output_tokens = output["usage"]["completion_tokens"]  # type: ignore
 
         metrics = {
             "gen_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
