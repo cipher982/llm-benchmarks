@@ -20,6 +20,7 @@ def bench_gguf(limit: int, run_always: bool) -> None:
     # Manually drop some models
     drop_models = [
         "meta-llama--Llama-2-70b-chat-hf/m-f16.gguf",
+        "meta-llama--Llama-2-13b-chat-hf/m-f16.gguf",
     ]
     model_names = [model for model in model_names if model not in drop_models]
 
