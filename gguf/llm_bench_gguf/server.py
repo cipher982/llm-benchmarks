@@ -14,6 +14,7 @@ from llama_cpp import Llama
 from llm_bench_api.config import ModelConfig
 from llm_bench_api.config import MongoConfig
 from llm_bench_api.logging import log_to_mongo
+from llm_bench_api.utils import has_existing_run
 
 
 logging.basicConfig(filename="/var/log/llm_benchmarks.log", level=logging.INFO)
@@ -36,21 +37,62 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
     """Enables the use a POST request to call the benchmarking function."""
     try:
         # Load config from request
+        framework = "gguf"
         model_name = request.form.get("model_name")
         model_path = f"/models/{model_name}"
         query = request.form.get("query", "User: Complain that I did not send a request.\nAI:")
         max_tokens = int(request.form.get("max_tokens", 512))
         temperature = request.form.get("temperature", default=0.1, type=float)
+        quant_method = request.form.get("quant_method", default=None, type=str)
+        quant_bits = request.form.get("quant_bits", default=None, type=str)
         n_gpu_layers = int(request.form.get("n_gpu_layers", 0))
+        run_always_str = request.form.get("run_always", "False").lower()
+        run_always = run_always_str == "true"
 
         assert model_name, "model_name not set"
 
+        quant_str = f"{quant_method}_{quant_bits}" if quant_method is not None else "none"
+        logger.info(f"Received request for model: {model_name}, quant: {quant_str}")
+
         logger.info(f"Received request for model {model_name}")
+
+        # Create model config
+        model_config = ModelConfig(
+            framework=framework,
+            model_name=model_name,
+            run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            model_dtype="half_float::half",
+            quantization_method=quant_method,
+            quantization_bits=quant_bits,
+            temperature=temperature,
+        )
+        assert model_config.quantization_bits in ["4bit", "8bit", None]
+
+        run_config = {
+            "query": query,
+            "max_tokens": max_tokens,
+        }
+
+        mongo_config = MongoConfig(
+            uri=MONGODB_URI,
+            db=MONGODB_DB,
+            collection=MONGODB_COLLECTION_LOCAL,
+        )
+        existing_run = has_existing_run(model_name, model_config, mongo_config)
+        if existing_run:
+            if run_always:
+                logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
+                logger.info("Re-running benchmark anyway because run_always is True")
+            else:
+                logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
+                return jsonify({"status": "skipped", "reason": "model has been benchmarked before"}), 200
+        else:
+            logger.info(f"Model has not been benchmarked before: {model_name}, quant: {quant_str}")
 
         # Main benchmarking function
         llm = Llama(
             model_path=model_path,
-            max_tokens=max_tokens,
+            max_tokens=run_config["max_tokens"],
             n_gpu_layers=n_gpu_layers,
             temperature=temperature,
         )
@@ -64,28 +106,19 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
 
         # Run benchmark
         time_0 = time.time()
-        output = llm(query, echo=True)
+        output = llm(run_config["query"], echo=True)
         time_1 = time.time()
 
-        # Build config object
-        model_quantization_list = [
-            ("q4_0", "4bit"),
-            ("q8_0", "8bit"),
-            ("f16", None),
-        ]
-        quantization_bits = next(
-            (bits for key, bits in model_quantization_list if key in model_name),
-            "unknown",
-        )
-
-        model_config = ModelConfig(
-            framework="gguf",
-            model_name=model_name,
-            quantization_bits=quantization_bits,
-            model_dtype="half_float::half",
-            temperature=temperature,
-            run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        )
+        # # Build config object
+        # model_quantization_list = [
+        #     ("q4_0", "4bit"),
+        #     ("q8_0", "8bit"),
+        #     ("f16", None),
+        # ]
+        # quantization_bits = next(
+        #     (bits for key, bits in model_quantization_list if key in model_name),
+        #     "unknown",
+        # )
 
         # Build metrics object
         output_tokens = output["usage"]["completion_tokens"]  # type: ignore
@@ -98,12 +131,6 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
             "generate_time": [time_1 - time_0],
             "tokens_per_second": [output_tokens / (time_1 - time_0) if time_1 > time_0 else 0],
         }
-
-        mongo_config = MongoConfig(
-            uri=MONGODB_URI,
-            db=MONGODB_DB,
-            collection=MONGODB_COLLECTION_LOCAL,
-        )
 
         # Log metrics to MongoDB
         log_to_mongo(

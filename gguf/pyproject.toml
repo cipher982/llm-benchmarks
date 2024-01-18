@@ -15,3 +15,4 @@ line-length = 120
 python = ">=3.11,<3.13"
 llama-cpp-python = "^0.2.27"
 huggingface-hub = "^0.20.2"
+llm-bench-api = { path = "../api" }
