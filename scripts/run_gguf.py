@@ -38,6 +38,7 @@ def bench_gguf(limit: int, run_always: bool) -> None:
             "query": "User: Tell me a long story about the history of the world.\nAI:",
             "max_tokens": 256,
             "n_gpu_layers": -1,
+            "run_always": run_always,
         }
         request_path = f"http://localhost:{FLASK_PORT}/benchmark"
         response = requests.post(request_path, data=config)
