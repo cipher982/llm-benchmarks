@@ -75,5 +75,10 @@
         "llama2-7b-chat",
         "llama2-13b-chat",
         "llama2-70b-chat"
+    ],
+    "fireworks": [
+        "accounts/fireworks/models/llama-v2-7b-chat",
+        "accounts/fireworks/models/llama-v2-13b-chat",
+        "accounts/fireworks/models/llama-v2-70b-chat"
     ]
 }
