@@ -37,6 +37,7 @@ ALL_PROVIDERS = [
     "openrouter",
     "azure",
     "runpod",
+    "fireworks",
 ]
 
 
