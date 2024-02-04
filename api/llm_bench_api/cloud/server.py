@@ -38,6 +38,7 @@ PROVIDER_MODULES = {
     "openrouter": "llm_bench_api.cloud.openrouter",
     "azure": "llm_bench_api.cloud.azure",
     "runpod": "llm_bench_api.cloud.runpod",
+    "fireworks": "llm_bench_api.cloud.fireworks",
 }
 
 app = Flask(__name__)
