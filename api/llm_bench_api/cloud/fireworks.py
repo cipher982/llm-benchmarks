@@ -10,19 +10,14 @@ from openai import OpenAI
 logger = logging.getLogger(__name__)
 
 
-NON_CHAT_MODELS = []
-
-
-def process_chat_model(client, config, run_config):
-    return (
-        client.chat.completions.create(
-            model=config.model_name,
-            messages=[{"role": "user", "content": run_config["query"]}],
-            max_tokens=run_config["max_tokens"],
-            stream=True,
-        ),
-        "choices",
-    )
+NON_CHAT_MODELS = [
+    "accounts/fireworks/models/llama-v2-7b",
+    "accounts/fireworks/models/llama-v2-13b",
+    "accounts/fireworks/models/llama-v2-70b",
+    "accounts/fireworks/models/llama-v2-34b-code",
+    "accounts/fireworks/models/mistral-7b",
+    "accounts/fireworks/models/mixtral-8x7b",
+]
 
 
 def generate(config: CloudConfig, run_config: dict) -> dict:
@@ -92,5 +87,25 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     return metrics
 
 
+def process_chat_model(client, config, run_config):
+    return (
+        client.chat.completions.create(
+            model=config.model_name,
+            messages=[{"role": "user", "content": run_config["query"]}],
+            max_tokens=run_config["max_tokens"],
+            stream=True,
+        ),
+        "choices",
+    )
+
+
 def process_non_chat_model(client, config, run_config):
-    raise NotImplementedError
+    return (
+        client.completions.create(
+            model=config.model_name,
+            prompt=run_config["query"],
+            max_tokens=run_config["max_tokens"],
+            stream=True,
+        ),
+        "text",
+    )
