@@ -76,8 +76,15 @@
         "llama2-13b-chat"
     ],
     "fireworks": [
+        "accounts/fireworks/models/llama-v2-7b",
         "accounts/fireworks/models/llama-v2-7b-chat",
+        "accounts/fireworks/models/llama-v2-13b",
         "accounts/fireworks/models/llama-v2-13b-chat",
-        "accounts/fireworks/models/llama-v2-70b-chat"
+        "accounts/fireworks/models/llama-v2-34b-code",
+        "accounts/fireworks/models/llama-v2-70b",
+        "accounts/fireworks/models/llama-v2-70b-chat",
+        "accounts/fireworks/models/mistral-7b",
+        "accounts/fireworks/models/mixtral-8x7b",
+        "accounts/fireworks/models/mixtral-8x7b-instruct"
     ]
 }
