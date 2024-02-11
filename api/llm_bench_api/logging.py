@@ -1,10 +1,12 @@
 """Logging utilities for the LLM benchmarks."""
 import logging.config
+from datetime import datetime
 from typing import Any
 from typing import Dict
 from typing import Union
 
 import pymongo
+import pytz
 from llm_bench_api.config import CloudConfig
 from llm_bench_api.config import ModelConfig
 from pymongo.collection import Collection
@@ -27,11 +29,15 @@ def log_to_mongo(
     try:
         collection = setup_database(uri, db_name, collection_name)
 
+        # Settimestamps correctly
+        run_ts_utc = datetime.strptime(config.run_ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
+        gen_ts_utc = datetime.strptime(metrics["gen_ts"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
+
         data = {
-            "run_ts": config.run_ts,
+            "run_ts": run_ts_utc,
             "model_name": config.model_name,
             "temperature": config.temperature,
-            "gen_ts": metrics["gen_ts"],
+            "gen_ts": gen_ts_utc,
             "requested_tokens": metrics["requested_tokens"],
             "output_tokens": metrics["output_tokens"],
             "generate_time": metrics["generate_time"],
