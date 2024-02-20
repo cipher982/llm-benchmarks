@@ -90,7 +90,7 @@ def process_chat_model_di(client, config, run_config):
 
 def process_non_chat_model_di(client, config, run_config):
     stream = True
-    completion = client.chat.completions.create(
+    completion = client.completions.create(
         model=config.model_name,
         prompt=run_config["query"],
         max_tokens=run_config["max_tokens"],
