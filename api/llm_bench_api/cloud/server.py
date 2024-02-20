@@ -39,6 +39,7 @@ PROVIDER_MODULES = {
     "azure": "llm_bench_api.cloud.azure",
     "runpod": "llm_bench_api.cloud.runpod",
     "fireworks": "llm_bench_api.cloud.fireworks",
+    "deepinfra": "llm_bench_api.cloud.deepinfra",
 }
 
 app = Flask(__name__)

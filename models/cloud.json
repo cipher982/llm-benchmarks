@@ -86,5 +86,10 @@
         "accounts/fireworks/models/mistral-7b",
         "accounts/fireworks/models/mixtral-8x7b",
         "accounts/fireworks/models/mixtral-8x7b-instruct"
+    ],
+    "deepinfra": [
+        "meta-llama/Llama-2-70b-chat-hf",
+        "meta-llama/Llama-2-7b-chat-hf",
+        "codellama/CodeLlama-34b-Instruct-hf"
     ]
 }
