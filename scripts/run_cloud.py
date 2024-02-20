@@ -38,6 +38,7 @@ ALL_PROVIDERS = [
     "azure",
     "runpod",
     "fireworks",
+    "deepinfra",
 ]
 
 
