@@ -32,7 +32,7 @@ PROVIDER_MODULES = {
     "openai": "llm_bench_api.cloud.openai",
     "anthropic": "llm_bench_api.cloud.anthropic",
     "bedrock": "llm_bench_api.cloud.bedrock",
-    "vertex": "llm_bench_api.cloud.google",
+    "vertex": "llm_bench_api.cloud.vertex",
     "anyscale": "llm_bench_api.cloud.anyscale",
     "together": "llm_bench_api.cloud.together",
     "openrouter": "llm_bench_api.cloud.openrouter",
