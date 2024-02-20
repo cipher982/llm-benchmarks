@@ -3,8 +3,8 @@ import os
 import time
 from datetime import datetime
 
-import openai
 from llm_bench_api.config import CloudConfig
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +18,10 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     assert "query" in run_config, "query must be in run_config"
     assert "max_tokens" in run_config, "max_tokens must be in run_config"
 
-    # Set up connection
-    openai.api_key = os.environ["DEEPINFRA_API_KEY"]
-    openai.api_base = os.environ["DEEPINFRA_API_BASE"]
+    client = OpenAI(
+        base_url=os.environ["DEEPINFRA_API_BASE"],
+        api_key=os.environ["DEEPINFRA_API_KEY"],
+    )
 
     # Generate
     time_0 = time.time()
@@ -33,7 +34,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     response_str = ""
 
     process_func = process_non_chat_model_di if config.model_name in NON_CHAT_MODELS_DI else process_chat_model_di
-    stream, response_key = process_func(config, run_config)
+    stream, response_key = process_func(client, config, run_config)
 
     for chunk in stream:
         if config.model_name in NON_CHAT_MODELS_DI:
@@ -76,9 +77,9 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     return metrics
 
 
-def process_chat_model_di(config, run_config):
+def process_chat_model_di(client, config, run_config):
     stream = True
-    chat_completion = openai.ChatCompletion.create(
+    chat_completion = client.chat.completions.create(
         model=config.model_name,
         messages=[{"role": "user", "content": run_config["query"]}],
         stream=stream,
@@ -87,9 +88,9 @@ def process_chat_model_di(config, run_config):
     return chat_completion, "message"
 
 
-def process_non_chat_model_di(config, run_config):
+def process_non_chat_model_di(client, config, run_config):
     stream = True
-    completion = openai.Completion.create(
+    completion = client.chat.completions.create(
         model=config.model_name,
         prompt=run_config["query"],
         max_tokens=run_config["max_tokens"],
