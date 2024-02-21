@@ -8,7 +8,7 @@ from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-NON_CHAT_MODELS_DI = []
+NON_CHAT_MODELS = []
 
 
 def generate(config: CloudConfig, run_config: dict) -> dict:
@@ -19,7 +19,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     assert "max_tokens" in run_config, "max_tokens must be in run_config"
 
     client = OpenAI(
-        base_url=os.environ["DEEPINFRA_API_BASE"],
+        base_url=os.environ["DEEPINFRA_BASE_URL"],
         api_key=os.environ["DEEPINFRA_API_KEY"],
     )
 
@@ -33,11 +33,11 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     time_to_first_token = 0
     response_str = ""
 
-    process_func = process_non_chat_model_di if config.model_name in NON_CHAT_MODELS_DI else process_chat_model_di
+    process_func = process_non_chat_model_di if config.model_name in NON_CHAT_MODELS else process_chat_model_di
     stream, response_key = process_func(client, config, run_config)
 
     for chunk in stream:
-        if config.model_name in NON_CHAT_MODELS_DI:
+        if config.model_name in NON_CHAT_MODELS:
             response = chunk.choices[0]
             response_content = getattr(response, response_key)
         else:
