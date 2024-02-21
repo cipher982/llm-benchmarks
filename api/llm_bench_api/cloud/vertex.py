@@ -5,9 +5,9 @@ from datetime import datetime
 import tiktoken
 import vertexai
 from llm_bench_api.config import CloudConfig
-from vertexai.preview.generative_models import GenerationConfig
-from vertexai.preview.generative_models import GenerativeModel
-from vertexai.preview.language_models import TextGenerationModel
+from vertexai.generative_models import GenerationConfig
+from vertexai.generative_models import GenerativeModel
+from vertexai.language_models import TextGenerationModel
 
 
 logger = logging.getLogger(__name__)
