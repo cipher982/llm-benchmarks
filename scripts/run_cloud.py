@@ -47,11 +47,13 @@ ALL_PROVIDERS = [
 @click.option("--streaming", is_flag=True, help="Flag to enable streaming.")
 @click.option("--limit", default=100, type=int, help="Limit the number of models run.")
 @click.option("--run-always", is_flag=True, help="Flag to always run benchmarks.")
+@click.option("--debug", is_flag=True, help="Flag to enable debug mode.")
 def main(
     providers: Tuple[str, ...],
     streaming: bool,
     limit: int,
     run_always: bool,
+    debug: bool,
 ) -> None:
     """
     Main entrypoint for benchmarking cloud models.
@@ -79,6 +81,7 @@ def main(
                 "temperature": TEMPERATURE,
                 "run_always": run_always,
                 "streaming": streaming,
+                "debug": debug,
             }
 
             try:

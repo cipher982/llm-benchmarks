@@ -62,6 +62,9 @@ def call_cloud() -> Union[Response, Tuple[Response, int]]:
         run_always_str = request.form.get("run_always", "False").lower()
         run_always = run_always_str == "true"
 
+        debug_str = request.form.get("debug", "False").lower()
+        debug = debug_str == "true"
+
         assert provider in PROVIDER_MODULES, f"invalid provider: {provider}"
         assert model_name, "model_name must be set"
 
@@ -122,6 +125,11 @@ def call_cloud() -> Union[Response, Tuple[Response, int]]:
         # Check to ensure metrics are valid
         assert metrics["tokens_per_second"] > 0, "tokens_per_second must be greater than 0"
 
+        if debug:
+            logger.info(f"Debug mode: {debug}")
+            logger.info(f"Metrics: {metrics}")
+            logger.info(f"Request: {request}")
+            return jsonify(metrics), 200
         log_to_mongo(
             model_type="cloud",
             config=model_config,
