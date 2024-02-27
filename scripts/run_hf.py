@@ -12,7 +12,7 @@ QUANT_TYPES = [
     None,
 ]
 QUERY_TEXT = "User: Tell me a long story about the history of the world.\nAI:"
-MAX_TOKENS = 512
+MAX_TOKENS = 256
 TEMPERATURE = 0.1
 FLASK_PORT_TF = 5000
 FLASK_PORT_TGI = 5001
