@@ -61,7 +61,6 @@ def log_to_mongo(
             data.update(
                 {
                     "provider": config.provider,
-                    "streaming": config.streaming,
                     "time_to_first_token": metrics["time_to_first_token"],
                     "times_between_tokens": metrics["times_between_tokens"],
                 }

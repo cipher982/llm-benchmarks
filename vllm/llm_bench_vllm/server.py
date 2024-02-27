@@ -45,7 +45,7 @@ def call_vllm() -> Union[Response, Tuple[Response, int]]:
         query = request.form.get("query", default=None, type=str)
         quant_method = request.form.get("quant_method", default=None, type=str)
         quant_bits = request.form.get("quant_bits", default=None, type=str)
-        max_tokens = request.form.get("max_tokens", default=512, type=int)
+        max_tokens = request.form.get("max_tokens", default=256, type=int)
         temperature = request.form.get("temperature", default=0.1, type=float)
 
         run_always_str = request.form.get("run_always", "False").lower()

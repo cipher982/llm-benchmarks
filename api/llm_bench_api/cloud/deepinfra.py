@@ -33,7 +33,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     time_to_first_token = 0
     response_str = ""
 
-    process_func = process_non_chat_model_di if config.model_name in NON_CHAT_MODELS else process_chat_model_di
+    process_func = process_chat if config.model_name in NON_CHAT_MODELS else process_non_chat
     stream, response_key = process_func(client, config, run_config)
 
     for chunk in stream:
@@ -77,23 +77,21 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     return metrics
 
 
-def process_chat_model_di(client, config, run_config):
-    stream = True
+def process_chat(client, config, run_config):
     chat_completion = client.chat.completions.create(
         model=config.model_name,
         messages=[{"role": "user", "content": run_config["query"]}],
-        stream=stream,
+        stream=True,
         max_tokens=run_config["max_tokens"],
     )
     return chat_completion, "message"
 
 
-def process_non_chat_model_di(client, config, run_config):
-    stream = True
+def process_non_chat(client, config, run_config):
     completion = client.completions.create(
         model=config.model_name,
         prompt=run_config["query"],
         max_tokens=run_config["max_tokens"],
-        stream=stream,
+        stream=True,
     )
     return completion, "text"

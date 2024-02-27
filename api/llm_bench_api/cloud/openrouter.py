@@ -15,15 +15,6 @@ NON_CHAT_MODELS = []
 
 def process_non_chat_model(client, config, run_config):
     raise NotImplementedError
-    # return (
-    #     client.completions.create(
-    #         model=config.model_name,
-    #         prompt=run_config["query"],
-    #         max_tokens=run_config["max_tokens"],
-    #         stream=True,
-    #     ),
-    #     "text",
-    # )
 
 
 def process_chat_model(client, config, run_config):

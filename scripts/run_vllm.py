@@ -11,7 +11,7 @@ QUANT_TYPES = [
     None,
 ]
 QUERY_TEXT = "User: Tell me a long story about the history of the world.\nAI:"
-MAX_TOKENS = 512
+MAX_TOKENS = 256
 TEMPERATURE = 0.1
 FLASK_PORT = 5002
 CACHE_DIR = os.environ.get("HUGGINGFACE_HUB_CACHE")

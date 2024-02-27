@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 QUERY_TEXT = "Tell me a long story of the history of the world."
-MAX_TOKENS = 512
+MAX_TOKENS = 256
 TEMPERATURE = 0.1
 FLASK_URL = "http://localhost:{}/benchmark"
 FLASK_PORT = 5004
@@ -44,13 +44,11 @@ ALL_PROVIDERS = [
 
 @click.command()
 @click.option("--providers", multiple=True, help="Providers to use for benchmarking.")
-@click.option("--streaming", is_flag=True, help="Flag to enable streaming.")
 @click.option("--limit", default=100, type=int, help="Limit the number of models run.")
 @click.option("--run-always", is_flag=True, help="Flag to always run benchmarks.")
 @click.option("--debug", is_flag=True, help="Flag to enable debug mode.")
 def main(
     providers: Tuple[str, ...],
-    streaming: bool,
     limit: int,
     run_always: bool,
     debug: bool,
@@ -80,7 +78,6 @@ def main(
                 "max_tokens": MAX_TOKENS,
                 "temperature": TEMPERATURE,
                 "run_always": run_always,
-                "streaming": streaming,
                 "debug": debug,
             }
 
