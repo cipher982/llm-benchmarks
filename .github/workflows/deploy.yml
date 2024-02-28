@@ -20,7 +20,7 @@ jobs:
 
       - name: Deploy to VPS
         run: |
-          ssh -i ~/.ssh/id_rsa your-user@your-vps-ip << EOF
+          ssh -i ~/.ssh/id_rsa root@5.161.97.53 << EOF
             cd llm-benchmarks
             git pull
             docker compose down
