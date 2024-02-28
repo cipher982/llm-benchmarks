@@ -1,4 +1,4 @@
-name: Deploy to Production
+name: Deploy - Clifford
 on:
   push:
     branches:
@@ -23,5 +23,5 @@ jobs:
             cd llm-benchmarks
             git pull
             docker compose down
-            docker compose -f docker-compose.cloud.yml up --build --remove-orphans
+            docker compose -f docker-compose.cloud.yml up --build --remove-orphans -d
           EOF
