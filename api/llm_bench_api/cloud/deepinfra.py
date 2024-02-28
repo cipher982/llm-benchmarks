@@ -8,8 +8,6 @@ from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-NON_CHAT_MODELS = []
-
 
 def generate(config: CloudConfig, run_config: dict) -> dict:
     """Run Deep Infra inference and return metrics."""
@@ -33,16 +31,16 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     time_to_first_token = 0
     response_str = ""
 
-    process_func = process_chat if config.model_name in NON_CHAT_MODELS else process_non_chat
-    stream, response_key = process_func(client, config, run_config)
+    stream = client.chat.completions.create(
+        model=config.model_name,
+        messages=[{"role": "user", "content": run_config["query"]}],
+        stream=True,
+        max_tokens=run_config["max_tokens"],
+    )
 
     for chunk in stream:
-        if config.model_name in NON_CHAT_MODELS:
-            response = chunk.choices[0]
-            response_content = getattr(response, response_key)
-        else:
-            response = chunk.choices[0].delta  # type: ignore
-            response_content = response.content if response is not None else None
+        response = chunk.choices[0].delta
+        response_content = response.content if response is not None else None
 
         if response_content is not None:
             current_time = time.time()
@@ -75,23 +73,3 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     }
 
     return metrics
-
-
-def process_chat(client, config, run_config):
-    chat_completion = client.chat.completions.create(
-        model=config.model_name,
-        messages=[{"role": "user", "content": run_config["query"]}],
-        stream=True,
-        max_tokens=run_config["max_tokens"],
-    )
-    return chat_completion, "message"
-
-
-def process_non_chat(client, config, run_config):
-    completion = client.completions.create(
-        model=config.model_name,
-        prompt=run_config["query"],
-        max_tokens=run_config["max_tokens"],
-        stream=True,
-    )
-    return completion, "text"
