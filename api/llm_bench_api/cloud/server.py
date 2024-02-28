@@ -53,7 +53,7 @@ def call_cloud() -> Union[Response, Tuple[Response, int]]:
         provider = request.form.get("provider", type=str)
         model_name = request.form.get("model_name", type=str)
         query = request.form.get("query", default=None, type=str)
-        max_tokens = request.form.get("max_tokens", default=512, type=int)
+        max_tokens = request.form.get("max_tokens", default=256, type=int)
         temperature = request.form.get("temperature", default=0.1, type=float)
 
         run_always_str = request.form.get("run_always", "False").lower()
