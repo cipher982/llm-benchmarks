@@ -16,8 +16,7 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H your-vps-ip >> ~/.ssh/known_hosts
-
+          ssh-keyscan -H 5.161.97.53 >> ~/.ssh/known_hosts
       - name: Deploy to VPS
         run: |
           ssh -i ~/.ssh/id_rsa root@5.161.97.53 << EOF
