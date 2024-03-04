@@ -2,9 +2,7 @@ import logging
 import time
 from datetime import datetime
 
-from anthropic import AI_PROMPT
 from anthropic import Anthropic
-from anthropic import HUMAN_PROMPT
 from llm_bench_api.config import CloudConfig
 
 
@@ -15,7 +13,7 @@ NON_CHAT_MODELS = []
 
 
 def generate(config: CloudConfig, run_config: dict) -> dict:
-    """Run Anthropic inference and return metrics."""
+    """Run Anthropic inference using the new Messages format and return metrics, with streaming."""
 
     assert config.provider == "anthropic", "provider must be anthropic"
     assert "query" in run_config, "query must be in run_config"
@@ -34,25 +32,22 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     if config.model_name in NON_CHAT_MODELS:
         raise NotImplementedError
     else:
-        stream = anthropic.completions.create(
+        with anthropic.messages.stream(
             model=config.model_name,
-            max_tokens_to_sample=run_config["max_tokens"],
-            prompt=f"{HUMAN_PROMPT} {run_config['query']} {AI_PROMPT}",
-            stream=True,
-        )
-
-    time_to_first_token = None
-    for completion in stream:
-        if completion.completion is not None:
-            current_time = time.time()
-            if not first_token_received:
-                time_to_first_token = current_time - time_0
-                first_token_received = True
-            else:
-                assert previous_token_time is not None
-                times_between_tokens.append(current_time - previous_token_time)
-            previous_token_time = current_time
-            output_tokens += len(completion.completion.split())
+            max_tokens=run_config["max_tokens"],
+            messages=[{"role": "user", "content": run_config["query"]}],
+        ) as stream:
+            time_to_first_token = None
+            for text in stream.text_stream:
+                current_time = time.time()
+                if not first_token_received:
+                    time_to_first_token = current_time - time_0
+                    first_token_received = True
+                else:
+                    assert previous_token_time is not None
+                    times_between_tokens.append(current_time - previous_token_time)
+                previous_token_time = current_time
+                output_tokens += 1
 
     time_1 = time.time()
     generate_time = time_1 - time_0
