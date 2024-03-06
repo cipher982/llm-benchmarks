@@ -10,7 +10,7 @@ services:
       - .env
     volumes:
       - ./api/llm_bench_api:/app/llm_bench_api
-      - ./logs/:/var/log
+      - ./logs/:/app/logs
       - /home/drose/.aws:/root/.aws
       - /home/drose/.config/gcloud:/root/.config/gcloud
     network_mode: host

@@ -1,45 +1,31 @@
 import json
-import logging
 import os
+from typing import List
 from typing import Tuple
 
 import click
-import requests
-from requests.exceptions import HTTPError
+import httpx
+from llm_bench_api.types import BenchmarkRequest
 
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
-log_file_path = os.path.join(script_dir, "../logs/llm_benchmarks.log")
-
-logging.basicConfig(filename=log_file_path, level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-
+# Constants
 QUERY_TEXT = "Tell me a long story of the history of the world."
 MAX_TOKENS = 256
 TEMPERATURE = 0.1
-FLASK_URL = "http://localhost:{}/benchmark"
-FLASK_PORT = 5004
+SERVER_PATH = os.environ.get("SERVER_PATH", "http://localhost:8000/benchmark")
 
-
+# Load provider models from JSON
 script_dir = os.path.dirname(os.path.abspath(__file__))
 json_file_path = os.path.join(script_dir, "../models/cloud.json")
 with open(json_file_path) as f:
     provider_models = json.load(f)
 
-ALL_PROVIDERS = [
-    "openai",
-    "anthropic",
-    "bedrock",
-    "vertex",
-    "anyscale",
-    "together",
-    "openrouter",
-    "azure",
-    "runpod",
-    "fireworks",
-    "deepinfra",
-]
+
+async def post_benchmark(request: BenchmarkRequest):
+    async with httpx.AsyncClient() as client:
+        response = await client.post(SERVER_PATH, json=request.model_dump_json())
+        response.raise_for_status()
+        return response.json()
 
 
 @click.command()
@@ -47,7 +33,7 @@ ALL_PROVIDERS = [
 @click.option("--limit", default=100, type=int, help="Limit the number of models run.")
 @click.option("--run-always", is_flag=True, help="Flag to always run benchmarks.")
 @click.option("--debug", is_flag=True, help="Flag to enable debug mode.")
-def main(
+async def main(
     providers: Tuple[str, ...],
     limit: int,
     run_always: bool,
@@ -58,48 +44,45 @@ def main(
     """
 
     if "all" in providers:
-        providers = tuple(ALL_PROVIDERS)
+        providers = tuple(provider_models.keys())
+
+    print(f"Running benchmarks for provider(s): {providers}")
 
     for provider in providers:
-        assert provider in ALL_PROVIDERS, f"invalid provider: {provider}"
-
         # Gather models to run
-        model_names = provider_models[provider]
-        print(f"Fetched {len(model_names)} models")
+        model_names = provider_models.get(provider, [])
+        print(f"Fetched {len(model_names)} models for provider: {provider}")
 
         # Run benchmarks
-        model_status: dict[str, dict] = {}
-
-        for model in model_names:
-            flask_data = {
-                "provider": provider,
-                "model_name": model,
-                "query": QUERY_TEXT,
-                "max_tokens": MAX_TOKENS,
-                "temperature": TEMPERATURE,
-                "run_always": run_always,
-                "debug": debug,
-            }
+        model_status: List[dict] = []
+        for model in model_names[:limit]:
+            request_config = BenchmarkRequest(
+                provider=provider,
+                model=model,
+                query=QUERY_TEXT,
+                max_tokens=MAX_TOKENS,
+                temperature=TEMPERATURE,
+                run_always=run_always,
+                debug=debug,
+            )
 
             try:
-                response = requests.post(FLASK_URL.format(FLASK_PORT), data=flask_data)
-                response.raise_for_status()
-            except HTTPError as http_err:
+                response = await post_benchmark(request_config)
+                print(f"✅ Pass {model}, {response}")
+                model_status.append({"model": model, "status": "success", "response": response})
+            except httpx.HTTPStatusError as http_err:
                 print(f"❌ Fail {model}, HTTP error: {http_err}")
-                model_status[model] = {"status_code": 500, "json": {}}
+                model_status.append({"model": model, "status": "error", "error": str(http_err)})
             except Exception as err:
                 print(f"❌ Fail {model}, other error: {err}")
-                model_status[model] = {"status_code": 500, "json": {}}
-            else:
-                response_code = response.status_code
-                response_json = response.json()
-                print(f"✅ Pass {model}, {model}: {response_code}")
-
-                model_status[model] = {"status_code": response_code, "json": response_json}
+                model_status.append({"model": model, "status": "error", "error": str(err)})
 
             if len(model_status) >= limit:
                 break
 
 
 if __name__ == "__main__":
-    main()  # type: ignore
+    print("Starting cloud benchmarking...")
+    import asyncio
+
+    asyncio.run(main())

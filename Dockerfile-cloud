@@ -16,7 +16,7 @@ RUN apt-get update && \
         python3-pip
 
 # Install openai library
-RUN pip3 install openai anthropic tiktoken boto3 google-cloud-aiplatform
+RUN pip3 install fastapi uvicorn openai anthropic tiktoken boto3 google-cloud-aiplatform
 
 # Install any python packages you need
 COPY ./api/requirements.txt requirements.txt
@@ -29,4 +29,4 @@ WORKDIR /app
 COPY . /app
 
 # Set the entrypoint
-ENTRYPOINT [ "python3", "-m", "llm_bench_api.cloud.server" ]
+CMD ["uvicorn", "api.llm_bench_api.cloud.server:app", "--host", "0.0.0.0", "--port", "8000"]
