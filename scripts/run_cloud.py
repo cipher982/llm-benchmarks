@@ -20,7 +20,8 @@ with open(json_file_path) as f:
 
 
 async def post_benchmark(request: BenchmarkRequest):
-    async with httpx.AsyncClient() as client:
+    timeout = httpx.Timeout(180.0, connect=180.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
         print(f"Sending request to {SERVER_PATH}")
         response = await client.post(SERVER_PATH, json=request.model_dump())
         response.raise_for_status()
