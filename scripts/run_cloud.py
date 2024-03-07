@@ -45,16 +45,14 @@ def main(
     async def async_main(providers, limit, run_always, debug):
         if "all" in providers:
             providers = list(provider_models.keys())
-
         print(f"Running benchmarks for provider(s): {providers}")
 
+        model_status: list[dict] = []
         for provider in providers:
-            # Gather models to run
             model_names = provider_models.get(provider, [])
             print(f"Fetched {len(model_names)} models for provider: {provider}")
 
-            # Run benchmarks
-            model_status: list[dict] = []
+            benchmark_requests = []
             for model in model_names[:limit]:
                 request_config = BenchmarkRequest(
                     provider=provider,
@@ -65,19 +63,19 @@ def main(
                     run_always=run_always,
                     debug=debug,
                 )
-                try:
-                    response = await post_benchmark(request_config)
+                benchmark_requests.append(post_benchmark(request_config))
+
+            responses = await asyncio.gather(*benchmark_requests)
+            for model, response in zip(model_names[:limit], responses):
+                if isinstance(response, dict):
                     print(f"✅ Pass {model}, {response}")
                     model_status.append({"model": model, "status": "success", "response": response})
-                except httpx.HTTPStatusError as http_err:
-                    print(f"❌ Fail {model}, HTTP error: {http_err}")
-                    model_status.append({"model": model, "status": "error", "error": str(http_err)})
-                except Exception as err:
-                    print(f"❌ Fail {model}, other error: {err}")
-                    model_status.append({"model": model, "status": "error", "error": str(err)})
+                else:
+                    print(f"❌ Fail {model}, error: {response}")
+                    model_status.append({"model": model, "status": "error", "error": str(response)})
 
-                if len(model_status) >= limit:
-                    break
+            if len(model_status) >= limit:
+                break
 
     asyncio.run(async_main(providers, limit, run_always, debug))
 
