@@ -28,7 +28,6 @@ async def post_benchmark(request: BenchmarkRequest):
 
 
 app = typer.Typer()
-print("started typer")
 
 
 @app.command()
@@ -83,5 +82,4 @@ def main(
 
 
 if __name__ == "__main__":
-    print("Starting cloud benchmarking...")
     app()
