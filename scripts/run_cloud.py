@@ -21,11 +21,18 @@ with open(json_file_path) as f:
 
 async def post_benchmark(request: BenchmarkRequest):
     timeout = httpx.Timeout(180.0, connect=180.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        print(f"Sending request to {SERVER_PATH}")
-        response = await client.post(SERVER_PATH, json=request.model_dump())
-        response.raise_for_status()
-        return response.json()
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            print(f"Sending request to {SERVER_PATH}")
+            response = await client.post(SERVER_PATH, json=request.model_dump())
+            response.raise_for_status()
+            return response.json()
+    except httpx.HTTPStatusError as e:
+        print(f"❌ HTTP error occurred: {str(e)}")
+        return {"error": f"HTTP error: {str(e)}"}
+    except Exception as e:
+        print(f"❌ Unexpected error occurred: {str(e)}")
+        return {"error": f"Unexpected error: {str(e)}"}
 
 
 app = typer.Typer()
@@ -67,13 +74,12 @@ def main(
 
             responses = await asyncio.gather(*benchmark_requests)
             for model, response in zip(model_names[:limit], responses):
-                if isinstance(response, dict):
+                if "error" in response:
+                    print(f"❌ Fail {model}, error: {response['error']}")
+                    model_status.append({"model": model, "status": "error", "error": response["error"]})
+                else:
                     print(f"✅ Pass {model}, {response}")
                     model_status.append({"model": model, "status": "success", "response": response})
-                else:
-                    print(f"❌ Fail {model}, error: {response}")
-                    model_status.append({"model": model, "status": "error", "error": str(response)})
-
             if len(model_status) >= limit:
                 break
 
