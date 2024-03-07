@@ -15,5 +15,5 @@ class BenchmarkRequest(BaseModel):
 
 class BenchmarkResponse(BaseModel):
     status: str
-    metrics: dict
+    metrics: Optional[dict] = None
     reason: Optional[str] = None
