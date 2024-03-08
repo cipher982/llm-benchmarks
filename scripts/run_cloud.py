@@ -1,9 +1,14 @@
 import asyncio
 import json
 import os
+from datetime import datetime
 
 import httpx
 import typer
+from llm_bench_api.cloud.logging import log_benchmark_request
+from llm_bench_api.cloud.logging import log_benchmark_status
+from llm_bench_api.cloud.logging import log_error
+from llm_bench_api.cloud.logging import log_info
 from llm_bench_api.types import BenchmarkRequest
 
 # Constants
@@ -20,19 +25,23 @@ with open(json_file_path) as f:
 
 
 async def post_benchmark(request: BenchmarkRequest):
+    log_benchmark_request(request)
     timeout = httpx.Timeout(180.0, connect=180.0)
     try:
+        start_time = datetime.now()
         async with httpx.AsyncClient(timeout=timeout) as client:
-            print(f"Sending request to {SERVER_PATH}")
+            log_info(f"Sending request to {SERVER_PATH}")
             response = await client.post(SERVER_PATH, json=request.model_dump())
             response.raise_for_status()
-            return response.json()
+        end_time = datetime.now()
+        response_time = (end_time - start_time).total_seconds()
+        return response.json(), response_time
     except httpx.HTTPStatusError as e:
-        print(f"❌ HTTP error occurred: {str(e)}")
-        return {"error": f"HTTP error: {str(e)}"}
+        log_error(f"HTTP error occurred: {str(e)}")
+        return {"error": f"HTTP error: {str(e)}"}, None
     except Exception as e:
-        print(f"❌ Unexpected error occurred: {str(e)}")
-        return {"error": f"Unexpected error: {str(e)}"}
+        log_error(f"Unexpected error occurred: {str(e)}")
+        return {"error": f"Unexpected error: {str(e)}"}, None
 
 
 app = typer.Typer()
@@ -45,43 +54,55 @@ def main(
     run_always: bool = typer.Option(False, "--run-always", is_flag=True, help="Flag to always run benchmarks."),
     debug: bool = typer.Option(False, "--debug", is_flag=True, help="Flag to enable debug mode."),
 ) -> None:
-    """
-    Main entrypoint for benchmarking cloud models.
-    """
+    """Main entrypoint for benchmarking cloud models."""
+
+    async def benchmark_provider(provider, limit, run_always, debug):
+        model_names = provider_models.get(provider, [])
+        log_info(f"Fetched {len(model_names)} models for provider: {provider}")
+        model_status: list[dict] = []
+        for model in model_names[:limit]:
+            request_config = BenchmarkRequest(
+                provider=provider,
+                model=model,
+                query=QUERY_TEXT,
+                max_tokens=MAX_TOKENS,
+                temperature=TEMPERATURE,
+                run_always=run_always,
+                debug=debug,
+            )
+            response, response_time = await post_benchmark(request_config)
+            # Create status entry
+            status_entry = {
+                "model": model,
+                "timestamp": datetime.now().isoformat(),
+                "request": {
+                    "provider": provider,
+                    "model": model,
+                    "max_tokens": MAX_TOKENS,
+                },
+                "response_time": response_time,
+            }
+            if "error" in response:
+                log_error(f"❌ Fail {model}, error: {response['error']}")
+                status_entry.update({"status": "error", "error": response["error"]})
+            else:
+                log_info(f"✅ Pass {model}, {response}")
+                status_entry.update({"status": "success", "response": response})
+            model_status.append(status_entry)
+        return model_status
 
     async def async_main(providers, limit, run_always, debug):
         if "all" in providers:
             providers = list(provider_models.keys())
-        print(f"Running benchmarks for provider(s): {providers}")
+        log_info(f"Running benchmarks for provider(s): {providers}")
 
-        model_status: list[dict] = []
-        for provider in providers:
-            model_names = provider_models.get(provider, [])
-            print(f"Fetched {len(model_names)} models for provider: {provider}")
+        # Run benchmarks for each provider asynchronously
+        tasks = [benchmark_provider(provider, limit, run_always, debug) for provider in providers]
+        results = await asyncio.gather(*tasks)
 
-            benchmark_requests = []
-            for model in model_names[:limit]:
-                request_config = BenchmarkRequest(
-                    provider=provider,
-                    model=model,
-                    query=QUERY_TEXT,
-                    max_tokens=MAX_TOKENS,
-                    temperature=TEMPERATURE,
-                    run_always=run_always,
-                    debug=debug,
-                )
-                benchmark_requests.append(post_benchmark(request_config))
-
-            responses = await asyncio.gather(*benchmark_requests)
-            for model, response in zip(model_names[:limit], responses):
-                if "error" in response:
-                    print(f"❌ Fail {model}, error: {response['error']}")
-                    model_status.append({"model": model, "status": "error", "error": response["error"]})
-                else:
-                    print(f"✅ Pass {model}, {response}")
-                    model_status.append({"model": model, "status": "success", "response": response})
-            if len(model_status) >= limit:
-                break
+        # Flatten the list of model statuses and log final results
+        combined_model_status = [status for provider_status in results if provider_status for status in provider_status]
+        log_benchmark_status(combined_model_status)
 
     asyncio.run(async_main(providers, limit, run_always, debug))
 

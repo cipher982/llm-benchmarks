@@ -29,4 +29,4 @@ WORKDIR /app
 COPY . /app
 
 # Set the entrypoint
-CMD ["uvicorn", "api.llm_bench_api.cloud.server:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+CMD ["uvicorn", "api.llm_bench_api.cloud.server:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "8"]

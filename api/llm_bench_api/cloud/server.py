@@ -24,17 +24,17 @@ assert MONGODB_DB, "MONGODB_DB environment variable not set"
 assert MONGODB_COLLECTION_CLOUD, "MONGODB_COLLECTION_CLOUD environment variable not set"
 
 PROVIDER_MODULES = {
-    "openai": "llm_bench_api.cloud.openai",
-    "anthropic": "llm_bench_api.cloud.anthropic",
-    "bedrock": "llm_bench_api.cloud.bedrock",
-    "vertex": "llm_bench_api.cloud.vertex",
-    "anyscale": "llm_bench_api.cloud.anyscale",
-    "together": "llm_bench_api.cloud.together",
-    "openrouter": "llm_bench_api.cloud.openrouter",
-    "azure": "llm_bench_api.cloud.azure",
-    "runpod": "llm_bench_api.cloud.runpod",
-    "fireworks": "llm_bench_api.cloud.fireworks",
-    "deepinfra": "llm_bench_api.cloud.deepinfra",
+    "openai": "llm_bench_api.cloud.providers.openai",
+    "anthropic": "llm_bench_api.cloud.providers.anthropic",
+    "bedrock": "llm_bench_api.cloud.providers.bedrock",
+    "vertex": "llm_bench_api.cloud.providers.vertex",
+    "anyscale": "llm_bench_api.cloud.providers.anyscale",
+    "together": "llm_bench_api.cloud.providers.together",
+    "openrouter": "llm_bench_api.cloud.providers.openrouter",
+    "azure": "llm_bench_api.cloud.providers.azure",
+    "runpod": "llm_bench_api.cloud.providers.runpod",
+    "fireworks": "llm_bench_api.cloud.providers.fireworks",
+    "deepinfra": "llm_bench_api.cloud.providers.deepinfra",
 }
 
 app = FastAPI()
