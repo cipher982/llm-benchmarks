@@ -83,10 +83,10 @@ def main(
                 "response_time": response_time,
             }
             if "error" in response:
-                log_error(f"❌ Fail {model}, error: {response['error']}")
+                log_error(f"❌ Error {model}, error: {response['error']}")
                 status_entry.update({"status": "error", "error": response["error"]})
             else:
-                log_info(f"✅ Pass {model}, {response}")
+                log_info(f"✅ Success {model}, {response}")
                 status_entry.update({"status": "success", "response": response})
             model_status.append(status_entry)
         return model_status
