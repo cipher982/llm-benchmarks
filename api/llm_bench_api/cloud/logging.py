@@ -4,13 +4,16 @@ import os
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
+from dotenv import load_dotenv
+
+
+load_dotenv()
 
 # Constants
 GB = 1024**3
 LOGS_DIR = os.getenv("LOGS_DIR", "./logs")
 FULL_LOGS_FILE = os.path.join(LOGS_DIR, "cloud_history.log")
 CURRENT_STATUS_FILE = os.path.join(LOGS_DIR, "cloud_status.json")
-
 
 # Configure the logger
 logger = logging.getLogger(__name__)
