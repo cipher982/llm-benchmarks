@@ -91,6 +91,7 @@ def log_benchmark_status(model_status: list[dict[str, Any]]) -> None:
             host=os.getenv("REDIS_HOST", "localhost"),
             port=int(os.getenv("REDIS_PORT", 6379)),
             db=int(os.getenv("REDIS_DB", 0)),
+            password=os.getenv("REDIS_PASSWORD"),
         ) as redis_client:
             redis_client.set("cloud_log_status", json.dumps(existing_data))
 
