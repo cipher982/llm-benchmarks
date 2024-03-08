@@ -94,6 +94,7 @@ def log_benchmark_status(model_status: list[dict[str, Any]]) -> None:
             password=os.getenv("REDIS_PASSWORD"),
         ) as redis_client:
             redis_client.set("cloud_log_status", json.dumps(existing_data))
+            log_info("Successfully updated Redis with the latest status data.")
 
     except (FileNotFoundError, PermissionError) as e:
         log_error(f"Error accessing benchmark status file: {str(e)}")
