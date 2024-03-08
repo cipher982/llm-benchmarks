@@ -1,13 +1,15 @@
 import json
 import logging
+import os
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
 
 # Constants
 GB = 1024**3
-FULL_LOGS_FILE = "./logs/cloud_history.log"
-CURRENT_STATUS_FILE = "./logs/cloud_status.json"
+LOGS_DIR = os.getenv("LOGS_DIR", "./logs")
+FULL_LOGS_FILE = os.path.join(LOGS_DIR, "cloud_history.log")
+CURRENT_STATUS_FILE = os.path.join(LOGS_DIR, "cloud_status.json")
 
 
 # Configure the logger
