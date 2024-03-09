@@ -37,11 +37,13 @@ async def post_benchmark(request: BenchmarkRequest):
         response_time = (end_time - start_time).total_seconds()
         return response.json(), response_time
     except httpx.HTTPStatusError as e:
-        log_error(f"HTTP error occurred: {str(e)}")
-        return {"error": f"HTTP error: {str(e)}"}, None
+        error_message = f"HTTP error: {e.response.status_code} - {e.response.text}"
+        log_error(f"HTTP error occurred: {error_message}")
+        return {"error": error_message}, None
     except Exception as e:
-        log_error(f"Unexpected error occurred: {str(e)}")
-        return {"error": f"Unexpected error: {str(e)}"}, None
+        error_message = f"Unexpected error: {str(e)}"
+        log_error(f"Unexpected error occurred: {error_message}")
+        return {"error": error_message}, None
 
 
 app = typer.Typer()
@@ -71,6 +73,7 @@ def main(
                 debug=debug,
             )
             response, response_time = await post_benchmark(request_config)
+
             # Create status entry
             status_entry = {
                 "model": model,
@@ -82,12 +85,17 @@ def main(
                 },
                 "response_time": response_time,
             }
-            if "error" in response:
-                log_error(f"❌ Error {model}, error: {response['error']}")
-                status_entry.update({"status": "error", "error": response["error"]})
-            else:
+            if response.get("status") == "success":
                 log_info(f"✅ Success {model}, {response}")
                 status_entry.update({"status": "success", "response": response})
+            elif "error" in response or response.get("status") == "error":
+                error_message = response.get("error", "Unknown error")
+                log_error(f"❌ Error {model}, error: {error_message}")
+                status_entry.update({"status": "error", "error": error_message})
+            else:
+                unexpected_status = response.get("status", "Unknown status")
+                log_error(f"⚠️ Unexpected status {model}, status: {unexpected_status}")
+                status_entry.update({"status": "unexpected", "error": f"Unexpected status: {unexpected_status}"})
             model_status.append(status_entry)
         return model_status
 
