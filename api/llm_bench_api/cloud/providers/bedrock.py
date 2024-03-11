@@ -4,8 +4,6 @@ import time
 from datetime import datetime
 
 import boto3
-from anthropic import AI_PROMPT
-from anthropic import HUMAN_PROMPT
 from llm_bench_api.config import CloudConfig
 
 
@@ -20,7 +18,36 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     assert "max_tokens" in run_config, "max_tokens must be in run_config"
 
     # Set up connection
-    bedrock = boto3.client(service_name="bedrock-runtime", region_name="us-east-1")
+    bedrock = boto3.client(
+        service_name="bedrock-runtime", region_name="us-west-2" if "mistral" in config.model_name else "us-east-1"
+    )
+
+    # Define the request bodies for different models
+    request_bodies = {
+        "anthropic": {
+            "max_tokens": run_config["max_tokens"],
+            "messages": [{"role": "user", "content": run_config["query"]}],
+            "anthropic_version": "bedrock-2023-05-31",
+        },
+        "amazon": {
+            "inputText": f"Human: {run_config['query']}. \n\nAssistant:",
+            "textGenerationConfig": {"maxTokenCount": run_config["max_tokens"]},
+        },
+        "meta": {
+            "prompt": f"{run_config['query']}",
+            "max_gen_len": run_config["max_tokens"],
+        },
+        "mistral": {
+            "prompt": f"{run_config['query']}",
+            "max_tokens": run_config["max_tokens"],
+        },
+    }
+
+    # Get the request body based on the model name
+    model_type = next((key for key in request_bodies if key in config.model_name), None)
+    if model_type is None:
+        raise ValueError(f"Model {config.model_name} not supported")
+    body = request_bodies[model_type]
 
     # Generate
     time_0 = time.time()
@@ -29,23 +56,6 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     time_to_first_token = None
     output_tokens = 0
     times_between_tokens = []
-
-    if "anthropic" in config.model_name:
-        body = {
-            "prompt": f"{HUMAN_PROMPT} {run_config['query']} {AI_PROMPT}",
-            "max_tokens_to_sample": run_config["max_tokens"],
-            "temperature": config.temperature,
-        }
-    elif "amazon" in config.model_name:
-        body = {
-            "inputText": "Human: Tell me a long history of WW2. \n\nAssistant:",
-            "textGenerationConfig": {
-                "maxTokenCount": run_config["max_tokens"],
-                "temperature": config.temperature,
-            },
-        }
-    else:
-        raise ValueError(f"Unknown model name: {config.model_name}")
 
     response = bedrock.invoke_model_with_response_stream(
         body=json.dumps(body),
