@@ -47,8 +47,6 @@
         "togethercomputer/llama-2-7b-chat",
         "togethercomputer/llama-2-13b-chat",
         "togethercomputer/llama-2-70b-chat",
-        "togethercomputer/falcon-7b",
-        "togethercomputer/falcon-40b",
         "mistralai/Mistral-7B-Instruct-v0.2",
         "mistralai/Mixtral-8x7B-Instruct-v0.1"
     ],
