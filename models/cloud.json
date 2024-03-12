@@ -48,7 +48,14 @@
         "togethercomputer/llama-2-13b-chat",
         "togethercomputer/llama-2-70b-chat",
         "mistralai/Mistral-7B-Instruct-v0.2",
-        "mistralai/Mixtral-8x7B-Instruct-v0.1"
+        "mistralai/Mixtral-8x7B-Instruct-v0.1",
+        "google/gemma-2b-it",
+        "google/gemma-7b-it",
+        "microsoft/phi-2",
+        "Qwen/Qwen1.5-72B-Chat",
+        "Qwen/Qwen1.5-14B-Chat",
+        "Qwen/Qwen1.5-7B-Chat",
+        "zero-one-ai/Yi-34B-Chat"
     ],
     "openrouter": [
         "meta-llama/llama-2-13b-chat",
