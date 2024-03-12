@@ -19,7 +19,7 @@ RUN apt-get update && \
 RUN pip3 install fastapi uvicorn openai anthropic tiktoken \
     boto3 google-cloud-aiplatform pymongo pynvml \
     flask pytz openai fastapi uvicorn httpx typer \
-    python-dotenv redis
+    python-dotenv redis groq
 
 # Set the working directory
 WORKDIR /app

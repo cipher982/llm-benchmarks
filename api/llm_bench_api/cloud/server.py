@@ -34,6 +34,7 @@ PROVIDER_MODULES = {
     "runpod": "llm_bench_api.cloud.providers.runpod",
     "fireworks": "llm_bench_api.cloud.providers.fireworks",
     "deepinfra": "llm_bench_api.cloud.providers.deepinfra",
+    "groq": "llm_bench_api.cloud.providers.groq",
 }
 
 app = FastAPI()

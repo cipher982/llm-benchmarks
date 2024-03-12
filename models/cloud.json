@@ -91,5 +91,10 @@
         "meta-llama/Llama-2-70b-chat-hf",
         "meta-llama/Llama-2-7b-chat-hf",
         "codellama/CodeLlama-34b-Instruct-hf"
+    ],
+    "groq": [
+        "llama2-70b-4096",
+        "mixtral-8x7b-32768",
+        "gemma-7b-it"
     ]
 }
