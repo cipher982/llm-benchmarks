@@ -15,11 +15,13 @@ RUN apt-get update && \
         git \
         python3-pip
 
-# Install openai library
-RUN pip3 install fastapi uvicorn openai anthropic tiktoken \
-    boto3 google-cloud-aiplatform pymongo pynvml \
-    flask pytz openai fastapi uvicorn httpx typer \
-    python-dotenv redis groq
+# Install api stuff
+RUN pip3 install fastapi uvicorn tiktoken \
+    boto3 pymongo pynvml flask pytz openai fastapi uvicorn httpx typer \
+    python-dotenv redis
+
+# Install cloud providers
+RUN pip3 install groq boto3 google-cloud-aiplatform anthropic openai
 
 # Set the working directory
 WORKDIR /app
