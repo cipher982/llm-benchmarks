@@ -15,7 +15,7 @@ from llm_bench_api.types import BenchmarkRequest
 QUERY_TEXT = "Tell me a long story of the history of the world."
 MAX_TOKENS = 256
 TEMPERATURE = 0.1
-SERVER_PATH = os.environ.get("SERVER_PATH", "http://localhost:8000/benchmark")
+SERVER_PATH = os.environ.get("SERVER_PATH", "http://localhost:8002/benchmark")
 
 # Load provider models from JSON
 script_dir = os.path.dirname(os.path.abspath(__file__))
