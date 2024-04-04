@@ -22,7 +22,7 @@ jobs:
 
       - name: Deploy to VPS
         run: |
-          ssh -i ~/.ssh/id_rsa root@5.161.97.53 << EOF
+          ssh -i ~/.ssh/id_rsa drose@5.161.97.53 << EOF
           cd llm-benchmarks
 
           git reset --hard HEAD

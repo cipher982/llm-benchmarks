@@ -6,3 +6,4 @@ old/
 *.lock
 *.ipynb
 *.env
+logs/
