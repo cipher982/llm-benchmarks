@@ -36,7 +36,9 @@
     ],
     "vertex": [
         "gemini-pro",
-        "text-bison@002"
+        "text-bison@002",
+        "claude-3-haiku@20240307",
+        "claude-3-sonnet@20240229"
     ],
     "anyscale": [
         "meta-llama/Llama-2-7b-chat-hf",
