@@ -54,10 +54,12 @@
         "google/gemma-2b-it",
         "google/gemma-7b-it",
         "microsoft/phi-2",
-        "Qwen/Qwen1.5-72B-Chat",
-        "Qwen/Qwen1.5-14B-Chat",
+        "Qwen/Qwen1.5-4B-Chat",
         "Qwen/Qwen1.5-7B-Chat",
-        "zero-one-ai/Yi-34B-Chat"
+        "Qwen/Qwen1.5-14B-Chat",
+        "Qwen/Qwen1.5-72B-Chat",
+        "zero-one-ai/Yi-34B-Chat",
+        "codellama/CodeLlama-34b-Instruct-hf"
     ],
     "openrouter": [
         "meta-llama/llama-2-13b-chat",
@@ -71,7 +73,8 @@
         "llama-2-7b-chat",
         "llama-2-13b-chat",
         "llama-2-70b-chat",
-        "mistral-large"
+        "mistral-large",
+        "cohere-command-r-plus"
     ],
     "runpod": [
         "llama2-7b-chat",
@@ -87,7 +90,12 @@
         "accounts/fireworks/models/llama-v2-70b-chat",
         "accounts/fireworks/models/mistral-7b",
         "accounts/fireworks/models/mixtral-8x7b",
-        "accounts/fireworks/models/mixtral-8x7b-instruct"
+        "accounts/fireworks/models/mixtral-8x7b-instruct",
+        "accounts/fireworks/models/dbrx-instruct",
+        "accounts/fireworks/models/gemma-7b-it",
+        "accounts/fireworks/models/qwen-14b-chat",
+        "accounts/fireworks/models/qwen-72b-chat",
+        "accounts/fireworks/models/yi-34b-chat"
     ],
     "deepinfra": [
         "meta-llama/Llama-2-70b-chat-hf",

@@ -26,6 +26,10 @@ MODEL_NAME_MAPPING = {
         "api_key_env": "AZURE_MISTRAL_L_API_KEY",
         "post_url_env": "AZURE_MISTRAL_L_POST_URL",
     },
+    "cohere-cmd-r-plus": {
+        "api_key_env": "AZURE_COHERE_CMD_R_PLUS_API_KEY",
+        "post_url_env": "AZURE_COHERE_CMD_R_PLUS_POST_URL",
+    },
 }
 
 
