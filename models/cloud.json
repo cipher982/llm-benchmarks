@@ -74,7 +74,7 @@
         "llama-2-13b-chat",
         "llama-2-70b-chat",
         "mistral-large",
-        "cohere-command-r-plus"
+        "cohere-cmd-r-plus"
     ],
     "runpod": [
         "llama2-7b-chat",
