@@ -61,7 +61,8 @@
         "Qwen/Qwen1.5-14B-Chat",
         "Qwen/Qwen1.5-72B-Chat",
         "zero-one-ai/Yi-34B-Chat",
-        "codellama/CodeLlama-34b-Instruct-hf"
+        "codellama/CodeLlama-34b-Instruct-hf",
+        "databricks/dbrx-instruct"
     ],
     "openrouter": [
         "meta-llama/llama-2-13b-chat",
