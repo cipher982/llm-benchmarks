@@ -18,8 +18,18 @@ PROJECT_ID = "llm-bench"
 os.environ["GOOGLE_CLOUD_PROJECT"] = PROJECT_ID
 
 
-v1_models = ["text-bison@002", "chat-bison@002"]
-anthropic_models = ["claude-3-sonnet@20240229"]
+v1_models = [
+    "text-bison@002",
+    "chat-bison@002",
+    "gemini-pro",
+    "gemini-1.0-pro",
+    "gemini-1.5-pro-preview-0409",
+]
+
+anthropic_models = [
+    "claude-3-haiku@20240307",
+    "claude-3-sonnet@20240229",
+]
 
 
 def generate(config: CloudConfig, run_config: dict) -> dict:
