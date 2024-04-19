@@ -5,19 +5,10 @@ from datetime import datetime
 
 from llm_bench_api.config import CloudConfig
 from openai import OpenAI
+from tiktoken import get_encoding
 
 
 logger = logging.getLogger(__name__)
-
-
-NON_CHAT_MODELS = [
-    "accounts/fireworks/models/llama-v2-7b",
-    "accounts/fireworks/models/llama-v2-13b",
-    "accounts/fireworks/models/llama-v2-70b",
-    "accounts/fireworks/models/llama-v2-34b-code",
-    "accounts/fireworks/models/mistral-7b",
-    "accounts/fireworks/models/mixtral-8x7b",
-]
 
 
 def generate(config: CloudConfig, run_config: dict) -> dict:
@@ -43,17 +34,15 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     time_to_first_token = 0
     response_str = ""
 
-    process_func = process_non_chat_model if config.model_name in NON_CHAT_MODELS else process_chat_model
-    stream, response_key = process_func(client, config, run_config)
+    response = client.completions.create(
+        model=config.model_name,
+        prompt=run_config["query"],
+        max_tokens=run_config["max_tokens"],
+        stream=True,
+    )
 
-    for chunk in stream:
-        if config.model_name in NON_CHAT_MODELS:
-            response = chunk.choices[0]
-            response_content = getattr(response, response_key)
-        else:
-            response = chunk.choices[0].delta  # type: ignore
-            response_content = response.content if response is not None else None
-
+    for chunk in response:
+        response_content = chunk.choices[0].text
         if response_content is not None:
             current_time = time.time()
             if not first_token_received:
@@ -65,10 +54,12 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
             previous_token_time = current_time
             response_str += response_content
             output_chunks += 1
-            if len(chunk.choices) == 1:
-                output_tokens += 1
-            else:
+            if len(chunk.choices) != 1:
                 raise ValueError("Unexpected number of choices")
+        else:
+            logger.warning(f"Received empty content chunk: {chunk}")
+
+    output_tokens = count_tokens(run_config["max_tokens"], response_str)
 
     time_1 = time.time()
     generate_time = time_1 - time_0
@@ -82,30 +73,15 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         "tokens_per_second": tokens_per_second,
         "time_to_first_token": time_to_first_token,
         "times_between_tokens": times_between_tokens,
+        "output_text": response_str,
     }
 
     return metrics
 
 
-def process_chat_model(client, config, run_config):
-    return (
-        client.chat.completions.create(
-            model=config.model_name,
-            messages=[{"role": "user", "content": run_config["query"]}],
-            max_tokens=run_config["max_tokens"],
-            stream=True,
-        ),
-        "choices",
-    )
-
-
-def process_non_chat_model(client, config, run_config):
-    return (
-        client.completions.create(
-            model=config.model_name,
-            prompt=run_config["query"],
-            max_tokens=run_config["max_tokens"],
-            stream=True,
-        ),
-        "text",
-    )
+def count_tokens(max_tokens: int, response_str: str) -> int:
+    encoder = get_encoding("cl100k_base")
+    n_tokens = len(encoder.encode(response_str))
+    if not 0.8 * max_tokens <= n_tokens <= 1.2 * max_tokens:
+        raise ValueError(f"N Tokens {n_tokens} not within 20% of max tokens {max_tokens}")
+    return max_tokens
