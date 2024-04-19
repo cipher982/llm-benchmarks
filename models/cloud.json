@@ -51,11 +51,11 @@
         "mistralai/Mixtral-8x7B-Instruct-v0.1"
     ],
     "together": [
-        "togethercomputer/llama-2-7b-chat",
-        "togethercomputer/llama-2-13b-chat",
-        "togethercomputer/llama-2-70b-chat",
+        "meta-llama/Llama-2-7b-hf",
+        "meta-llama/Llama-2-13b-hf",
+        "meta-llama/Llama-2-70b-hf",
         "meta-llama/Meta-Llama-3-8B",
-        "meta-llama/Meta-Llama-3-70B-Instruct",
+        "meta-llama/Meta-Llama-3-70B",
         "mistralai/Mistral-7B-Instruct-v0.2",
         "mistralai/Mixtral-8x7B-Instruct-v0.1",
         "mistralai/Mixtral-8x22B",
@@ -90,7 +90,6 @@
         "llama2-13b-chat"
     ],
     "fireworks": [
-        "accounts/fireworks/models/llama-v2-7b",
         "accounts/fireworks/models/llama-v2-7b-chat",
         "accounts/fireworks/models/llama-v2-13b",
         "accounts/fireworks/models/llama-v2-13b-chat",
@@ -103,8 +102,7 @@
         "accounts/fireworks/models/dbrx-instruct",
         "accounts/fireworks/models/gemma-7b-it",
         "accounts/fireworks/models/qwen-14b-chat",
-        "accounts/fireworks/models/qwen-72b-chat",
-        "accounts/fireworks/models/yi-34b-chat"
+        "accounts/fireworks/models/qwen-72b-chat"
     ],
     "deepinfra": [
         "meta-llama/Llama-2-70b-chat-hf",
