@@ -15,8 +15,8 @@ from vllm.model_executor.parallel_utils.parallel_state import destroy_model_para
 
 logger = logging.getLogger(__name__)
 
-GPU_DEVICE = os.environ.get("GPU_DEVICE_VLLM")
-assert GPU_DEVICE, "GPU_DEVICE_VLLM environment variable not set"
+GPU_DEVICE = os.environ.get("GPU_DEVICE")
+assert GPU_DEVICE, "GPU_DEVICE environment variable not set"
 
 
 def generate(config: ModelConfig, run_config: dict) -> dict:

@@ -12,9 +12,9 @@ from llm_bench_hf.tgi import DockerContainer
 logger = logging.getLogger(__name__)
 
 
-GPU_DEVICE = os.environ.get("GPU_DEVICE_TGI")
+GPU_DEVICE = os.environ.get("GPU_DEVICE")
 CACHE_DIR = os.environ.get("HUGGINGFACE_HUB_CACHE")
-assert GPU_DEVICE, "GPU_DEVICE_TGI environment variable not set"
+assert GPU_DEVICE, "GPU_DEVICE environment variable not set"
 assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
 
 

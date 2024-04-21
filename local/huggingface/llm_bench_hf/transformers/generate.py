@@ -14,8 +14,8 @@ from transformers import AutoModelForCausalLM  # type: ignore
 logger = logging.getLogger(__name__)
 
 HF_TOKEN = os.environ.get("HF_TOKEN", None)
-GPU_DEVICE = os.environ.get("GPU_DEVICE_TF")
-assert GPU_DEVICE, "GPU_DEVICE_TRANSFORMERS environment variable not set"
+GPU_DEVICE = os.environ.get("GPU_DEVICE")
+assert GPU_DEVICE, "GPU_DEVICE environment variable not set"
 
 
 def generate(
@@ -47,7 +47,7 @@ def generate(
         config.model_name,
         load_in_4bit=load_in_4bit,
         load_in_8bit=load_in_8bit,
-        torch_dtype=torch.float16 if config.model_dtype == "torch.float16" else torch.float32,
+        torch_dtype=(torch.float16 if config.model_dtype == "torch.float16" else torch.float32),
         device_map="auto",
         trust_remote_code=True,
         token=HF_TOKEN,
@@ -62,7 +62,7 @@ def generate(
             output = model.generate(
                 torch.tensor([[0, 1, 2]]).to("cuda"),
                 do_sample=config.misc.get("do_sample"),
-                temperature=config.temperature if config.misc.get("do_sample") else None,
+                temperature=(config.temperature if config.misc.get("do_sample") else None),
                 min_length=run_config["max_tokens"],
                 max_length=run_config["max_tokens"],
             )

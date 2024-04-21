@@ -14,7 +14,7 @@ class DockerContainer:
         self,
         model: str,
         cache_dir: str,
-        gpu_device: int = 1,
+        gpu_device: int = 0,
         quant_method: Optional[str] = None,
         quant_bits: Optional[str] = None,
     ):

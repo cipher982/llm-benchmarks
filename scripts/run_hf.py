@@ -59,13 +59,13 @@ def main(
     else:
         raise ValueError(f"Invalid framework: {framework}")
 
-    # valid_models = [
-    #     "facebook/opt-125m",
-    #     "TheBloke/Llama-2-7B-Chat-GPTQ",
-    #     "EleutherAI/pythia-160m",
-    #     "TheBloke/Llama-2-7B-Chat-AWQ",
-    #     "meta-llama/Llama-2-7b-chat-hf",
-    # ]
+    valid_models = [
+        "facebook/opt-125m",
+        # "TheBloke/Llama-2-7B-Chat-GPTQ",
+        # "EleutherAI/pythia-160m",
+        # "TheBloke/Llama-2-7B-Chat-AWQ",
+        # "meta-llama/Llama-2-7b-chat-hf",
+    ]
 
     # Run benchmarks
     model_status: dict[str, dict] = {}

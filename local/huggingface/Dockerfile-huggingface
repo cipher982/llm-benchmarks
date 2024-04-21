@@ -27,4 +27,3 @@ RUN . /opt/venv/bin/activate && poetry install
 
 # Run Flask
 ENTRYPOINT ["python3", "-m", "llm_bench_hf.server", "--port=5000"]
-# ENTRYPOINT ["/bin/bash", "-c", "tail -f /dev/null"]
