@@ -18,12 +18,12 @@ services:
               capabilities: [gpu]
     volumes:
       - ./api/llm_bench_api:/app/llm_bench_api
-      - ./huggingface/llm_bench_huggingface:/app/llm_bench_huggingface
+      - ./local/huggingface/app:/app/llm_bench_huggingface
       - ./logs/:/var/log
-      - /gemini/hf:/gemini/hf
+      - /gemini/hf:/models/hf
     network_mode: host
     environment:
-      - CUDA_VISIBLE_DEVICES=1
+      - CUDA_VISIBLE_DEVICES=0
   bench_gguf:
     image: bench_gguf_img
     build:
@@ -41,12 +41,12 @@ services:
               capabilities: [gpu]
     volumes:
       - ./api/llm_bench_api:/app/llm_bench_api
-      - ./gguf/llm_bench_gguf:/app/llm_bench_gguf
+      - ./local/gguf/app:/app/llm_bench_gguf
       - ./logs/:/var/log
-      - /gemini/gguf:/models
+      - /gemini/gguf:/models/gguf
     network_mode: host
     environment:
-      - CUDA_VISIBLE_DEVICES=1
+      - CUDA_VISIBLE_DEVICES=0
   bench_vllm:
     image: bench_vllm_img
     build:
@@ -60,13 +60,13 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 2
+              count: 1
               capabilities: [gpu]
     volumes:
       - ./api/llm_bench_api:/app/llm_bench_api
       - ./vllm/llm_bench_vllm:/app/llm_bench_vllm
       - ./logs/:/var/log
-      - /gemini/hf:/gemini/hf
+      - /gemini/hf:/models/hf
     network_mode: host
     environment:
-      - CUDA_VISIBLE_DEVICES=1
+      - CUDA_VISIBLE_DEVICES=0
