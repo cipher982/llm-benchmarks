@@ -8,6 +8,9 @@ version = "0.1.0"
 description = "Benchmarking local and cloud LLMs"
 authors = ["David Rose <david@drose.io>"]
 license = "MIT"
+packages = [
+    { include = "llm_bench_api" }
+]
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.13"
