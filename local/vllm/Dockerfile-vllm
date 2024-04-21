@@ -11,14 +11,11 @@ RUN apt-get update && \
         python3-pip
 
 # Upgrade pip
-RUN python3 -m pip install --upgrade pip
-
-# Install PyTorch and torchvision
-RUN python3 -m pip install torch torchvision torchaudio
+RUN python3 -m pip install --upgrade pip poetry
 
 # Install any python packages you need
-COPY ./vllm/requirements.txt requirements.txt
-RUN python3 -m pip install -r requirements.txt
+COPY ./vllm/pyproject.toml pyproject.toml
+RUN python3 -m poetry install
 
 # Set the working directory
 WORKDIR /app

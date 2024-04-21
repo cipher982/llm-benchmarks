@@ -13,7 +13,6 @@ from vllm import LLM
 from vllm import SamplingParams
 from vllm.model_executor.parallel_utils.parallel_state import destroy_model_parallel
 
-
 logger = logging.getLogger(__name__)
 
 GPU_DEVICE = os.environ.get("GPU_DEVICE_VLLM")
@@ -68,9 +67,7 @@ def generate(config: ModelConfig, run_config: dict) -> dict:
         "output_tokens": [output_tokens],
         "gpu_mem_usage": [vram_usage],
         "generate_time": [time_1 - time_0],
-        "tokens_per_second": [
-            output_tokens / (time_1 - time_0) if time_1 > time_0 else 0
-        ],
+        "tokens_per_second": [output_tokens / (time_1 - time_0) if time_1 > time_0 else 0],
     }
 
     return metrics

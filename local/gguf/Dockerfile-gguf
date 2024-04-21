@@ -20,17 +20,13 @@ WORKDIR /llama-cpp-python
 ENV CUDA_DOCKER_ARCH=all
 ENV LLAMA_CUBLAS=1
 
-# Install api stuff
-RUN pip3 install fastapi uvicorn tiktoken \
-    boto3 pymongo pynvml flask pytz openai fastapi uvicorn httpx typer \
-    python-dotenv redis
+RUN python3 -m pip install --upgrade pip poetry
 
-# Install GGUF stuff
-
+COPY ./pyproject.toml pyproject.toml
+RUN python3 -m poetry install
 
 # Install llama-cpp-python (build with cuda)
 RUN CMAKE_ARGS="-DLLAMA_CUBLAS=on" pip install llama-cpp-python
-
 
 # Create log directory and file
 RUN mkdir -p /var/log_gguf

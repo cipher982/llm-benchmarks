@@ -13,7 +13,8 @@ from llm_bench_api.config import MongoConfig
 from llm_bench_api.logging import log_to_mongo
 from llm_bench_api.utils import check_and_clean_space
 from llm_bench_api.utils import has_existing_run
-from llm_bench_vllm.generate import generate
+
+from app.generate import generate
 
 log_path = "/var/log/llm_benchmarks.log"
 logging.basicConfig(filename=log_path, level=logging.INFO)
@@ -51,9 +52,7 @@ def call_vllm() -> Union[Response, Tuple[Response, int]]:
         run_always_str = request.form.get("run_always", "False").lower()
         run_always = run_always_str == "true"
 
-        quant_str = (
-            f"{quant_method}_{quant_bits}" if quant_method is not None else "none"
-        )
+        quant_str = f"{quant_method}_{quant_bits}" if quant_method is not None else "none"
         logger.info(f"Received request for model: {model_name}, quant: {quant_str}")
         logger.info(f"run_always: {run_always}")
 
@@ -85,21 +84,13 @@ def call_vllm() -> Union[Response, Tuple[Response, int]]:
         existing_run = has_existing_run(model_name, model_config, mongo_config)
         if existing_run:
             if run_always:
-                logger.info(
-                    f"Model has been benchmarked before: {model_name}, quant: {quant_str}"
-                )
+                logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
                 logger.info("Re-running benchmark anyway because run_always is True")
             else:
-                logger.info(
-                    f"Model has been benchmarked before: {model_name}, quant: {quant_str}"
-                )
-                return jsonify(
-                    {"status": "skipped", "reason": "model has been benchmarked before"}
-                ), 200
+                logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
+                return jsonify({"status": "skipped", "reason": "model has been benchmarked before"}), 200
         else:
-            logger.info(
-                f"Model has not been benchmarked before: {model_name}, quant: {quant_str}"
-            )
+            logger.info(f"Model has not been benchmarked before: {model_name}, quant: {quant_str}")
 
         # Check and clean disk space if needed
         check_and_clean_space(directory=CACHE_DIR, threshold=90.0)

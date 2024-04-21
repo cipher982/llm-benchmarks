@@ -3,13 +3,9 @@ requires = [ "poetry-core",]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
-name = "llm-bench-huggingface"
-version = "0.1.0"
 description = "API and generation for benchmarking HuggingFace (TGI, Transformers)"
 authors = ["David Rose <david@drose.io>"]
-
-[tool.black]
-line-length = 120
+package-mode = false
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.13"
