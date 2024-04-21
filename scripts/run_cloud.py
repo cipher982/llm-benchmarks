@@ -19,7 +19,7 @@ SERVER_PATH = os.environ.get("SERVER_PATH", "http://localhost:8002/benchmark")
 
 # Load provider models from JSON
 script_dir = os.path.dirname(os.path.abspath(__file__))
-json_file_path = os.path.join(script_dir, "../models/cloud.json")
+json_file_path = os.path.join(script_dir, "../cloud/models.json")
 with open(json_file_path) as f:
     provider_models = json.load(f)
 
@@ -51,10 +51,16 @@ app = typer.Typer()
 
 @app.command()
 def main(
-    providers: list[str] = typer.Option(["all"], "--providers", help="Providers to use for benchmarking."),
+    providers: list[str] = typer.Option(
+        ["all"], "--providers", help="Providers to use for benchmarking."
+    ),
     limit: int = typer.Option(100, "--limit", help="Limit the number of models run."),
-    run_always: bool = typer.Option(False, "--run-always", is_flag=True, help="Flag to always run benchmarks."),
-    debug: bool = typer.Option(False, "--debug", is_flag=True, help="Flag to enable debug mode."),
+    run_always: bool = typer.Option(
+        False, "--run-always", is_flag=True, help="Flag to always run benchmarks."
+    ),
+    debug: bool = typer.Option(
+        False, "--debug", is_flag=True, help="Flag to enable debug mode."
+    ),
 ) -> None:
     """Main entrypoint for benchmarking cloud models."""
 
@@ -95,7 +101,12 @@ def main(
             else:
                 unexpected_status = response.get("status", "Unknown status")
                 log_error(f"⚠️ Unexpected status {model}, status: {unexpected_status}")
-                status_entry.update({"status": "unexpected", "error": f"Unexpected status: {unexpected_status}"})
+                status_entry.update(
+                    {
+                        "status": "unexpected",
+                        "error": f"Unexpected status: {unexpected_status}",
+                    }
+                )
             model_status.append(status_entry)
         return model_status
 
@@ -105,11 +116,19 @@ def main(
         log_info(f"Running benchmarks for provider(s): {providers}")
 
         # Run benchmarks for each provider asynchronously
-        tasks = [benchmark_provider(provider, limit, run_always, debug) for provider in providers]
+        tasks = [
+            benchmark_provider(provider, limit, run_always, debug)
+            for provider in providers
+        ]
         results = await asyncio.gather(*tasks)
 
         # Flatten the list of model statuses and log final results
-        combined_model_status = [status for provider_status in results if provider_status for status in provider_status]
+        combined_model_status = [
+            status
+            for provider_status in results
+            if provider_status
+            for status in provider_status
+        ]
         log_benchmark_status(combined_model_status)
 
     asyncio.run(async_main(providers, limit, run_always, debug))

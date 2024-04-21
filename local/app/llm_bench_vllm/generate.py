@@ -1,4 +1,5 @@
 """LLM generation and benchmarking for vLLM library."""
+
 import gc
 import logging.config
 import os
@@ -8,7 +9,6 @@ from datetime import datetime
 import torch
 from llm_bench_api.config import ModelConfig
 from llm_bench_api.utils import get_vram_usage
-
 from vllm import LLM
 from vllm import SamplingParams
 from vllm.model_executor.parallel_utils.parallel_state import destroy_model_parallel
@@ -68,7 +68,9 @@ def generate(config: ModelConfig, run_config: dict) -> dict:
         "output_tokens": [output_tokens],
         "gpu_mem_usage": [vram_usage],
         "generate_time": [time_1 - time_0],
-        "tokens_per_second": [output_tokens / (time_1 - time_0) if time_1 > time_0 else 0],
+        "tokens_per_second": [
+            output_tokens / (time_1 - time_0) if time_1 > time_0 else 0
+        ],
     }
 
     return metrics

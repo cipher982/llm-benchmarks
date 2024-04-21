@@ -1,4 +1,5 @@
 """LLM generation and benchmarking for HuggingFace Transformers library."""
+
 import gc
 import logging.config
 import os
@@ -47,7 +48,9 @@ def generate(
         config.model_name,
         load_in_4bit=load_in_4bit,
         load_in_8bit=load_in_8bit,
-        torch_dtype=torch.float16 if config.model_dtype == "torch.float16" else torch.float32,
+        torch_dtype=torch.float16
+        if config.model_dtype == "torch.float16"
+        else torch.float32,
         device_map="auto",
         trust_remote_code=True,
         token=HF_TOKEN,
@@ -62,7 +65,9 @@ def generate(
             output = model.generate(
                 torch.tensor([[0, 1, 2]]).to("cuda"),
                 do_sample=config.misc.get("do_sample"),
-                temperature=config.temperature if config.misc.get("do_sample") else None,
+                temperature=config.temperature
+                if config.misc.get("do_sample")
+                else None,
                 min_length=run_config["max_tokens"],
                 max_length=run_config["max_tokens"],
             )
@@ -72,7 +77,11 @@ def generate(
     time_1 = time()
 
     # Collect metrics
-    output_tokens = len(output.cpu().numpy().tolist()[0]) if output is not None and output.numel() > 0 else 0
+    output_tokens = (
+        len(output.cpu().numpy().tolist()[0])
+        if output is not None and output.numel() > 0
+        else 0
+    )
     vram_usage = get_vram_usage(int(GPU_DEVICE))
 
     metrics = {
@@ -81,7 +90,9 @@ def generate(
         "output_tokens": [output_tokens],
         "gpu_mem_usage": [vram_usage],
         "generate_time": [time_1 - time_0],
-        "tokens_per_second": [output_tokens / (time_1 - time_0) if time_1 > time_0 else 0],
+        "tokens_per_second": [
+            output_tokens / (time_1 - time_0) if time_1 > time_0 else 0
+        ],
     }
 
     del model

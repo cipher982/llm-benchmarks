@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Tuple
 from typing import Union
 
+import click
 from flask import Flask
 from flask import jsonify
 from flask import request
@@ -13,10 +14,13 @@ from llm_bench_api.config import MongoConfig
 from llm_bench_api.logging import log_to_mongo
 from llm_bench_api.utils import check_and_clean_space
 from llm_bench_api.utils import has_existing_run
-from llm_bench_vllm.generate import generate
+
 
 log_path = "/var/log/llm_benchmarks.log"
-logging.basicConfig(filename=log_path, level=logging.INFO)
+try:
+    logging.basicConfig(filename=log_path, level=logging.INFO)
+except PermissionError:
+    logging.basicConfig(filename="./logs/llm_benchmarks.log", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 CACHE_DIR = os.environ.get("HUGGINGFACE_HUB_CACHE")
@@ -29,19 +33,18 @@ assert MONGODB_URI, "MONGODB_URI environment variable not set"
 assert MONGODB_DB, "MONGODB_DB environment variable not set"
 assert MONGODB_COLLECTION_LOCAL, "MONGODB_COLLECTION_LOCAL environment variable not set"
 
-
 DO_SAMPLE = False
-FRAMEWORK = "vllm"
-FLASK_PORT = 5002
+
 
 app = Flask(__name__)
 
 
 @app.route("/benchmark", methods=["POST"])
-def call_vllm() -> Union[Response, Tuple[Response, int]]:
+def call_huggingface() -> Union[Response, Tuple[Response, int]]:
     """Enables the use a POST request to call the benchmarking function."""
     try:
         model_name = request.form.get("model_name", type=str)
+        framework = request.form.get("framework", type=str)
         query = request.form.get("query", default=None, type=str)
         quant_method = request.form.get("quant_method", default=None, type=str)
         quant_bits = request.form.get("quant_bits", default=None, type=str)
@@ -51,15 +54,17 @@ def call_vllm() -> Union[Response, Tuple[Response, int]]:
         run_always_str = request.form.get("run_always", "False").lower()
         run_always = run_always_str == "true"
 
-        quant_str = f"{quant_method}_{quant_bits}" if quant_method is not None else "none"
-        logger.info(f"Received request for model: {model_name}, quant: {quant_str}")
-        logger.info(f"run_always: {run_always}")
+        assert framework is not None, "framework is required"
+        assert model_name is not None, "model_name is required"
 
-        assert model_name, "model_name not set"
+        quant_str = (
+            f"{quant_method}_{quant_bits}" if quant_method is not None else "none"
+        )
+        logger.info(f"Received request for model: {model_name}, quant: {quant_str}")
 
         # Create model config
         model_config = ModelConfig(
-            framework=FRAMEWORK,
+            framework=framework,
             model_name=model_name,
             run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             model_dtype="torch.float16",
@@ -83,17 +88,33 @@ def call_vllm() -> Union[Response, Tuple[Response, int]]:
         existing_run = has_existing_run(model_name, model_config, mongo_config)
         if existing_run:
             if run_always:
-                logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
+                logger.info(
+                    f"Model has been benchmarked before: {model_name}, quant: {quant_str}"
+                )
                 logger.info("Re-running benchmark anyway because run_always is True")
             else:
-                logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
-                return jsonify({"status": "skipped", "reason": "model has been benchmarked before"}), 200
+                logger.info(
+                    f"Model has been benchmarked before: {model_name}, quant: {quant_str}"
+                )
+                return jsonify(
+                    {"status": "skipped", "reason": "model has been benchmarked before"}
+                ), 200
         else:
-            logger.info(f"Model has not been benchmarked before: {model_name}, quant: {quant_str}")
+            logger.info(
+                f"Model has not been benchmarked before: {model_name}, quant: {quant_str}"
+            )
 
         # Check and clean disk space if needed
         check_and_clean_space(directory=CACHE_DIR, threshold=90.0)
 
+        if framework == "transformers":
+            from llm_bench_huggingface.transformers import generate
+        elif framework == "hf-tgi":
+            from llm_bench_huggingface.tgi import generate
+        else:
+            raise ValueError(f"Unknown framework: {framework}")
+
+        # Main benchmarking function
         metrics = generate(model_config, run_config)
         assert metrics, "metrics is empty"
 
@@ -121,4 +142,11 @@ def call_vllm() -> Union[Response, Tuple[Response, int]]:
         return jsonify({"status": "error", "reason": str(e)}), 500
 
 
-app.run(host="0.0.0.0", port=FLASK_PORT)
+@click.command()
+@click.option("--port", required=True, help="Port to run the server on")
+def main(port):
+    app.run(host="0.0.0.0", port=port)
+
+
+if __name__ == "__main__":
+    main()

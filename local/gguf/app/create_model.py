@@ -11,8 +11,12 @@ OUTPUT_DIR = "/gemini/gguf"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Download a model from the Hugging Face Hub.")
-    parser.add_argument("-m", "--model", required=True, help="Model ID from the Hugging Face Hub.")
+    parser = argparse.ArgumentParser(
+        description="Download a model from the Hugging Face Hub."
+    )
+    parser.add_argument(
+        "-m", "--model", required=True, help="Model ID from the Hugging Face Hub."
+    )
     args = parser.parse_args()
 
     # Clean the model id

@@ -40,7 +40,9 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
         framework = "gguf"
         model_name = request.form.get("model_name")
         model_path = f"/models/{model_name}"
-        query = request.form.get("query", "User: Complain that I did not send a request.\nAI:")
+        query = request.form.get(
+            "query", "User: Complain that I did not send a request.\nAI:"
+        )
         max_tokens = int(request.form.get("max_tokens", 512))
         temperature = request.form.get("temperature", default=0.1, type=float)
         quant_method = request.form.get("quant_method", default=None, type=str)
@@ -51,7 +53,9 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
 
         assert model_name, "model_name not set"
 
-        quant_str = f"{quant_method}_{quant_bits}" if quant_method is not None else "none"
+        quant_str = (
+            f"{quant_method}_{quant_bits}" if quant_method is not None else "none"
+        )
         logger.info(f"Received request for model: {model_name}, quant: {quant_str}")
 
         logger.info(f"Received request for model {model_name}")
@@ -81,13 +85,21 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
         existing_run = has_existing_run(model_name, model_config, mongo_config)
         if existing_run:
             if run_always:
-                logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
+                logger.info(
+                    f"Model has been benchmarked before: {model_name}, quant: {quant_str}"
+                )
                 logger.info("Re-running benchmark anyway because run_always is True")
             else:
-                logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
-                return jsonify({"status": "skipped", "reason": "model has been benchmarked before"}), 200
+                logger.info(
+                    f"Model has been benchmarked before: {model_name}, quant: {quant_str}"
+                )
+                return jsonify(
+                    {"status": "skipped", "reason": "model has been benchmarked before"}
+                ), 200
         else:
-            logger.info(f"Model has not been benchmarked before: {model_name}, quant: {quant_str}")
+            logger.info(
+                f"Model has not been benchmarked before: {model_name}, quant: {quant_str}"
+            )
 
         # Main benchmarking function
         llm = Llama(
@@ -129,7 +141,9 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
             "output_tokens": [output_tokens],
             "gpu_mem_usage": [info.used],
             "generate_time": [time_1 - time_0],
-            "tokens_per_second": [output_tokens / (time_1 - time_0) if time_1 > time_0 else 0],
+            "tokens_per_second": [
+                output_tokens / (time_1 - time_0) if time_1 > time_0 else 0
+            ],
         }
 
         # Log metrics to MongoDB

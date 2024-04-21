@@ -1,0 +1,19 @@
+[build-system]
+requires = [ "poetry-core",]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "llm-bench-huggingface"
+version = "0.1.0"
+description = "API and generation for benchmarking HuggingFace (TGI, Transformers)"
+authors = ["David Rose <david@drose.io>"]
+
+[tool.black]
+line-length = 120
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.13"
+torch = "^2.2.2"
+transformers = "^4.40.0"
+flask = "^3.0.3"
+numpy = "^1.26.4"
