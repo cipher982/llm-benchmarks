@@ -17,9 +17,8 @@ services:
               count: 2
               capabilities: [gpu]
     volumes:
+      - ./huggingface/llm_bench_hf:/app/llm_bench_hf
       - ../api/llm_bench_api:/app/llm_bench_api
-      - ./huggingface/app:/app/llm_bench_huggingface
-      - ./huggingface/pyproject.toml:/app/pyproject.toml
       - ./logs/:/var/log
       - /gemini/hf:/models/hf
     network_mode: host

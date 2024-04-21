@@ -7,7 +7,7 @@ from huggingface_hub import InferenceClient
 from llm_bench_api.config import ModelConfig
 from llm_bench_api.utils import get_vram_usage
 
-from app.tgi import DockerContainer
+from llm_bench_hf.tgi import DockerContainer
 
 logger = logging.getLogger(__name__)
 

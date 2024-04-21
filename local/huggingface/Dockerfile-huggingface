@@ -22,8 +22,9 @@ RUN pip install --upgrade pip poetry
 WORKDIR /app
 
 # Install dependencies from poetry
-COPY ./huggingface/pyproject.toml .
-RUN poetry install
+COPY ./huggingface/pyproject.toml /app/
+RUN . /opt/venv/bin/activate && poetry install
 
 # Run Flask
-ENTRYPOINT ["python", "-m", "llm_bench_huggingface.server", "--port=5000"]
+ENTRYPOINT ["python3", "-m", "llm_bench_hf.server", "--port=5000"]
+# ENTRYPOINT ["/bin/bash", "-c", "tail -f /dev/null"]

@@ -58,9 +58,7 @@ class DockerContainer:
         logger.info(quant_info["message"])
 
         try:
-            process = subprocess.Popen(
-                command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = process.communicate()
             if stdout:
                 logger.info(f"Docker process stdout: {stdout.decode()}")
