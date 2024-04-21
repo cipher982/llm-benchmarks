@@ -5,21 +5,25 @@ ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
 # Install system dependencies
-RUN apt-get update && \
-    apt-get install -y \
-        git \
-        python3-pip
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y software-properties-common
 
-# Upgrade pip
-RUN python3 -m pip install --upgrade pip poetry
+RUN add-apt-repository ppa:deadsnakes/ppa
+RUN apt-get update && apt-get install -y python3.12 python3.12-venv
+
+# Create a virtual environment and activate it
+RUN python3.12 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Upgrade pip and install poetry
+RUN pip install --upgrade pip poetry
 
 # Set the working directory
 WORKDIR /app
 
-RUN ls; sleep 10
-
 # Install dependencies from poetry
-RUN python3 -m poetry install
+COPY ./huggingface/pyproject.toml .
+RUN poetry install
 
 # Run Flask
-ENTRYPOINT [ "python3", "-m", "llm_bench_huggingface.server", "--port=5000" ]
+ENTRYPOINT ["python", "-m", "llm_bench_huggingface.server", "--port=5000"]
