@@ -17,36 +17,36 @@ services:
               count: 2
               capabilities: [gpu]
     volumes:
-      - ./huggingface/llm_bench_hf:/app/llm_bench_hf
       - ../api/llm_bench_api:/app/llm_bench_api
+      - ./huggingface/llm_bench_hf:/app/llm_bench_hf
       - ./logs/:/var/log
       - /gemini/hf:/models/hf
     network_mode: host
     environment:
       - CUDA_VISIBLE_DEVICES=0
-  # bench_gguf:
-  #   image: bench_gguf_img
-  #   build:
-  #     context: .
-  #     dockerfile: gguf/Dockerfile-gguf
-  #   runtime: nvidia
-  #   env_file:
-  #     - .env
-  #   deploy:
-  #     resources:
-  #       reservations:
-  #         devices:
-  #           - driver: nvidia
-  #             count: 2
-  #             capabilities: [gpu]
-  #   volumes:
-  #     - ../api/llm_bench_api:/app/llm_bench_api
-  #     - ./gguf/app:/app/llm_bench_gguf
-  #     - ./logs/:/var/log
-  #     - /gemini/gguf:/models/gguf
-  #   network_mode: host
-  #   environment:
-  #     - CUDA_VISIBLE_DEVICES=0
+  bench_gguf:
+    image: bench_gguf_img
+    build:
+      context: .
+      dockerfile: gguf/Dockerfile-gguf
+    runtime: nvidia
+    env_file:
+      - .env
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 2
+              capabilities: [gpu]
+    volumes:
+      - ../api/llm_bench_api:/app/llm_bench_api
+      - ./gguf/llm_bench_gguf:/app/llm_bench_gguf
+      - ./logs/:/var/log
+      - /gemini/gguf:/models/gguf
+    network_mode: host
+    environment:
+      - CUDA_VISIBLE_DEVICES=0
   # bench_vllm:
   #   image: bench_vllm_img
   #   build:

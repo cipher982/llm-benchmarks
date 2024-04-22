@@ -1,37 +1,32 @@
-ARG CUDA_IMAGE="12.1.1-devel-ubuntu22.04"
-
-FROM nvidia/cuda:${CUDA_IMAGE} AS llama_build
+# Base image
+FROM nvidia/cuda:12.1.1-base-ubuntu22.04
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
-RUN apt-get update && apt-get upgrade -y \
-    && apt-get install -y git build-essential \
-    python3 python3-pip gcc wget \
-    ocl-icd-opencl-dev opencl-headers clinfo \
-    libclblast-dev libopenblas-dev \
-    && mkdir -p /etc/OpenCL/vendors && echo "libnvidia-opencl.so.1" > /etc/OpenCL/vendors/nvidia.icd
+# Install necessary packages and dependencies
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+    git \
+    build-essential \
+    python3 \
+    python3-pip \
+    cuda-cudart-12-1 \
+    cuda-libraries-12-1 \
+    cuda-nvtx-12-1 && \
+    rm -rf /var/lib/apt/lists/*
 
-RUN git clone https://github.com/abetlen/llama-cpp-python.git /llama-cpp-python
-WORKDIR /llama-cpp-python
-
-# setting build related env vars
-ENV CUDA_DOCKER_ARCH=all
-ENV LLAMA_CUBLAS=1
-
-RUN python3 -m pip install --upgrade pip poetry
-
-COPY ./pyproject.toml pyproject.toml
-RUN python3 -m poetry install
-
-# Install llama-cpp-python (build with cuda)
-RUN CMAKE_ARGS="-DLLAMA_CUBLAS=on" pip install llama-cpp-python
+# Set up pip, poetry, and install project dependencies
+WORKDIR /app
+COPY ./gguf/pyproject.toml /app/
+RUN pip3 install --upgrade pip poetry && \
+    poetry config virtualenvs.create false && \
+    poetry install && \
+    pip3 install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121
 
 # Create log directory and file
-RUN mkdir -p /var/log_gguf
-RUN touch /var/log_gguf/gguf.log
+RUN mkdir -p /var/log_gguf && touch /var/log_gguf/gguf.log
 
 # Run Flask
-WORKDIR /app
-ENTRYPOINT [ "python3", "-m", "llm_bench_gguf.server" ]
+ENTRYPOINT ["python3", "-m", "llm_bench_gguf.server"]

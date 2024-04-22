@@ -32,8 +32,7 @@ def generate(
         # gptq comes pre-quantized from the hub, no need to convert when loading
         quant_config = None
     elif config.quantization_method == "awq":
-        # autoawq comes pre-quantized from the hub, no need to convert when loading
-        quant_config = None
+        raise NotImplementedError("AWQ not supported at the moment due to compatibility issues")
     elif config.quantization_method == "bitsandbytes":
         quant_config = BitsAndBytesConfig(
             load_in_8bit=config.load_in_8bit,
@@ -60,6 +59,12 @@ def generate(
     logger.info(f"Config: {config.to_dict()}")
     model = AutoModelForCausalLM.from_pretrained(config.model_name, **load_args)
     model.eval()
+
+    # Checks for correct model loading and dtype (hack to ensure pre-quantized models are loaded correctly)
+    if config.quantization_bits == "4bit" and config.quantization_method != "bitsandbytes":
+        assert model.config.quantization_config.bits == 4, f"Model quant bits: {model.config.quantization.bits}"
+    elif config.quantization_bits == "8bit" and config.quantization_method != "bitsandbytes":
+        assert model.config.quantization_config.bits == 8, f"Model quant bits: {model.config.quantization.bits}"
 
     # Generate samples
     time_0 = time()
