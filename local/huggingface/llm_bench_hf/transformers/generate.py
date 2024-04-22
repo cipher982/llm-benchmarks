@@ -9,7 +9,8 @@ from time import time
 import torch
 from llm_bench_api.config import ModelConfig
 from llm_bench_api.utils import get_vram_usage
-from transformers import AutoModelForCausalLM  # type: ignore
+from transformers import AutoModelForCausalLM
+from transformers import BitsAndBytesConfig
 
 logger = logging.getLogger(__name__)
 
@@ -28,30 +29,36 @@ def generate(
     logger.info(f"Running benchmark: {config.model_name}, quant: {quant_str}")
 
     if config.quantization_method == "gptq":
-        load_in_4bit = False
-        load_in_8bit = False
+        # gptq comes pre-quantized from the hub, no need to convert when loading
+        quant_config = None
     elif config.quantization_method == "awq":
-        load_in_4bit = False
-        load_in_8bit = False
+        # autoawq comes pre-quantized from the hub, no need to convert when loading
+        quant_config = None
     elif config.quantization_method == "bitsandbytes":
-        load_in_4bit = config.load_in_4bit
-        load_in_8bit = config.load_in_8bit
+        quant_config = BitsAndBytesConfig(
+            load_in_8bit=config.load_in_8bit,
+            load_in_4bit=config.load_in_4bit,
+            bnb_4bit_compute_dtype=torch.float16,
+        )
     else:
-        load_in_4bit = False
-        load_in_8bit = False
+        quant_config = None
+
+    # Prepare the arguments for loading the model
+    load_args = {
+        "torch_dtype": torch.float16 if config.model_dtype == "torch.float16" else torch.float32,
+        "device_map": "auto",
+        "trust_remote_code": True,
+        "token": HF_TOKEN,
+    }
+
+    # Conditionally add quantization_config if it is not None
+    if quant_config is not None:
+        load_args["quantization_config"] = quant_config
 
     # Load model
     logger.info(f"Loading pretrained model: {config.model_name}, quant: {quant_str}")
     logger.info(f"Config: {config.to_dict()}")
-    model = AutoModelForCausalLM.from_pretrained(
-        config.model_name,
-        load_in_4bit=load_in_4bit,
-        load_in_8bit=load_in_8bit,
-        torch_dtype=(torch.float16 if config.model_dtype == "torch.float16" else torch.float32),
-        device_map="auto",
-        trust_remote_code=True,
-        token=HF_TOKEN,
-    )
+    model = AutoModelForCausalLM.from_pretrained(config.model_name, **load_args)
     model.eval()
 
     # Generate samples
@@ -62,7 +69,7 @@ def generate(
             output = model.generate(
                 torch.tensor([[0, 1, 2]]).to("cuda"),
                 do_sample=config.misc.get("do_sample"),
-                temperature=(config.temperature if config.misc.get("do_sample") else None),
+                temperature=config.temperature if config.misc.get("do_sample") else None,
                 min_length=run_config["max_tokens"],
                 max_length=run_config["max_tokens"],
             )

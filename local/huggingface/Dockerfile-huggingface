@@ -9,7 +9,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y software-properties-common
 
 RUN add-apt-repository ppa:deadsnakes/ppa
-RUN apt-get update && apt-get install -y python3.12 python3.12-venv
+RUN apt-get update && apt-get install -y python3.12 python3.12-venv git
 
 # Create a virtual environment and activate it
 RUN python3.12 -m venv /opt/venv
@@ -24,6 +24,9 @@ WORKDIR /app
 # Install dependencies from poetry
 COPY ./huggingface/pyproject.toml /app/
 RUN . /opt/venv/bin/activate && poetry install
+
+RUN git clone https://github.com/PanQiWei/AutoGPTQ.git && cd AutoGPTQ;
+RUN pip install -vvv -e .; cd ..
 
 # Run Flask
 ENTRYPOINT ["python3", "-m", "llm_bench_hf.server", "--port=5000"]
