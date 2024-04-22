@@ -8,7 +8,7 @@ authors = ["David Rose <david@drose.io>"]
 package-mode = false
 
 [tool.poetry.dependencies]
-python = ">=3.11,<3.13"
+python = ">=3.10,<3.13"
 torch = "2.2.0"
 transformers = "^4.39.0"
 accelerate = "^0.29.3"

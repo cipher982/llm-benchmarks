@@ -1,32 +1,30 @@
 FROM nvidia/cuda:12.1.1-base-ubuntu22.04
 
-# Set environment variables
+# Set environment variables to avoid Python creating .pyc files and buffering stdout and stderr
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Install system dependencies
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y software-properties-common
-
-RUN add-apt-repository ppa:deadsnakes/ppa
-RUN apt-get update && apt-get install -y python3.12 python3.12-venv git
-
-# Create a virtual environment and activate it
-RUN python3.12 -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3-pip python3-distutils git && \
+    apt-get clean
 
 # Upgrade pip and install poetry
-RUN pip install --upgrade pip poetry
+RUN pip3 install --upgrade pip poetry
 
 # Set the working directory
 WORKDIR /app
 
-# Install dependencies from poetry
+# Disable Poetry's virtual environment
+RUN poetry config virtualenvs.create false
+
+# Install dependencies using Poetry
 COPY ./huggingface/pyproject.toml /app/
-RUN . /opt/venv/bin/activate && poetry install
+RUN poetry install
 
-RUN git clone https://github.com/PanQiWei/AutoGPTQ.git && cd AutoGPTQ;
-RUN pip install -vvv -e .; cd ..
+# Install AutoGPTQ (had issue with poetry install)
+RUN pip3 install auto-gptq
 
-# Run Flask
+# Set the default command to run the Flask app
 ENTRYPOINT ["python3", "-m", "llm_bench_hf.server", "--port=5000"]
