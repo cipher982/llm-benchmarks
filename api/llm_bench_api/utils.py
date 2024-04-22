@@ -2,24 +2,24 @@ import logging.config
 import os
 import re
 import shutil
-from typing import cast
 from typing import List
 from typing import Optional
 from typing import Tuple
 from typing import Union
+from typing import cast
 
 import pynvml
 import requests
+from pymongo import MongoClient
+
 from llm_bench_api.config import CloudConfig
 from llm_bench_api.config import ModelConfig
 from llm_bench_api.config import MongoConfig
-from pymongo import MongoClient
-
 
 logger = logging.getLogger(__name__)
 
 
-def fetch_hf_models(fetch_hub: bool, cache_dir: str) -> list[str]:
+def fetch_hf_models(fetch_hub: bool, cache_dir: str, model_type: str = "transformers") -> list[str]:
     if fetch_hub:
         try:
             response = requests.get(
@@ -46,8 +46,13 @@ def fetch_hf_models(fetch_hub: bool, cache_dir: str) -> list[str]:
             print(f"Error fetching cached models: {e}")
             return []
 
-    # Filter out gguf models (use these in llama-cpp instead)
-    model_names = [name for name in model_names if "gguf" not in name.lower()]
+    # Filter models based on the chosen model_type
+    if model_type == "gguf":
+        model_names = [name for name in model_names if "gguf" in name.lower()]
+    elif model_type == "transformers":
+        model_names = [name for name in model_names if "gguf" not in name.lower()]
+    else:
+        raise ValueError(f"Invalid model_type: {model_type}. Choose either 'transformers' or 'gguf'.")
 
     return model_names
 
@@ -107,7 +112,7 @@ def get_cached_models(directory: str) -> list[str]:
     files = os.listdir(directory)
     model_files = [f for f in files if f.startswith("models--")]
     formatted_names = [f.removeprefix("models--").replace("--", "/") for f in model_files]
-    print(f"Returning {len(formatted_names):,} model names")
+    print(f"Found {len(formatted_names):,} cached models")
     return formatted_names
 
 
