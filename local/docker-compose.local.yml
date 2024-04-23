@@ -47,26 +47,26 @@ services:
     network_mode: host
     environment:
       - CUDA_VISIBLE_DEVICES=${GPU_DEVICE}
-  # bench_vllm:
-  #   image: bench_vllm_img
-  #   build:
-  #     context: .
-  #     dockerfile: vllm/Dockerfile-vllm
-  #   runtime: nvidia
-  #   env_file:
-  #     - .env
-  #   deploy:
-  #     resources:
-  #       reservations:
-  #         devices:
-  #           - driver: nvidia
-  #             count: 1
-  #             capabilities: [gpu]
-  #   volumes:
-  #     - ../api/llm_bench_api:/app/llm_bench_api
-  #     - ./vllm/llm_bench_vllm:/app/llm_bench_vllm
-  #     - ./logs/:/var/log
-  #     - /gemini/hf:/models/hf
-  #   network_mode: host
-  #   environment:
-  #     - CUDA_VISIBLE_DEVICES=0
+  bench_vllm:
+    image: bench_vllm_img
+    build:
+      context: .
+      dockerfile: vllm/Dockerfile-vllm
+    runtime: nvidia
+    env_file:
+      - .env
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - ../api/llm_bench_api:/app/llm_bench_api
+      - ./vllm/llm_bench_vllm:/app/llm_bench_vllm
+      - ./logs/:/var/log
+      - /gemini/hf:/models/hf
+    network_mode: host
+    environment:
+      - CUDA_VISIBLE_DEVICES=${GPU_DEVICE}
