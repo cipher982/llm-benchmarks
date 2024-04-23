@@ -38,7 +38,7 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
         # Load config from request
         framework = "gguf"
         model_name = request.form.get("model_name")
-        model_path = f"/models/{model_name}"
+        model_path = f"/models/gguf/{model_name}"
         query = request.form.get("query", "User: Complain that I did not send a request.\nAI:")
         max_tokens = int(request.form.get("max_tokens", 512))
         temperature = request.form.get("temperature", default=0.1, type=float)
@@ -52,8 +52,6 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
 
         quant_str = f"{quant_method}_{quant_bits}" if quant_method is not None else "none"
         logger.info(f"Received request for model: {model_name}, quant: {quant_str}")
-
-        logger.info(f"Received request for model {model_name}")
 
         # Create model config
         model_config = ModelConfig(
@@ -89,6 +87,7 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
             logger.info(f"Model has not been benchmarked before: {model_name}, quant: {quant_str}")
 
         # Main benchmarking function
+        logger.info(f"Loading llama-cpp model from path: {model_path}")
         llm = Llama(
             model_path=model_path,
             max_tokens=run_config["max_tokens"],

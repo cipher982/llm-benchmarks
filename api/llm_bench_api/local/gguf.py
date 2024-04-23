@@ -18,5 +18,6 @@ def fetch_gguf_files(model_dir: str) -> list[str]:
     for root, _, files in os.walk(model_dir):
         for file in files:
             if file.endswith(".gguf"):
-                gguf_files.append(os.path.join(root, file))
+                relative_path = os.path.relpath(os.path.join(root, file), model_dir)
+                gguf_files.append(relative_path)
     return gguf_files
