@@ -10,7 +10,7 @@ model_names=(
 activate bench
 
 # Set the environment variable
-export HUGGINGFACE_HUB_CACHE="/gemini/tmp"
+export HF_HUB_CACHE="/gemini/tmp"
 
 # Loop over the model names
 for model in "${model_names[@]}"

@@ -20,8 +20,8 @@ log_path = "/var/log/llm_benchmarks.log"
 logging.basicConfig(filename=log_path, level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CACHE_DIR = os.environ.get("HUGGINGFACE_HUB_CACHE")
-assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
+CACHE_DIR = os.environ.get("HF_HUB_CACHE")
+assert CACHE_DIR, "HF_HUB_CACHE environment variable not set"
 
 MONGODB_URI = os.environ.get("MONGODB_URI")
 MONGODB_DB = os.environ.get("MONGODB_DB")

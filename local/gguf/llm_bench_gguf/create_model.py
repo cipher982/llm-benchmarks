@@ -60,7 +60,7 @@ def main() -> None:
 
 
 def download_model(model_id: str, local_dir: str, revision: str = "main") -> None:
-    os.environ["HUGGINGFACE_HUB_CACHE"] = "/tmp"
+    os.environ["HF_HUB_CACHE"] = "/tmp"
 
     snapshot_download(
         repo_id=model_id,

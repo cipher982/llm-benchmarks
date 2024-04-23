@@ -13,9 +13,9 @@ logger = logging.getLogger(__name__)
 
 
 GPU_DEVICE = os.environ.get("GPU_DEVICE")
-CACHE_DIR = os.environ.get("HUGGINGFACE_HUB_CACHE")
+CACHE_DIR = os.environ.get("HF_HUB_CACHE")
 assert GPU_DEVICE, "GPU_DEVICE environment variable not set"
-assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
+assert CACHE_DIR, "HF_HUB_CACHE environment variable not set"
 
 
 def generate(config: ModelConfig, run_config: dict):

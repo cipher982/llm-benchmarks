@@ -16,8 +16,8 @@ MAX_TOKENS = 256
 TEMPERATURE = 0.1
 FLASK_PORT_TF = 5000
 FLASK_PORT_TGI = 5001
-CACHE_DIR = os.environ.get("HUGGINGFACE_HUB_CACHE")
-assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
+CACHE_DIR = os.environ.get("HF_HUB_CACHE")
+assert CACHE_DIR, "HF_HUB_CACHE environment variable not set"
 
 
 @click.command()

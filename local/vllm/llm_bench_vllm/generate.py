@@ -33,7 +33,7 @@ def generate(config: ModelConfig, run_config: dict) -> dict:
             # Load model
             model = LLM(
                 model=config.model_name,
-                download_dir=os.environ.get("HUGGINGFACE_HUB_CACHE"),
+                download_dir=os.environ.get("HF_HUB_CACHE"),
                 trust_remote_code=True,
             )
             # Set params
