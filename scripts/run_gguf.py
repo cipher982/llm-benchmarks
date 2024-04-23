@@ -13,7 +13,8 @@ assert GGUF_DIR, "GGUF_DIR environment variable not set"
 @click.command()
 @click.option("--limit", default=50, type=int, help="Limit the number of models to run for debugging.")
 @click.option("--run-always", is_flag=True, help="Flag to always run benchmarks.")
-def bench_gguf(limit: int, run_always: bool) -> None:
+@click.option("--log-level", default="INFO", help="Log level for the benchmarking server.")
+def bench_gguf(limit: int, run_always: bool, log_level: str = "INFO"):
     """Benchmark all models on the gguf server."""
 
     # # Get all models and quant types from disk
@@ -47,6 +48,7 @@ def bench_gguf(limit: int, run_always: bool) -> None:
             "max_tokens": 256,
             "n_gpu_layers": -1,
             "run_always": run_always,
+            "log_level": log_level,
         }
         request_path = f"http://localhost:{FLASK_PORT}/benchmark"
         response = requests.post(request_path, data=config)

@@ -14,7 +14,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 2
+              count: 1
               capabilities: [gpu]
     volumes:
       - ../api/llm_bench_api:/app/llm_bench_api
@@ -23,7 +23,7 @@ services:
       - /gemini/hf:/models/hf
     network_mode: host
     environment:
-      - CUDA_VISIBLE_DEVICES=0
+      - CUDA_VISIBLE_DEVICES=${GPU_DEVICE}
   bench_gguf:
     image: bench_gguf_img
     build:
@@ -37,7 +37,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 2
+              count: 1
               capabilities: [gpu]
     volumes:
       - ../api/llm_bench_api:/app/llm_bench_api
@@ -46,7 +46,7 @@ services:
       - /gemini/gguf:/models/gguf
     network_mode: host
     environment:
-      - CUDA_VISIBLE_DEVICES=0
+      - CUDA_VISIBLE_DEVICES=${GPU_DEVICE}
   # bench_vllm:
   #   image: bench_vllm_img
   #   build:

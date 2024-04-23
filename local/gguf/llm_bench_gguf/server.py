@@ -16,11 +16,7 @@ from llm_bench_api.config import MongoConfig
 from llm_bench_api.logging import log_to_mongo
 from llm_bench_api.utils import has_existing_run
 
-logging.basicConfig(filename="/var/log/llm_benchmarks.log", level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-app = Flask(__name__)
-
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 MONGODB_URI = os.environ.get("MONGODB_URI")
 MONGODB_DB = os.environ.get("MONGODB_DB")
 MONGODB_COLLECTION_LOCAL = os.environ.get("MONGODB_COLLECTION_LOCAL")
@@ -29,6 +25,11 @@ assert MONGODB_DB, "MONGODB_DB environment variable not set"
 assert MONGODB_COLLECTION_LOCAL, "MONGODB_COLLECTION_LOCAL environment variable not set"
 
 FLASK_PORT = 5003
+
+logging.basicConfig(filename="/var/log/llm_benchmarks.log", level=LOG_LEVEL)
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
 
 
 @app.route("/benchmark", methods=["POST"])
@@ -47,6 +48,8 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
         n_gpu_layers = int(request.form.get("n_gpu_layers", 0))
         run_always_str = request.form.get("run_always", "False").lower()
         run_always = run_always_str == "true"
+        log_level = request.form.get("log_level", "INFO")
+        logger.setLevel(log_level.upper())
 
         assert model_name, "model_name not set"
 
@@ -69,6 +72,7 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
             "query": query,
             "max_tokens": max_tokens,
         }
+        logger.info(f"Run config: {run_config}")
 
         mongo_config = MongoConfig(
             uri=MONGODB_URI,
@@ -90,21 +94,25 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
         logger.info(f"Loading llama-cpp model from path: {model_path}")
         llm = Llama(
             model_path=model_path,
-            max_tokens=run_config["max_tokens"],
             n_gpu_layers=n_gpu_layers,
-            temperature=temperature,
         )
 
         # Get GPU memory usage
         time.sleep(1)
         pynvml.nvmlInit()
-        handle = pynvml.nvmlDeviceGetHandleByIndex(1)  # second GPU
+        gpu_device = int(os.environ.get("GPU_DEVICE", 0))
+        handle = pynvml.nvmlDeviceGetHandleByIndex(gpu_device)
         info = pynvml.nvmlDeviceGetMemoryInfo(handle)
         pynvml.nvmlShutdown()
 
         # Run benchmark
         time_0 = time.time()
-        output = llm(run_config["query"], echo=True)
+        output = llm(
+            run_config["query"],
+            echo=True,
+            max_tokens=run_config["max_tokens"],
+            temperature=temperature,
+        )
         time_1 = time.time()
 
         # # Build config object
@@ -146,6 +154,7 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
         logger.info(f"GPU mem usage: {(metrics['gpu_mem_usage'][0] / 1024**3) :.2f}GB")
         logger.info(f"Generate time: {metrics['generate_time'][0]:.2f} s")
         logger.info(f"Tokens per second: {metrics['tokens_per_second'][0]:.2f}")
+        logger.debug(f"Full output: {output}")
 
         return jsonify({"status": "success"}), 200
     except Exception as e:
