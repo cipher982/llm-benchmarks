@@ -17,20 +17,12 @@ assert GGUF_DIR, "GGUF_DIR environment variable not set"
 def bench_gguf(limit: int, run_always: bool, log_level: str = "INFO"):
     """Benchmark all models on the gguf server."""
 
-    # # Get all models and quant types from disk
-    # model_dir = "/gemini/gguf/"
-    # model_names, quant_types = get_models_and_quant_types(model_dir)
-    # print(f"Found {len(model_names)} models in {model_dir}")
+    # Fetch all models
     model_names = fetch_gguf_files(model_dir=GGUF_DIR)
     print(f"Fetched {len(model_names)} GGUF models")
 
-    # Manually drop some models
-    drop_models = [
-        # "meta-llama--Llama-2-70b-chat-hf/m-f16.gguf",
-        # "meta-llama--Llama-2-13b-chat-hf/m-f16.gguf",
-    ]
-    model_names = [model for model in model_names if model not in drop_models]
-    model_names = model_names[:1]
+    # Limit the number of models to run
+    model_names = model_names[:limit]
     print(f"Will run benchmarks for {len(model_names)} models")
 
     # Run benchmarks
@@ -44,6 +36,9 @@ def bench_gguf(limit: int, run_always: bool, log_level: str = "INFO"):
 
         config = {
             "model_name": model,
+            "quant_method": "gguf",
+            "quant_type": quant[0],
+            "quant_bits": int(quant[1]),
             "query": "User: Tell me a long story about the history of the world.\nAI:",
             "max_tokens": 256,
             "n_gpu_layers": -1,

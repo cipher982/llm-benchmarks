@@ -43,8 +43,9 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
         query = request.form.get("query", "User: Complain that I did not send a request.\nAI:")
         max_tokens = int(request.form.get("max_tokens", 512))
         temperature = request.form.get("temperature", default=0.1, type=float)
-        quant_method = request.form.get("quant_method", default=None, type=str)
-        quant_bits = request.form.get("quant_bits", default=None, type=str)
+        quant_method = request.form.get("quant_method", type=str)
+        quant_type = request.form.get("quant_type", type=str)
+        quant_bits = request.form.get("quant_bits", type=str)
         n_gpu_layers = int(request.form.get("n_gpu_layers", 0))
         run_always_str = request.form.get("run_always", "False").lower()
         run_always = run_always_str == "true"
@@ -53,7 +54,7 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
 
         assert model_name, "model_name not set"
 
-        quant_str = f"{quant_method}_{quant_bits}" if quant_method is not None else "none"
+        quant_str = quant_type if quant_method is not None else "none"
         logger.info(f"Received request for model: {model_name}, quant: {quant_str}")
 
         # Create model config
@@ -65,8 +66,8 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
             quantization_method=quant_method,
             quantization_bits=quant_bits,
             temperature=temperature,
+            misc={"gguf_quant_type": quant_type},
         )
-        assert model_config.quantization_bits in ["4bit", "8bit", None]
 
         run_config = {
             "query": query,
