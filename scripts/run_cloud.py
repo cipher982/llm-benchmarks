@@ -15,7 +15,9 @@ from llm_bench_api.types import BenchmarkRequest
 QUERY_TEXT = "Tell me a long story of the history of the world."
 MAX_TOKENS = 256
 TEMPERATURE = 0.1
-SERVER_PATH = os.environ.get("SERVER_PATH", "http://localhost:8002/benchmark")
+FASTAPI_PORT = os.environ.get("FASTAPI_PORT_CLOUD")
+
+server_path = f"http://localhost:{FASTAPI_PORT}/benchmark"
 
 # Load provider models from JSON
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -30,8 +32,8 @@ async def post_benchmark(request: BenchmarkRequest):
     try:
         start_time = datetime.now()
         async with httpx.AsyncClient(timeout=timeout) as client:
-            log_info(f"Sending request to {SERVER_PATH}")
-            response = await client.post(SERVER_PATH, json=request.model_dump())
+            log_info(f"Sending request to {server_path}")
+            response = await client.post(server_path, json=request.model_dump())
             response.raise_for_status()
         end_time = datetime.now()
         response_time = (end_time - start_time).total_seconds()
@@ -51,16 +53,10 @@ app = typer.Typer()
 
 @app.command()
 def main(
-    providers: list[str] = typer.Option(
-        ["all"], "--providers", help="Providers to use for benchmarking."
-    ),
+    providers: list[str] = typer.Option(["all"], "--providers", help="Providers to use for benchmarking."),
     limit: int = typer.Option(100, "--limit", help="Limit the number of models run."),
-    run_always: bool = typer.Option(
-        False, "--run-always", is_flag=True, help="Flag to always run benchmarks."
-    ),
-    debug: bool = typer.Option(
-        False, "--debug", is_flag=True, help="Flag to enable debug mode."
-    ),
+    run_always: bool = typer.Option(False, "--run-always", is_flag=True, help="Flag to always run benchmarks."),
+    debug: bool = typer.Option(False, "--debug", is_flag=True, help="Flag to enable debug mode."),
 ) -> None:
     """Main entrypoint for benchmarking cloud models."""
 
@@ -116,19 +112,11 @@ def main(
         log_info(f"Running benchmarks for provider(s): {providers}")
 
         # Run benchmarks for each provider asynchronously
-        tasks = [
-            benchmark_provider(provider, limit, run_always, debug)
-            for provider in providers
-        ]
+        tasks = [benchmark_provider(provider, limit, run_always, debug) for provider in providers]
         results = await asyncio.gather(*tasks)
 
         # Flatten the list of model statuses and log final results
-        combined_model_status = [
-            status
-            for provider_status in results
-            if provider_status
-            for status in provider_status
-        ]
+        combined_model_status = [status for provider_status in results if provider_status for status in provider_status]
         log_benchmark_status(combined_model_status)
 
     asyncio.run(async_main(providers, limit, run_always, debug))

@@ -9,7 +9,7 @@ services:
     env_file:
       - .env
     volumes:
-      - ./api/llm_bench_api:/app/llm_bench_api
+      - ../api/llm_bench_api:/app/llm_bench_api
       - ./logs/:/app/logs
       - /home/drose/.aws:/root/.aws
       - /home/drose/.config/gcloud:/root/.config/gcloud

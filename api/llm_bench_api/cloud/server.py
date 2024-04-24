@@ -3,6 +3,7 @@ import os
 from datetime import datetime
 
 from fastapi import FastAPI
+
 from llm_bench_api.config import CloudConfig
 from llm_bench_api.config import MongoConfig
 from llm_bench_api.logging import log_to_mongo
@@ -10,17 +11,16 @@ from llm_bench_api.types import BenchmarkRequest
 from llm_bench_api.types import BenchmarkResponse
 from llm_bench_api.utils import has_existing_run
 
-
 log_path = "./logs/bench_cloud.log"
 logging.basicConfig(filename=log_path, level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-FASTAPI_BENCH_PORT = os.environ.get("FASTAPI_BENCH_PORT")
+FASTAPI_PORT_CLOUD = os.environ.get("FASTAPI_PORT_CLOUD")
 MONGODB_URI = os.environ.get("MONGODB_URI")
 MONGODB_DB = os.environ.get("MONGODB_DB")
 MONGODB_COLLECTION_CLOUD = os.environ.get("MONGODB_COLLECTION_CLOUD")
 
-assert FASTAPI_BENCH_PORT, "FASTAPI_BENCH_PORT environment variable not set"
+assert FASTAPI_PORT_CLOUD, "FASTAPI_PORT_CLOUD environment variable not set"
 assert MONGODB_URI, "MONGODB_URI environment variable not set"
 assert MONGODB_DB, "MONGODB_DB environment variable not set"
 assert MONGODB_COLLECTION_CLOUD, "MONGODB_COLLECTION_CLOUD environment variable not set"
@@ -45,7 +45,7 @@ PROVIDER_MODULES = {
 app = FastAPI(
     title="LLM Benchmarking API",
     description="API for benchmarking LLMs on the cloud",
-    port=FASTAPI_BENCH_PORT,
+    port=FASTAPI_PORT_CLOUD,
 )
 
 
