@@ -15,11 +15,13 @@ from llm_bench_api.types import BenchmarkRequest
 QUERY_TEXT = "Tell me a long story of the history of the world."
 MAX_TOKENS = 256
 TEMPERATURE = 0.1
-SERVER_PATH = os.environ.get("SERVER_PATH", "http://localhost:8002/benchmark")
+FASTAPI_PORT = os.environ.get("FASTAPI_PORT_CLOUD")
+
+server_path = f"http://localhost:{FASTAPI_PORT}/benchmark"
 
 # Load provider models from JSON
 script_dir = os.path.dirname(os.path.abspath(__file__))
-json_file_path = os.path.join(script_dir, "../models/cloud.json")
+json_file_path = os.path.join(script_dir, "../cloud/models.json")
 with open(json_file_path) as f:
     provider_models = json.load(f)
 
@@ -30,8 +32,8 @@ async def post_benchmark(request: BenchmarkRequest):
     try:
         start_time = datetime.now()
         async with httpx.AsyncClient(timeout=timeout) as client:
-            log_info(f"Sending request to {SERVER_PATH}")
-            response = await client.post(SERVER_PATH, json=request.model_dump())
+            log_info(f"Sending request to {server_path}")
+            response = await client.post(server_path, json=request.model_dump())
             response.raise_for_status()
         end_time = datetime.now()
         response_time = (end_time - start_time).total_seconds()
@@ -95,7 +97,12 @@ def main(
             else:
                 unexpected_status = response.get("status", "Unknown status")
                 log_error(f"⚠️ Unexpected status {model}, status: {unexpected_status}")
-                status_entry.update({"status": "unexpected", "error": f"Unexpected status: {unexpected_status}"})
+                status_entry.update(
+                    {
+                        "status": "unexpected",
+                        "error": f"Unexpected status: {unexpected_status}",
+                    }
+                )
             model_status.append(status_entry)
         return model_status
 

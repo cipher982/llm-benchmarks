@@ -1,0 +1,30 @@
+FROM nvidia/cuda:12.1.1-base-ubuntu22.04
+
+# Set environment variables to avoid Python creating .pyc files and buffering stdout and stderr
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3-pip python3-distutils git && \
+    apt-get clean
+
+# Upgrade pip and install poetry
+RUN pip3 install --upgrade pip poetry
+
+# Set the working directory
+WORKDIR /app
+
+# Disable Poetry's virtual environment
+RUN poetry config virtualenvs.create false
+
+# Install dependencies using Poetry
+COPY ./huggingface/pyproject.toml /app/
+RUN poetry install
+
+# Install AutoGPTQ (had issue with poetry install)
+RUN pip3 install auto-gptq
+
+# Set the default command to run the Flask app
+ENTRYPOINT python3 -m llm_bench_hf.server --port=${FLASK_PORT_HF}

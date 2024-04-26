@@ -14,23 +14,40 @@ QUANT_TYPES = [
 QUERY_TEXT = "User: Tell me a long story about the history of the world.\nAI:"
 MAX_TOKENS = 256
 TEMPERATURE = 0.1
-FLASK_PORT_TF = 5000
-FLASK_PORT_TGI = 5001
-CACHE_DIR = os.environ.get("HUGGINGFACE_HUB_CACHE")
-assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
+FLASK_PORT_HF_TF = int(os.environ.get("FLASK_PORT_HF_TF", 0))
+FLASK_PORT_HF_TGI = int(os.environ.get("FLASK_PORT_HF_TGI", 0))
+CACHE_DIR = os.environ.get("HF_HUB_CACHE")
+assert CACHE_DIR, "HF_HUB_CACHE environment variable not set"
 
 
 @click.command()
-@click.option("--framework", help="LLM API to call. Must be one of 'transformers', 'hf-tgi'")
-@click.option("--limit", default=100, type=int, help="Limit the number of models run.")
+@click.option(
+    "--framework",
+    type=str,
+    help="LLM API to call. Must be one of 'transformers', 'hf-tgi'",
+)
+@click.option(
+    "--limit",
+    default=100,
+    type=int,
+    help="Limit the number of models run.",
+)
 @click.option(
     "--max-size-billion",
     default=5,
     type=int,
     help="Maximum size of models in billion parameters.",
 )
-@click.option("--run-always", is_flag=True, help="Flag to always run benchmarks.")
-@click.option("--fetch-new-models", is_flag=True, help="Fetch latest HF-Hub models.")
+@click.option(
+    "--run-always",
+    is_flag=True,
+    help="Flag to always run benchmarks.",
+)
+@click.option(
+    "--fetch-new-models",
+    is_flag=True,
+    help="Fetch latest HF-Hub models.",
+)
 def main(
     framework: str,
     fetch_new_models: bool,
@@ -53,19 +70,19 @@ def main(
 
     # Set port
     if framework == "transformers":
-        flask_port = FLASK_PORT_TF
+        flask_port = FLASK_PORT_HF_TF
     elif framework == "hf-tgi":
-        flask_port = FLASK_PORT_TGI
+        flask_port = FLASK_PORT_HF_TGI
     else:
         raise ValueError(f"Invalid framework: {framework}")
 
-    # valid_models = [
-    #     "facebook/opt-125m",
-    #     "TheBloke/Llama-2-7B-Chat-GPTQ",
-    #     "EleutherAI/pythia-160m",
-    #     "TheBloke/Llama-2-7B-Chat-AWQ",
-    #     "meta-llama/Llama-2-7b-chat-hf",
-    # ]
+    valid_models = [
+        "facebook/opt-125m",
+        # "TheBloke/Llama-2-7B-Chat-GPTQ",
+        # "EleutherAI/pythia-160m",
+        # "TheBloke/Llama-2-7B-Chat-AWQ",
+        # "meta-llama/Llama-2-7b-chat-hf",
+    ]
 
     # Run benchmarks
     model_status: dict[str, dict] = {}

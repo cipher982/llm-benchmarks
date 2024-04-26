@@ -3,26 +3,27 @@ from typing import Dict
 
 import click
 import requests
+from llm_bench_api.local.gguf import fetch_gguf_files
 
 FLASK_PORT = 5003
+GGUF_DIR = "/gemini/gguf/"
+assert GGUF_DIR, "GGUF_DIR environment variable not set"
 
 
 @click.command()
 @click.option("--limit", default=50, type=int, help="Limit the number of models to run for debugging.")
 @click.option("--run-always", is_flag=True, help="Flag to always run benchmarks.")
-def bench_gguf(limit: int, run_always: bool) -> None:
+@click.option("--log-level", default="INFO", help="Log level for the benchmarking server.")
+def bench_gguf(limit: int, run_always: bool, log_level: str = "INFO"):
     """Benchmark all models on the gguf server."""
 
-    # Get all models and quant types from disk
-    model_dir = "/gemini/gguf"
-    model_names, quant_types = get_models_and_quant_types(model_dir)
+    # Fetch all models
+    model_names = fetch_gguf_files(model_dir=GGUF_DIR)
+    print(f"Fetched {len(model_names)} GGUF models")
 
-    # Manually drop some models
-    drop_models = [
-        "meta-llama--Llama-2-70b-chat-hf/m-f16.gguf",
-        "meta-llama--Llama-2-13b-chat-hf/m-f16.gguf",
-    ]
-    model_names = [model for model in model_names if model not in drop_models]
+    # Limit the number of models to run
+    model_names = model_names[:limit]
+    print(f"Will run benchmarks for {len(model_names)} models")
 
     # Run benchmarks
     model_status: Dict[str, int] = {}
@@ -31,14 +32,18 @@ def bench_gguf(limit: int, run_always: bool) -> None:
         if stop:
             break
         quant = get_quant_type(model)
-        print(f"Running benchmark: {model}, quant: {quant}")
+        print(f"Running benchmark: {model}, quant: {quant[0]}, bits: {quant[1]}")
 
         config = {
             "model_name": model,
+            "quant_method": "gguf",
+            "quant_type": quant[0],
+            "quant_bits": int(quant[1]),
             "query": "User: Tell me a long story about the history of the world.\nAI:",
             "max_tokens": 256,
             "n_gpu_layers": -1,
             "run_always": run_always,
+            "log_level": log_level,
         }
         request_path = f"http://localhost:{FLASK_PORT}/benchmark"
         response = requests.post(request_path, data=config)
@@ -60,19 +65,25 @@ def bench_gguf(limit: int, run_always: bool) -> None:
     print("🎊 Done 🎊")
 
 
-def get_quant_type(file: str) -> str:
-    """Get quantization type from file name."""
-    if "f16" in file:
-        return "f16"
-    elif "int8" in file:
-        return "8bit"
-    elif "int4" in file:
-        return "4bit"
-    else:
-        raise ValueError(f"Unknown quant type for file: {file}")
+def get_quant_type(file: str) -> tuple:
+    """Get quantization type and number of bits from file name."""
+    parts = file.split(".")
+    if len(parts) < 2:
+        raise ValueError(f"Invalid file name format: {file}")
+
+    quant_type = parts[-2]
+    if not quant_type.startswith("Q"):
+        raise ValueError(f"Unsupported quantization type: {quant_type}")
+
+    bits_str = quant_type.split("_")[0][1:]
+    if not bits_str.isdigit():
+        raise ValueError(f"Invalid number of bits: {bits_str}")
+
+    bits = int(bits_str)
+    return quant_type, bits
 
 
-def get_models_and_quant_types(model_dir: str = "/gemini/gguf") -> tuple:
+def get_models_and_quant_types(model_dir: str) -> tuple:
     """Get list of .gguf models and their quant types from any dirs in model_dir."""
 
     model_names = []
@@ -84,9 +95,6 @@ def get_models_and_quant_types(model_dir: str = "/gemini/gguf") -> tuple:
                 model_names.append(model_name)
                 quant_type = get_quant_type(file)
                 quant_types.append(quant_type)
-                print(f"Found model: {model_name} with quant: {quant_type}")
-
-    print(f"Found {len(model_names)} models.")
     return model_names, quant_types
 
 

@@ -1,7 +1,6 @@
 import logging
 from typing import Optional
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -46,8 +45,8 @@ class ModelConfig:
 
     @quantization_method.setter
     def quantization_method(self, value):
-        if value not in ["bitsandbytes", "gptq", "awq", None]:
-            raise ValueError(f"quant method must be one of 'bitsandbytes', 'gptq', 'awq', None. Got {value}")
+        if value not in ["bitsandbytes", "gptq", "awq", "gguf", None]:
+            raise ValueError(f"quant method not in ['bitsandbytes', 'gptq', 'awq', 'gguf', None]. Got {value}")
         self._quantization_method = value
 
     @property

@@ -1,0 +1,72 @@
+version: "3"
+
+services:
+  bench_transformers:
+    image: bench_transformers_img
+    build:
+      context: .
+      dockerfile: huggingface/Dockerfile-huggingface
+    runtime: nvidia
+    env_file:
+      - .env
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - ../api/llm_bench_api:/app/llm_bench_api
+      - ./huggingface/llm_bench_hf:/app/llm_bench_hf
+      - ./logs/:/var/log
+      - /gemini/hf:/models/hf
+    network_mode: host
+    environment:
+      - CUDA_VISIBLE_DEVICES=${GPU_DEVICE}
+  bench_gguf:
+    image: bench_gguf_img
+    build:
+      context: .
+      dockerfile: gguf/Dockerfile-gguf
+    runtime: nvidia
+    env_file:
+      - .env
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - ../api/llm_bench_api:/app/llm_bench_api
+      - ./gguf/llm_bench_gguf:/app/llm_bench_gguf
+      - ./logs/:/var/log
+      - /gemini/gguf:/models/gguf
+    network_mode: host
+    environment:
+      - CUDA_VISIBLE_DEVICES=${GPU_DEVICE}
+  bench_vllm:
+    image: bench_vllm_img
+    build:
+      context: .
+      dockerfile: vllm/Dockerfile-vllm
+    runtime: nvidia
+    env_file:
+      - .env
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - ../api/llm_bench_api:/app/llm_bench_api
+      - ./vllm/llm_bench_vllm:/app/llm_bench_vllm
+      - ./logs/:/var/log
+      - /gemini/hf:/models/hf
+    network_mode: host
+    environment:
+      - CUDA_VISIBLE_DEVICES=${GPU_DEVICE}

@@ -1,19 +1,18 @@
 import logging
 import os
-from enum import auto
 from enum import Enum
+from enum import auto
 from typing import Optional
 
 import requests
 from requests.exceptions import HTTPError
 
-
 logger = logging.getLogger(__name__)
 
 FLASK_URL = "http://localhost:{}/benchmark"
 
-CACHE_DIR = os.environ.get("HUGGINGFACE_HUB_CACHE")
-assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
+CACHE_DIR = os.environ.get("HF_HUB_CACHE")
+assert CACHE_DIR, "HF_HUB_CACHE environment variable not set"
 
 
 class ModelType(Enum):

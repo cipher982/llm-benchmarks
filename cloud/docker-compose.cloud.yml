@@ -1,0 +1,18 @@
+version: "3"
+
+services:
+  bench_cloud:
+    image: bench_cloud_img
+    build:
+      context: .
+      dockerfile: Dockerfile-cloud
+    env_file:
+      - .env
+    volumes:
+      - ../api/llm_bench_api:/app/llm_bench_api
+      - ./logs/:/app/logs
+      - /home/drose/.aws:/root/.aws
+      - /home/drose/.config/gcloud:/root/.config/gcloud
+      - /root/.aws:/root/.aws
+      - /root/.config/gcloud:/root/.config/gcloud
+    network_mode: host

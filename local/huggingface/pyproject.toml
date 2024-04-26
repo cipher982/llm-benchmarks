@@ -1,0 +1,23 @@
+[build-system]
+requires = [ "poetry-core",]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+description = "API and generation for benchmarking HuggingFace (TGI, Transformers)"
+authors = ["David Rose <david@drose.io>"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.13"
+torch = "2.2.0"
+transformers = "^4.39.0"
+accelerate = "^0.29.3"
+bitsandbytes = "^0.43.1"
+optimum = "^1.19.0"
+flask = "^3.0.3"
+numpy = "^1.26.4"
+click = "^8.1.7"
+pymongo = "^4.6.3"
+pynvml = "^11.5.0"
+pytz = "^2024.1"
+

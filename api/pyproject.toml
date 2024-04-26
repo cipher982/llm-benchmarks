@@ -3,25 +3,31 @@ requires = [ "poetry-core",]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
-name = "llm-bench-api"
+name = "llm-benchmarks"
 version = "0.1.0"
-description = "Benchmarking various LLMs inference speed"
-authors = [ "David Rose <david@drose.io>",]
+description = "Benchmarking local and cloud LLMs"
+authors = ["David Rose <david@drose.io>"]
 license = "MIT"
-
-[tool.black]
-line-length = 120
+packages = [
+    { include = "llm_bench_api" }
+]
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.13"
-pymongo = "*"
-pynvml = "*"
-flask = "*"
-pytz = "*"
-openai = "*"
-fastapi = "*"
-uvicorn = "*"
-httpx = "*"
-typer = "*"
-python-dotenv = "*"
-redis = "*"
+pymongo = "^4.6.3"
+pynvml = "^11.5.0"
+flask = "^3.0.3"
+pytz = "^2024.1"
+openai = "^1.23.2"
+fastapi = "^0.110.2"
+uvicorn = "^0.29.0"
+httpx = "^0.27.0"
+typer = "^0.12.3"
+python-dotenv = "^1.0.1"
+redis = "^5.0.3"
+huggingface-hub = {extras = ["hf-transfer"], version = "^0.22.2"}
+
+[tool.poetry.group.dev.dependencies]
+pre-commit = "^3.7.0"
+ipykernel = "^6.29.4"
+

@@ -6,7 +6,6 @@ from llm_bench_api.api import print_summary
 from llm_bench_api.utils import fetch_hf_models
 from llm_bench_api.utils import filter_model_size
 
-
 QUANT_TYPES = [
     None,
 ]
@@ -14,8 +13,8 @@ QUERY_TEXT = "User: Tell me a long story about the history of the world.\nAI:"
 MAX_TOKENS = 256
 TEMPERATURE = 0.1
 FLASK_PORT = 5002
-CACHE_DIR = os.environ.get("HUGGINGFACE_HUB_CACHE")
-assert CACHE_DIR, "HUGGINGFACE_HUB_CACHE environment variable not set"
+CACHE_DIR = os.environ.get("HF_HUB_CACHE")
+assert CACHE_DIR, "HF_HUB_CACHE environment variable not set"
 
 
 @click.command()

@@ -1,0 +1,31 @@
+FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+
+# Install system dependencies
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+    git \
+    build-essential \
+    python3 \
+    python3-pip \
+    cuda-cudart-12-1 \
+    cuda-libraries-12-1 \
+    cuda-nvtx-12-1 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip
+WORKDIR /app
+COPY ./vllm/pyproject.toml /app/
+RUN pip3 install --upgrade pip poetry && \
+    poetry config virtualenvs.create false && \
+    poetry install
+
+# Install flash-attn using pip
+RUN pip3 install packaging ninja && \
+    pip3 install flash-attn --no-build-isolation
+
+# Run Flask
+ENTRYPOINT [ "python3", "-m", "llm_bench_vllm.api" ]

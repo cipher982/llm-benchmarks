@@ -1,0 +1,33 @@
+# lets try to use a slim version of ubuntu
+FROM ubuntu:22.04
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+# ENV GOOGLE_APPLICATION_CREDENTIALS=/service-account.json
+
+# Set up GCloud SDK
+# RUN curl -sSL https://sdk.cloud.google.com | bash
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y \
+        git \
+        python3-pip
+
+# Install api stuff
+RUN pip3 install fastapi uvicorn tiktoken \
+    boto3 pymongo pynvml flask pytz openai fastapi uvicorn httpx typer \
+    python-dotenv redis
+
+# Install cloud providers
+RUN pip3 install boto3 groq google-cloud-aiplatform openai anthropic
+
+# Set the working directory
+WORKDIR /app
+
+# Copy your application code to the container
+COPY . /app
+
+# Set the entrypoint
+CMD ["sh", "-c", "uvicorn llm_bench_api.cloud.server:app --host 0.0.0.0 --port ${FASTAPI_PORT_CLOUD} --workers 8"]
