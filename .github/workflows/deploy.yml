@@ -29,5 +29,5 @@ jobs:
           git pull origin main --force
 
           docker compose down
-          docker compose -f docker-compose.cloud.yml up --build --remove-orphans -d
+          docker compose -f ./cloud/docker-compose.cloud.yml up --build --remove-orphans -d
           EOF
