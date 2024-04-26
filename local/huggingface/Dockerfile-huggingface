@@ -27,4 +27,4 @@ RUN poetry install
 RUN pip3 install auto-gptq
 
 # Set the default command to run the Flask app
-ENTRYPOINT ["python3", "-m", "llm_bench_hf.server", "--port=5000"]
+ENTRYPOINT python3 -m llm_bench_hf.server --port=${FLASK_PORT_HF}

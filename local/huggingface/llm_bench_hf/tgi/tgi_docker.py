@@ -35,7 +35,7 @@ class DockerContainer:
     def start(self):
         """Starts the Docker container."""
         command = [
-            "docker",
+            "/usr/local/bin/docker",
             "run",
             "-d",
             "--gpus",
@@ -58,7 +58,7 @@ class DockerContainer:
         logger.info(quant_info["message"])
 
         try:
-            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
             stdout, stderr = process.communicate()
             if stdout:
                 logger.info(f"Docker process stdout: {stdout.decode()}")
@@ -66,6 +66,9 @@ class DockerContainer:
                 logger.error(f"Docker process stderr: {stderr.decode()}")
             process.wait()
             logger.info("Docker container started successfully.")
+        except FileNotFoundError as e:
+            logger.error(f"Docker command not found: {e}")  # Log specific error message
+            sys.exit(1)
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to start Docker container: {e}")
             sys.exit(1)

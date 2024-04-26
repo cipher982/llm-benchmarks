@@ -15,7 +15,6 @@ from llm_bench_api.logging import log_to_mongo
 from llm_bench_api.utils import check_and_clean_space
 from llm_bench_api.utils import has_existing_run
 
-from llm_bench_hf.tgi import generate as generate_tgi
 from llm_bench_hf.transformers import generate as generate_transformers
 
 log_path = "/var/log/llm_benchmarks.log"
@@ -110,7 +109,8 @@ def call_huggingface() -> Union[Response, Tuple[Response, int]]:
         if framework == "transformers":
             generate = generate_transformers
         elif framework == "hf-tgi":
-            generate = generate_tgi
+            raise ValueError("hf-tgi framework implementation is broken for now")
+            # generate = generate_tgi
         else:
             raise ValueError(f"Unknown framework: {framework}")
 
