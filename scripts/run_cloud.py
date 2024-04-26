@@ -15,7 +15,7 @@ from llm_bench_api.types import BenchmarkRequest
 QUERY_TEXT = "Tell me a long story of the history of the world."
 MAX_TOKENS = 256
 TEMPERATURE = 0.1
-FASTAPI_PORT = os.environ.get("FASTAPI_PORT_CLOUD")
+FASTAPI_PORT = os.environ.get("FASTAPI_PORT_CLOUD", 5004)
 
 server_path = f"http://localhost:{FASTAPI_PORT}/benchmark"
 
