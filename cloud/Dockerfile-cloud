@@ -21,7 +21,7 @@ RUN pip3 install fastapi uvicorn tiktoken \
     python-dotenv redis
 
 # Install cloud providers
-RUN pip3 install boto3 groq google-cloud-aiplatform openai anthropic
+RUN pip3 install boto3 google-cloud-aiplatform openai anthropic groq
 
 # Set the working directory
 WORKDIR /app
