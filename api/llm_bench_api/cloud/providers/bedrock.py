@@ -6,7 +6,6 @@ from datetime import datetime
 import boto3
 from llm_bench_api.config import CloudConfig
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -19,7 +18,8 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
 
     # Set up connection
     bedrock = boto3.client(
-        service_name="bedrock-runtime", region_name="us-west-2" if "mistral" in config.model_name else "us-east-1"
+        service_name="bedrock-runtime",
+        region_name="us-west-2",
     )
 
     # Define the request bodies for different models
