@@ -41,6 +41,10 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
             "prompt": f"{run_config['query']}",
             "max_tokens": run_config["max_tokens"],
         },
+        "cohere": {
+            "message": run_config["query"],
+            "max_tokens": run_config["max_tokens"],
+        },
     }
 
     # Get the request body based on the model name
