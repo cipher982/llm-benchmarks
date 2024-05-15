@@ -69,7 +69,8 @@ def log_to_mongo(
             )
 
         insert_into_benchmark_metrics(data, collection)
-        logger.info(f"Logged: {config.model_name} | {uri} | {db_name} | {collection_name}")
+        sanitized_uri = uri.split("@")[-1]  # Remove credentials part
+        logger.info(f"Logged: {config.model_name} | {sanitized_uri} | {db_name} | {collection_name}")
     except Exception as e:
         logger.exception(f"Error in log_to_mongo: {e}")
 
