@@ -1,4 +1,5 @@
 """Logging utilities for the LLM benchmarks."""
+
 import logging.config
 from datetime import datetime
 from typing import Any
@@ -7,9 +8,10 @@ from typing import Union
 
 import pymongo
 import pytz
+from pymongo.collection import Collection
+
 from llm_bench_api.config import CloudConfig
 from llm_bench_api.config import ModelConfig
-from pymongo.collection import Collection
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +69,7 @@ def log_to_mongo(
             )
 
         insert_into_benchmark_metrics(data, collection)
-        logger.info(f"Successfully logged metrics to MongoDB for model {config.model_name}")
+        logger.info(f"Logged: {config.model_name} | {uri} | {db_name} | {collection_name}")
     except Exception as e:
         logger.exception(f"Error in log_to_mongo: {e}")
 
