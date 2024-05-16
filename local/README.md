@@ -57,3 +57,10 @@ To run the GGUF/llama-cpp benchmark, use the following command:
 ```bash
 python scripts/run_gguf.py --limit 5 --run-always --log-level DEBUG
 ```
+
+## Logging
+There are a few ways to view progress:
+- `run_{framework}.py` output: this simply shows a pass or fail for each request with some basic information.
+- `local/logs/benchmarks_local.log`: shows all the metrics and information for each request as a simple text file.
+- `local/logs/benchmarks_local.json`: same as above but formats into a more machine parsable json file.
+- MongoDB: if you set the `.env` variable `LOG_TO_MONGO` as True, the logs will be stored in a MongoDB database. If this is the case, you will be required to also provide `MONGODB_URI`, `MONGODB_DB`, and `MONGODB_COLLECTION_LOCAL` in the `.env` file. This is my primary logging system as it enables me to view realtime results in my react frontend I also built for this project at [llm-benchmarks.com](https://llm-benchmarks.com). It also enables the feature where the benchmarking script will check if a particular model config has been run before and skip it unless you set the run param `--run-always`. This is useful for debugging and testing new models.
