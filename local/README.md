@@ -31,20 +31,21 @@ This directory contains benchmarks that are run locally on the machine. Each fra
 ## Example Usage
 
 To run the Huggingface Transformers benchmark, use the following command:
-\```bash
+```bash
 python scripts/run_hf.py --framework transformers --limit 5 --max-size-billion 10 --run-always
-\```
+```
 
 To run the Huggingface Text-Generation-Inference benchmark, use the following command:
-\```bash
+```bash
 python scripts/run_hf.py --framework hf-tgi --limit 5 --max-size-billion 10 --run-always
+```
 
 To run the VLLM benchmark, use the following command:
-\```bash
+```bash
 python scripts/run_vllm.py --framework vllm --limit 5 --max-size-billion 10 --run-always
-\```
+```
 
 To run the GGUF/llama-cpp benchmark, use the following command:
-\```bash
+```bash
 python scripts/run_gguf.py --limit 5 --run-always --log-level DEBUG
-\```
+```
