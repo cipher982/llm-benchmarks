@@ -13,20 +13,20 @@ from flask.wrappers import Response
 from llama_cpp import Llama
 from llm_bench_api.config import ModelConfig
 from llm_bench_api.config import MongoConfig
-from llm_bench_api.logging import log_to_mongo
+from llm_bench_api.logging import log_metrics
 from llm_bench_api.utils import has_existing_run
 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
+LOG_DIR = os.environ.get("LOG_DIR", "/var/log")
+LOG_FILE_TXT = os.path.join(LOG_DIR, "benchmarks_local.log")
+LOG_FILE_JSON = os.path.join(LOG_DIR, "benchmarks_local.json")
+LOG_TO_MONGO = os.getenv("LOG_TO_MONGO", "False").lower() in ("true", "1", "t")
 MONGODB_URI = os.environ.get("MONGODB_URI")
 MONGODB_DB = os.environ.get("MONGODB_DB")
 MONGODB_COLLECTION_LOCAL = os.environ.get("MONGODB_COLLECTION_LOCAL")
-assert MONGODB_URI, "MONGODB_URI environment variable not set"
-assert MONGODB_DB, "MONGODB_DB environment variable not set"
-assert MONGODB_COLLECTION_LOCAL, "MONGODB_COLLECTION_LOCAL environment variable not set"
-
 FLASK_PORT = 5003
 
-logging.basicConfig(filename="/var/log/llm_benchmarks.log", level=LOG_LEVEL)
+logging.basicConfig(filename=os.path.join(LOG_DIR, LOG_FILE_TXT), level=LOG_LEVEL)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -75,21 +75,22 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
         }
         logger.info(f"Run config: {run_config}")
 
-        mongo_config = MongoConfig(
-            uri=MONGODB_URI,
-            db=MONGODB_DB,
-            collection=MONGODB_COLLECTION_LOCAL,
-        )
-        existing_run = has_existing_run(model_name, model_config, mongo_config)
-        if existing_run:
-            if run_always:
-                logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
-                logger.info("Re-running benchmark anyway because run_always is True")
+        if LOG_TO_MONGO:
+            mongo_config = MongoConfig(
+                uri=MONGODB_URI,  # type: ignore
+                db=MONGODB_DB,  # type: ignore
+                collection=MONGODB_COLLECTION_LOCAL,  # type: ignore
+            )
+            existing_run = has_existing_run(model_name, model_config, mongo_config)
+            if existing_run:
+                if run_always:
+                    logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
+                    logger.info("Re-running benchmark anyway because run_always is True")
+                else:
+                    logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
+                    return jsonify({"status": "skipped", "reason": "model has been benchmarked before"}), 200
             else:
-                logger.info(f"Model has been benchmarked before: {model_name}, quant: {quant_str}")
-                return jsonify({"status": "skipped", "reason": "model has been benchmarked before"}), 200
-        else:
-            logger.info(f"Model has not been benchmarked before: {model_name}, quant: {quant_str}")
+                logger.info(f"Model has not been benchmarked before: {model_name}, quant: {quant_str}")
 
         # Main benchmarking function
         logger.info(f"Loading llama-cpp model from path: {model_path}")
@@ -139,14 +140,16 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
             "tokens_per_second": [output_tokens / (time_1 - time_0) if time_1 > time_0 else 0],
         }
 
-        # Log metrics to MongoDB
-        log_to_mongo(
+        # Log metrics
+        log_metrics(
             model_type="local",
             config=model_config,
             metrics=metrics,
-            uri=mongo_config.uri,
-            db_name=mongo_config.db,
-            collection_name=mongo_config.collection,
+            file_path=os.path.join(LOG_DIR, LOG_FILE_JSON),
+            log_to_mongo=LOG_TO_MONGO,
+            mongo_uri=MONGODB_URI,
+            mongo_db=MONGODB_DB,
+            mongo_collection=MONGODB_COLLECTION_LOCAL,
         )
 
         logger.info(f"===== Model: {model_name} =====")

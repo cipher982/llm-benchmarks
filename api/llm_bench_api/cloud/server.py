@@ -6,25 +6,25 @@ from fastapi import FastAPI
 
 from llm_bench_api.config import CloudConfig
 from llm_bench_api.config import MongoConfig
-from llm_bench_api.logging import log_to_mongo
+from llm_bench_api.logging import log_metrics
 from llm_bench_api.types import BenchmarkRequest
 from llm_bench_api.types import BenchmarkResponse
 from llm_bench_api.utils import has_existing_run
 
-log_path = "./logs/bench_cloud.log"
-logging.basicConfig(filename=log_path, level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-FASTAPI_PORT_CLOUD = os.environ.get("FASTAPI_PORT_CLOUD")
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
+LOG_DIR = os.environ.get("LOG_DIR", "/var/log")
+LOG_FILE_TXT = os.path.join(LOG_DIR, "benchmarks_cloud.log")
+LOG_FILE_JSON = os.path.join(LOG_DIR, "benchmarks_cloud.json")
+LOG_TO_MONGO = os.getenv("LOG_TO_MONGO", "False").lower() in ("true", "1", "t")
 MONGODB_URI = os.environ.get("MONGODB_URI")
 MONGODB_DB = os.environ.get("MONGODB_DB")
 MONGODB_COLLECTION_CLOUD = os.environ.get("MONGODB_COLLECTION_CLOUD")
 
+FASTAPI_PORT_CLOUD = os.environ.get("FASTAPI_PORT_CLOUD")
 assert FASTAPI_PORT_CLOUD, "FASTAPI_PORT_CLOUD environment variable not set"
-assert MONGODB_URI, "MONGODB_URI environment variable not set"
-assert MONGODB_DB, "MONGODB_DB environment variable not set"
-assert MONGODB_COLLECTION_CLOUD, "MONGODB_COLLECTION_CLOUD environment variable not set"
 
+logging.basicConfig(filename=os.path.join(LOG_DIR, LOG_FILE_TXT), level=LOG_LEVEL)
+logger = logging.getLogger(__name__)
 
 PROVIDER_MODULES = {
     "openai": "llm_bench_api.cloud.providers.openai",
@@ -91,21 +91,22 @@ async def call_cloud(request: BenchmarkRequest):
         }
 
         # Check if model has been benchmarked before
-        mongo_config = MongoConfig(
-            uri=MONGODB_URI,
-            db=MONGODB_DB,
-            collection=MONGODB_COLLECTION_CLOUD,
-        )
-        existing_run = has_existing_run(model_name, model_config, mongo_config)
-        if existing_run:
-            if run_always:
-                logger.info(f"Model has been benchmarked before: {model_name}")
-                logger.info("Re-running benchmark anyway because run_always is True")
+        if LOG_TO_MONGO:
+            mongo_config = MongoConfig(
+                uri=MONGODB_URI,  # type: ignore
+                db=MONGODB_DB,  # type: ignore
+                collection=MONGODB_COLLECTION_CLOUD,  # type: ignore
+            )
+            existing_run = has_existing_run(model_name, model_config, mongo_config)
+            if existing_run:
+                if run_always:
+                    logger.info(f"Model has been benchmarked before: {model_name}")
+                    logger.info("Re-running benchmark anyway because run_always is True")
+                else:
+                    logger.info(f"Model has been benchmarked before: {model_name}")
+                    return {"status": "skipped", "reason": "model has been benchmarked before"}
             else:
-                logger.info(f"Model has been benchmarked before: {model_name}")
-                return {"status": "skipped", "reason": "model has been benchmarked before"}
-        else:
-            logger.info(f"Model has not been benchmarked before: {model_name}")
+                logger.info(f"Model has not been benchmarked before: {model_name}")
 
         # Load provider module
         module_name = PROVIDER_MODULES[provider]
@@ -119,12 +120,6 @@ async def call_cloud(request: BenchmarkRequest):
             logger.error(error_message)
             return {"status": "error", "message": error_message}
 
-        logger.info(f"===== Model: {provider}/{model_name} =====")
-        logger.info(f"provider: {model_config.provider}")
-        logger.info(f"Output tokens: {metrics['output_tokens']}")
-        logger.info(f"Generate time: {metrics['generate_time']:.2f} s")
-        logger.info(f"Tokens per second: {metrics['tokens_per_second']:.2f}")
-
         if metrics["tokens_per_second"] <= 0:
             error_message = "tokens_per_second must be greater than 0"
             logger.error(error_message)
@@ -135,14 +130,25 @@ async def call_cloud(request: BenchmarkRequest):
             logger.info(f"Metrics: {metrics}")
             return {"status": "success", "metrics": metrics}
 
-        log_to_mongo(
+        # Log metrics
+        log_metrics(
             model_type="cloud",
             config=model_config,
             metrics=metrics,
-            uri=mongo_config.uri,
-            db_name=mongo_config.db,
-            collection_name=mongo_config.collection,
+            file_path=os.path.join(LOG_DIR, LOG_FILE_JSON),
+            log_to_mongo=LOG_TO_MONGO,
+            mongo_uri=MONGODB_URI,
+            mongo_db=MONGODB_DB,
+            mongo_collection=MONGODB_COLLECTION_CLOUD,
         )
+
+        # Print metrics
+        logger.info(f"===== Model: {provider}/{model_name} =====")
+        logger.info(f"provider: {model_config.provider}")
+        logger.info(f"Output tokens: {metrics['output_tokens']}")
+        logger.info(f"Generate time: {metrics['generate_time']:.2f} s")
+        logger.info(f"Tokens per second: {metrics['tokens_per_second']:.2f}")
+
         return {"status": "success"}
 
     except Exception as e:
