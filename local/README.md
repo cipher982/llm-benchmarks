@@ -28,6 +28,14 @@ This directory contains benchmarks that are run locally on the machine. Each fra
         - `--log-level TEXT`: Log level for the benchmarking server.
         - `--help`: Show this message and exit.
 
+
+## Getting Started
+It should be as simple as setting the correct `.env` variables and building the docker containers with the following commands:
+```bash
+cp .env.example .env # fill out the .env file with the correct values
+docker compose -f docker-compose.local.yml up --build
+```
+
 ## Example Usage
 
 To run the Huggingface Transformers benchmark, use the following command:
