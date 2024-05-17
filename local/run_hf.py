@@ -7,27 +7,47 @@ from llm_bench_api.utils import fetch_hf_models
 from llm_bench_api.utils import filter_model_size
 
 QUANT_TYPES = [
+    "4bit",
+    "8bit",
     None,
 ]
 QUERY_TEXT = "User: Tell me a long story about the history of the world.\nAI:"
 MAX_TOKENS = 256
 TEMPERATURE = 0.1
-FLASK_PORT = 5002
+FLASK_PORT_HF_TF = int(os.environ.get("FLASK_PORT_HF_TF", 0))
+FLASK_PORT_HF_TGI = int(os.environ.get("FLASK_PORT_HF_TGI", 0))
 CACHE_DIR = os.environ.get("HF_HUB_CACHE")
 assert CACHE_DIR, "HF_HUB_CACHE environment variable not set"
 
 
 @click.command()
-@click.option("--framework", help="Framework to use, must be 'vllm'.")
-@click.option("--limit", default=100, type=int, help="Limit the number of models fetched.")
+@click.option(
+    "--framework",
+    type=str,
+    help="LLM API to call. Must be one of 'transformers', 'hf-tgi'",
+)
+@click.option(
+    "--limit",
+    default=100,
+    type=int,
+    help="Limit the number of models run.",
+)
 @click.option(
     "--max-size-billion",
     default=5,
     type=int,
     help="Maximum size of models in billion parameters.",
 )
-@click.option("--run-always", is_flag=True, help="Flag to always run benchmarks.")
-@click.option("--fetch-new-models", is_flag=True, help="Fetch latest HF-Hub models.")
+@click.option(
+    "--run-always",
+    is_flag=True,
+    help="Flag to always run benchmarks.",
+)
+@click.option(
+    "--fetch-new-models",
+    is_flag=True,
+    help="Fetch latest HF-Hub models.",
+)
 def main(
     framework: str,
     fetch_new_models: bool,
@@ -39,7 +59,6 @@ def main(
     Main entrypoint for benchmarking HuggingFace Transformers models.
     Can fetch latest models from the Hub or use the cached models.
     """
-    print(f"Initial run_always value: {run_always}")
 
     # Gather models to run
     model_names = fetch_hf_models(fetch_new_models, CACHE_DIR)
@@ -49,12 +68,22 @@ def main(
     valid_models = filter_model_size(model_names, max_size_billion * 1_000)
     print(f"Filtered down to {len(valid_models)} models")
 
-    # valid_models = [
-    #     # "facebook/opt-125m",
-    #     "TheBloke/Llama-2-7B-Chat-GPTQ",
-    #     # "EleutherAI/pythia-160m",
-    #     "TheBloke/Llama-2-7B-Chat-AWQ",
-    # ]
+    # Set port
+    if framework == "transformers":
+        flask_port = FLASK_PORT_HF_TF
+    elif framework == "hf-tgi":
+        flask_port = FLASK_PORT_HF_TGI
+    else:
+        raise ValueError(f"Invalid framework: {framework}")
+
+    valid_models = [
+        # "facebook/opt-125m",
+        # "TheBloke/Llama-2-7B-Chat-GPTQ",
+        # "EleutherAI/pythia-160m",
+        # "TheBloke/Llama-2-7B-Chat-AWQ",
+        # "meta-llama/Llama-2-7b-chat-hf",
+        "meta-llama/Meta-Llama-3-8B",
+    ]
 
     # Run benchmarks
     model_status: dict[str, dict] = {}
@@ -68,7 +97,7 @@ def main(
         QUERY_TEXT,
         MAX_TOKENS,
         TEMPERATURE,
-        FLASK_PORT,
+        flask_port,
     )
 
     # Print summary

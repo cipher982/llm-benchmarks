@@ -15,8 +15,8 @@ from llm_bench_api.types import BenchmarkRequest
 QUERY_TEXT = "Tell me a long story of the history of the world."
 MAX_TOKENS = 256
 TEMPERATURE = 0.1
-FASTAPI_PORT = os.environ.get("FASTAPI_PORT_CLOUD", 5004)
-
+FASTAPI_PORT = os.environ.get("FASTAPI_PORT_CLOUD")
+assert FASTAPI_PORT, "FASTAPI_PORT environment variable not set"
 server_path = f"http://localhost:{FASTAPI_PORT}/benchmark"
 
 # Load provider models from JSON
