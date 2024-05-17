@@ -104,7 +104,7 @@ def log_benchmark_status(model_status: list[dict[str, Any]]) -> None:
     except (FileNotFoundError, PermissionError) as e:
         log_error(f"Error accessing benchmark status file: {str(e)}")
     except (redis.ConnectionError, redis.TimeoutError) as e:
-        log_error(f"Error connecting to Redis: {str(e)}")
+        log_error(f"Error connecting to Redis: {str(e)}, {REDIS_HOST}:{REDIS_PORT}:{REDIS_DB}:{REDIS_PASSWORD}")
     except json.JSONDecodeError as e:
         log_error(f"Error decoding JSON data: {str(e)}")
     except Exception as e:
