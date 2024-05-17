@@ -14,8 +14,14 @@ load_dotenv()
 # Constants
 GB = 1024**3
 LOGS_DIR = os.getenv("LOGS_DIR", "./logs")
-FULL_LOGS_FILE = os.path.join(LOGS_DIR, "cloud_history.log")
-CURRENT_STATUS_FILE = os.path.join(LOGS_DIR, "cloud_status.json")
+FULL_LOGS_FILE = os.path.join(LOGS_DIR, "run_history.log")
+CURRENT_STATUS_FILE = os.path.join(LOGS_DIR, "run_status.json")
+
+# Redis
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+REDIS_DB = int(os.getenv("REDIS_DB", 0))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
 
 # Configure the logger
 logger = logging.getLogger(__name__)
@@ -88,14 +94,13 @@ def log_benchmark_status(model_status: list[dict[str, Any]]) -> None:
 
         # Update Redis with the latest status data
         with redis.Redis(
-            host=os.getenv("REDIS_HOST", "localhost"),
-            port=int(os.getenv("REDIS_PORT", 6379)),
-            db=int(os.getenv("REDIS_DB", 0)),
-            password=os.getenv("REDIS_PASSWORD"),
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+            db=REDIS_DB,
+            password=REDIS_PASSWORD,
         ) as redis_client:
             redis_client.set("cloud_log_status", json.dumps(existing_data))
-            log_info("Successfully updated Redis with the latest status data.")
-
+            log_info(f"Successfully updated api status to redis on {REDIS_HOST}")
     except (FileNotFoundError, PermissionError) as e:
         log_error(f"Error accessing benchmark status file: {str(e)}")
     except (redis.ConnectionError, redis.TimeoutError) as e:
