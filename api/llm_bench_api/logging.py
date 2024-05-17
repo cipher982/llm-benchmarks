@@ -11,6 +11,7 @@ from typing import Union
 
 import pymongo
 import pytz
+from filelock import FileLock
 from pymongo.collection import Collection
 
 from llm_bench_api.config import CloudConfig
@@ -92,18 +93,49 @@ def log_json(model_type: str, config: Union[ModelConfig, CloudConfig], metrics: 
             }
         )
 
-    if os.path.exists(file_path):
-        with open(file_path, "r") as file:
-            logs = json.load(file)
+    lock_path = f"{file_path}.lock"
+    with FileLock(lock_path):
+        if os.path.exists(file_path):
+            with open(file_path, "r") as file:
+                try:
+                    logs = json.load(file)
+                except json.JSONDecodeError:
+                    logger.warning("Corrupted JSON detected. Attempting to fix.")
+                    logs = fix_corrupted_json(file_path)
+        else:
+            logs = []
+
+        logs.append(log_entry)
+
+        with open(file_path, "w") as file:
+            json.dump(logs, file, indent=4)
+
+        logger.info(f"Logged to file: {file_path}")
+
+
+def fix_corrupted_json(file_path: str) -> list:
+    """Attempts to fix a corrupted JSON file by removing invalid entries."""
+    with open(file_path, "r") as file:
+        content = file.read()
+
+    # Find the last valid JSON array closing bracket
+    last_valid_index = content.rfind("}]")
+
+    if last_valid_index != -1:
+        # Calculate the number of lines removed
+        original_lines = content.splitlines()
+        fixed_content = content[: last_valid_index + 2]
+        fixed_lines = fixed_content.splitlines()
+        lines_removed = len(original_lines) - len(fixed_lines)
+
+        with open(file_path, "w") as file:
+            file.write(fixed_content)
+
+        logger.info(f"Fixed corrupted JSON. Removed {lines_removed} lines.")
+        return json.loads(fixed_content)
     else:
-        logs = []
-
-    logs.append(log_entry)
-
-    with open(file_path, "w") as file:
-        json.dump(logs, file, indent=4)
-
-    logger.info(f"Logged to file: {file_path}")
+        logger.error("Could not find a valid JSON array closing bracket. No changes made.")
+        return []
 
 
 def log_mongo(
