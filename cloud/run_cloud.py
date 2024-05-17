@@ -3,6 +3,7 @@ import json
 import os
 from datetime import datetime
 
+import dotenv
 import httpx
 import typer
 from llm_bench_api.cloud.logging import log_benchmark_request
@@ -10,6 +11,8 @@ from llm_bench_api.cloud.logging import log_benchmark_status
 from llm_bench_api.cloud.logging import log_error
 from llm_bench_api.cloud.logging import log_info
 from llm_bench_api.types import BenchmarkRequest
+
+dotenv.load_dotenv()
 
 # Constants
 QUERY_TEXT = "Tell me a long story of the history of the world."
