@@ -7,21 +7,12 @@ from logging.handlers import RotatingFileHandler
 from typing import Any
 
 import redis
-from dotenv import load_dotenv
-
-load_dotenv()
 
 # Constants
 GB = 1024**3
 LOGS_DIR = os.getenv("LOGS_DIR", "./logs")
 FULL_LOGS_FILE = os.path.join(LOGS_DIR, "run_history.log")
 CURRENT_STATUS_FILE = os.path.join(LOGS_DIR, "run_status.json")
-
-# Redis
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
-REDIS_DB = int(os.getenv("REDIS_DB", 0))
-REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
 
 # Configure the logger
 logger = logging.getLogger(__name__)
@@ -93,6 +84,11 @@ def log_benchmark_status(model_status: list[dict[str, Any]]) -> None:
             json.dump(existing_data, f, indent=2, cls=CustomJSONEncoder)
 
         # Update Redis with the latest status data
+
+        REDIS_HOST = str(os.getenv("REDIS_HOST"))
+        REDIS_PORT = int(os.getenv("REDIS_PORT"))  # type: ignore
+        REDIS_DB = int(os.getenv("REDIS_DB"))  # type: ignore
+        REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
         with redis.Redis(
             host=REDIS_HOST,
             port=REDIS_PORT,
@@ -104,7 +100,7 @@ def log_benchmark_status(model_status: list[dict[str, Any]]) -> None:
     except (FileNotFoundError, PermissionError) as e:
         log_error(f"Error accessing benchmark status file: {str(e)}")
     except (redis.ConnectionError, redis.TimeoutError) as e:
-        log_error(f"Error connecting to Redis: {str(e)}, {REDIS_HOST}:{REDIS_PORT}:{REDIS_DB}:{REDIS_PASSWORD}")
+        log_error(f"Error connecting to Redis: {str(e)}")
     except json.JSONDecodeError as e:
         log_error(f"Error decoding JSON data: {str(e)}")
     except Exception as e:
