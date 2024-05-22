@@ -1,10 +1,10 @@
 import asyncio
-import json
 import os
 from datetime import datetime
 
 import dotenv
 import httpx
+import json5 as json
 import typer
 from llm_bench_api.cloud.logging import log_benchmark_request
 from llm_bench_api.cloud.logging import log_benchmark_status

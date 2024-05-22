@@ -26,6 +26,7 @@ typer = "^0.12.3"
 python-dotenv = "^1.0.1"
 redis = "^5.0.3"
 huggingface-hub = {extras = ["hf-transfer"], version = "^0.22.2"}
+json5 = "^0.9.25"
 
 [tool.poetry.group.dev.dependencies]
 pre-commit = "^3.7.0"
