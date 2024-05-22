@@ -6,35 +6,7 @@ from datetime import datetime
 from llm_bench_api.config import CloudConfig
 from openai import OpenAI
 
-
 logger = logging.getLogger(__name__)
-
-
-NON_CHAT_MODELS = []
-
-
-def process_non_chat_model(client, config, run_config):
-    return (
-        client.completions.create(
-            model=config.model_name,
-            prompt=run_config["query"],
-            max_tokens=run_config["max_tokens"],
-            stream=True,
-        ),
-        "text",
-    )
-
-
-def process_chat_model(client, config, run_config):
-    return (
-        client.chat.completions.create(
-            model=config.model_name,
-            messages=[{"role": "user", "content": run_config["query"]}],
-            max_tokens=run_config["max_tokens"],
-            stream=True,
-        ),
-        "choices",
-    )
 
 
 def generate(config: CloudConfig, run_config: dict) -> dict:
@@ -59,16 +31,16 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     time_to_first_token = 0
     response_str = ""
 
-    process_func = process_non_chat_model if config.model_name in NON_CHAT_MODELS else process_chat_model
-    stream, response_key = process_func(client, config, run_config)
+    stream = client.chat.completions.create(
+        model=config.model_name,
+        messages=[{"role": "user", "content": run_config["query"]}],
+        max_tokens=run_config["max_tokens"],
+        stream=True,
+    )
 
     for chunk in stream:
-        if config.model_name in NON_CHAT_MODELS:
-            response = chunk.choices[0]
-            response_content = getattr(response, response_key)
-        else:
-            response = chunk.choices[0].delta  # type: ignore
-            response_content = response.content if response is not None else None
+        response = chunk.choices[0].delta  # type: ignore
+        response_content = response.content if response is not None else None
 
         if response_content is not None:
             current_time = time.time()
@@ -86,7 +58,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     generate_time = time_1 - time_0
 
     # Calculate tokens
-    output_tokens = chunk.usage["completion_tokens"]  # type: ignore
+    output_tokens = chunk.usage.completion_tokens  # type: ignore
     tokens_per_second = output_tokens / generate_time if generate_time > 0 else 0
 
     metrics = {
