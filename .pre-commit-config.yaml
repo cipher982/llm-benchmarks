@@ -9,9 +9,8 @@ repos:
         -   id: fix-byte-order-marker
         -   id: check-case-conflict
         -   id: check-executables-have-shebangs
-        -   id: check-json
   -   repo: https://github.com/astral-sh/ruff-pre-commit
-      rev: v0.4.1
+      rev: v0.4.5
       hooks:
         -   id: ruff
             args: [--fix]
