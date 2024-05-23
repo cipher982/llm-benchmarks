@@ -28,4 +28,4 @@ WORKDIR /app
 COPY . /app
 
 # Set the entrypoint
-CMD ["sh", "-c", "uvicorn llm_bench_api.cloud.server:app --host 0.0.0.0 --port ${FASTAPI_PORT_CLOUD} --workers 8"]
+CMD ["sh", "-c", "uvicorn llm_bench.cloud.server:app --host 0.0.0.0 --port ${FASTAPI_PORT_CLOUD} --workers 8"]

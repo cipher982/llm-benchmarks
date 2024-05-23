@@ -6,11 +6,11 @@ import dotenv
 import httpx
 import json5 as json
 import typer
-from llm_bench_api.cloud.logging import log_benchmark_request
-from llm_bench_api.cloud.logging import log_benchmark_status
-from llm_bench_api.cloud.logging import log_error
-from llm_bench_api.cloud.logging import log_info
-from llm_bench_api.types import BenchmarkRequest
+from llm_bench.cloud.logging import log_benchmark_request
+from llm_bench.cloud.logging import log_benchmark_status
+from llm_bench.cloud.logging import log_error
+from llm_bench.cloud.logging import log_info
+from llm_bench.types import BenchmarkRequest
 
 dotenv.load_dotenv()
 

@@ -17,7 +17,7 @@ services:
               count: 1
               capabilities: [gpu]
     volumes:
-      - ../api/llm_bench_api:/app/llm_bench_api
+      - ../api/llm_bench:/app/llm_bench
       - ./huggingface/llm_bench_hf:/app/llm_bench_hf
       - ./logs/:/var/log
       - /gemini/hf:/models/hf
@@ -40,7 +40,7 @@ services:
               count: 1
               capabilities: [gpu]
     volumes:
-      - ../api/llm_bench_api:/app/llm_bench_api
+      - ../api/llm_bench:/app/llm_bench
       - ./gguf/llm_bench_gguf:/app/llm_bench_gguf
       - ./logs/:/var/log
       - /gemini/gguf:/models/gguf
@@ -63,7 +63,7 @@ services:
               count: 1
               capabilities: [gpu]
     volumes:
-      - ../api/llm_bench_api:/app/llm_bench_api
+      - ../api/llm_bench:/app/llm_bench
       - ./vllm/llm_bench_vllm:/app/llm_bench_vllm
       - ./logs/:/var/log
       - /gemini/hf:/models/hf

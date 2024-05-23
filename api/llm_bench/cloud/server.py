@@ -27,19 +27,19 @@ logging.basicConfig(filename=os.path.join(LOG_DIR, LOG_FILE_TXT), level=LOG_LEVE
 logger = logging.getLogger(__name__)
 
 PROVIDER_MODULES = {
-    "openai": "llm_bench_api.cloud.providers.openai",
-    "anthropic": "llm_bench_api.cloud.providers.anthropic",
-    "bedrock": "llm_bench_api.cloud.providers.bedrock",
-    "vertex": "llm_bench_api.cloud.providers.vertex",
-    "anyscale": "llm_bench_api.cloud.providers.anyscale",
-    "together": "llm_bench_api.cloud.providers.together",
-    "openrouter": "llm_bench_api.cloud.providers.openrouter",
-    "azure": "llm_bench_api.cloud.providers.azure",
-    "runpod": "llm_bench_api.cloud.providers.runpod",
-    "fireworks": "llm_bench_api.cloud.providers.fireworks",
-    "deepinfra": "llm_bench_api.cloud.providers.deepinfra",
-    "groq": "llm_bench_api.cloud.providers.groq",
-    "databricks": "llm_bench_api.cloud.providers.databricks",
+    "openai": "llm_bench.cloud.providers.openai",
+    "anthropic": "llm_bench.cloud.providers.anthropic",
+    "bedrock": "llm_bench.cloud.providers.bedrock",
+    "vertex": "llm_bench.cloud.providers.vertex",
+    "anyscale": "llm_bench.cloud.providers.anyscale",
+    "together": "llm_bench.cloud.providers.together",
+    "openrouter": "llm_bench.cloud.providers.openrouter",
+    "azure": "llm_bench.cloud.providers.azure",
+    "runpod": "llm_bench.cloud.providers.runpod",
+    "fireworks": "llm_bench.cloud.providers.fireworks",
+    "deepinfra": "llm_bench.cloud.providers.deepinfra",
+    "groq": "llm_bench.cloud.providers.groq",
+    "databricks": "llm_bench.cloud.providers.databricks",
 }
 
 app = FastAPI(
