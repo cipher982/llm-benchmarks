@@ -6,7 +6,7 @@ from datetime import datetime
 import tiktoken
 import vertexai
 from anthropic import AnthropicVertex
-from llm_bench_api.config import CloudConfig
+from llm_bench.config import CloudConfig
 from vertexai.generative_models import GenerationConfig
 from vertexai.generative_models import GenerativeModel
 from vertexai.language_models import TextGenerationModel

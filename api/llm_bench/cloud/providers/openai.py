@@ -3,9 +3,8 @@ import time
 from datetime import datetime
 
 import tiktoken
-from llm_bench_api.config import CloudConfig
+from llm_bench.config import CloudConfig
 from openai import OpenAI
-
 
 logger = logging.getLogger(__name__)
 

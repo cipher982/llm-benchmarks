@@ -1,3 +1,10 @@
+[tool.poetry]
+name = "llm-benchmarks"
+version = "0.1.0"
+description = "Benchmarking local and cloud LLMs"
+authors = ["David Rose <david@drose.io>"]
+license = "MIT"
+
 [tool.ruff]
 line-length = 120
 

@@ -8,11 +8,11 @@ from flask import Flask
 from flask import jsonify
 from flask import request
 from flask.wrappers import Response
-from llm_bench_api.config import ModelConfig
-from llm_bench_api.config import MongoConfig
-from llm_bench_api.logging import log_metrics
-from llm_bench_api.utils import check_and_clean_space
-from llm_bench_api.utils import has_existing_run
+from llm_bench.config import ModelConfig
+from llm_bench.config import MongoConfig
+from llm_bench.logging import log_metrics
+from llm_bench.utils import check_and_clean_space
+from llm_bench.utils import has_existing_run
 
 from llm_bench_vllm.generate import generate
 

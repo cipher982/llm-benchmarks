@@ -1,48 +1,59 @@
+import json
 import logging
 import os
 import time
 from datetime import datetime
 
-from llm_bench_api.config import CloudConfig
-from openai import OpenAI
+import requests
+from llm_bench.config import CloudConfig
 
 logger = logging.getLogger(__name__)
 
 
-def generate(config: CloudConfig, run_config: dict) -> dict:
-    """Run Deep Infra inference and return metrics."""
+def process_model(config, run_config):
+    url = f"https://api.runpod.ai/v2/{config.model_name}/run"
+    headers = {"Authorization": os.environ["RUNPOD_API_KEY"], "Content-Type": "application/json"}
+    payload = {
+        "input": {
+            "prompt": run_config["query"],
+            "sampling_params": {
+                "max_tokens": run_config["max_tokens"],
+                "n": 1,
+                "temperature": 0.0,
+            },
+        }
+    }
+    response = requests.post(url, headers=headers, json=payload)
+    response_json = json.loads(response.text)
+    status_url = f"https://api.runpod.ai/v2/{config.model_name}/stream/{response_json['id']}"
+    return status_url, headers
 
-    assert config.provider == "deepinfra", "provider must be 'deepinfra'"
+
+def generate(config: CloudConfig, run_config: dict) -> dict:
+    """Run RunPod inference and return metrics."""
+
+    assert config.provider == "runpod", "provider must be 'runpod'"
     assert "query" in run_config, "query must be in run_config"
     assert "max_tokens" in run_config, "max_tokens must be in run_config"
-
-    client = OpenAI(
-        base_url=os.environ["DEEPINFRA_BASE_URL"],
-        api_key=os.environ["DEEPINFRA_API_KEY"],
-    )
 
     # Generate
     time_0 = time.time()
     first_token_received = False
     previous_token_time = None
-    output_chunks = 0
     output_tokens = 0
     times_between_tokens = []
     time_to_first_token = 0
-    response_str = ""
 
-    stream = client.chat.completions.create(
-        model=config.model_name,
-        messages=[{"role": "user", "content": run_config["query"]}],
-        stream=True,
-        max_tokens=run_config["max_tokens"],
-    )
+    status_url, headers = process_model(config, run_config)
 
-    for chunk in stream:
-        response = chunk.choices[0].delta
-        response_content = response.content if response is not None else None
-
-        if response_content is not None:
+    while True:
+        get_status = requests.get(status_url, headers=headers)
+        status_data = get_status.json()
+        if status_data["status"] == "COMPLETED":
+            break
+        elif get_status.status_code != 200:
+            raise ValueError("An error occurred.")
+        else:
             current_time = time.time()
             if not first_token_received:
                 time_to_first_token = current_time - time_0
@@ -51,12 +62,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
                 assert previous_token_time is not None
                 times_between_tokens.append(current_time - previous_token_time)
             previous_token_time = current_time
-            response_str += response_content
-            output_chunks += 1
-            if len(chunk.choices) == 1:
-                output_tokens += 1
-            else:
-                raise ValueError("Unexpected number of choices")
+            output_tokens += status_data["stream"][0]["metrics"]["output_tokens"]
 
     time_1 = time.time()
     generate_time = time_1 - time_0

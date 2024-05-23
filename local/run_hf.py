@@ -1,10 +1,10 @@
 import os
 
 import click
-from llm_bench_api.api import bench_all_models
-from llm_bench_api.api import print_summary
-from llm_bench_api.utils import fetch_hf_models
-from llm_bench_api.utils import filter_model_size
+from llm_bench.api import bench_all_models
+from llm_bench.api import print_summary
+from llm_bench.utils import fetch_hf_models
+from llm_bench.utils import filter_model_size
 
 QUANT_TYPES = [
     "4bit",

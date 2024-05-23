@@ -7,8 +7,8 @@ import time
 from datetime import datetime
 
 import torch
-from llm_bench_api.config import ModelConfig
-from llm_bench_api.utils import get_vram_usage
+from llm_bench.config import ModelConfig
+from llm_bench.utils import get_vram_usage
 from vllm import LLM
 from vllm import SamplingParams
 from vllm.distributed.parallel_state import destroy_model_parallel

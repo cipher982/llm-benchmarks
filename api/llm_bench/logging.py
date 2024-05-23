@@ -14,8 +14,8 @@ import pytz
 from filelock import FileLock
 from pymongo.collection import Collection
 
-from llm_bench_api.config import CloudConfig
-from llm_bench_api.config import ModelConfig
+from llm_bench.config import CloudConfig
+from llm_bench.config import ModelConfig
 
 logger = logging.getLogger(__name__)
 

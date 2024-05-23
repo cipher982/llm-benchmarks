@@ -11,10 +11,10 @@ from flask import jsonify
 from flask import request
 from flask.wrappers import Response
 from llama_cpp import Llama
-from llm_bench_api.config import ModelConfig
-from llm_bench_api.config import MongoConfig
-from llm_bench_api.logging import log_metrics
-from llm_bench_api.utils import has_existing_run
+from llm_bench.config import ModelConfig
+from llm_bench.config import MongoConfig
+from llm_bench.logging import log_metrics
+from llm_bench.utils import has_existing_run
 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 LOG_DIR = os.environ.get("LOG_DIR", "/var/log")

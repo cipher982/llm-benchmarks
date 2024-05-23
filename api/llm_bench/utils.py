@@ -12,9 +12,9 @@ import pynvml
 import requests
 from pymongo import MongoClient
 
-from llm_bench_api.config import CloudConfig
-from llm_bench_api.config import ModelConfig
-from llm_bench_api.config import MongoConfig
+from llm_bench.config import CloudConfig
+from llm_bench.config import ModelConfig
+from llm_bench.config import MongoConfig
 
 logger = logging.getLogger(__name__)
 

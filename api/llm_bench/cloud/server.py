@@ -4,12 +4,12 @@ from datetime import datetime
 
 from fastapi import FastAPI
 
-from llm_bench_api.config import CloudConfig
-from llm_bench_api.config import MongoConfig
-from llm_bench_api.logging import log_metrics
-from llm_bench_api.types import BenchmarkRequest
-from llm_bench_api.types import BenchmarkResponse
-from llm_bench_api.utils import has_existing_run
+from llm_bench.config import CloudConfig
+from llm_bench.config import MongoConfig
+from llm_bench.logging import log_metrics
+from llm_bench.types import BenchmarkRequest
+from llm_bench.types import BenchmarkResponse
+from llm_bench.utils import has_existing_run
 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 LOG_DIR = os.environ.get("LOG_DIR", "/var/log")

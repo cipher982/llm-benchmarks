@@ -3,8 +3,7 @@ import time
 from datetime import datetime
 
 from anthropic import Anthropic
-from llm_bench_api.config import CloudConfig
-
+from llm_bench.config import CloudConfig
 
 logger = logging.getLogger(__name__)
 

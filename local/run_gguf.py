@@ -3,7 +3,7 @@ from typing import Dict
 
 import click
 import requests
-from llm_bench_api.local.gguf import fetch_gguf_files
+from llm_bench.local.gguf import fetch_gguf_files
 
 FLASK_PORT = 5003
 GGUF_DIR = "/gemini/gguf/"
