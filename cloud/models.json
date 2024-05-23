@@ -82,14 +82,14 @@
         "codellama/CodeLlama-34b-Instruct-hf",
         "databricks/dbrx-instruct"
     ],
-    "openrouter": [
-        "meta-llama/llama-2-13b-chat",
-        "meta-llama/llama-2-70b-chat",
-        "meta-llama/codellama-34b-instruct",
-        "mistralai/mistral-7b-instruct",
-        "mistralai/mixtral-8x7b-instruct",
-        "01-ai/yi-34b-chat"
-    ],
+    // "openrouter": [
+    //     "meta-llama/llama-2-13b-chat",
+    //     "meta-llama/llama-2-70b-chat",
+    //     "meta-llama/codellama-34b-instruct",
+    //     "mistralai/mistral-7b-instruct",
+    //     "mistralai/mixtral-8x7b-instruct",
+    //     "01-ai/yi-34b-chat"
+    // ],
     "azure": [
         "llama-2-7b-chat",
         "llama-2-13b-chat",
@@ -97,10 +97,10 @@
         "mistral-large",
         "cohere-cmd-r-plus"
     ],
-    "runpod": [
-        "llama2-7b-chat",
-        "llama2-13b-chat"
-    ],
+    // "runpod": [
+    //     "llama2-7b-chat",
+    //     "llama2-13b-chat"
+    // ],
     "fireworks": [
         "accounts/fireworks/models/llama-v2-7b-chat",
         "accounts/fireworks/models/llama-v2-13b",
@@ -115,9 +115,9 @@
         "accounts/fireworks/models/mixtral-8x7b",
         "accounts/fireworks/models/mixtral-8x7b-instruct",
         "accounts/fireworks/models/dbrx-instruct",
-        "accounts/fireworks/models/gemma-7b-it",
-        "accounts/fireworks/models/qwen-14b-chat",
-        "accounts/fireworks/models/qwen-72b-chat"
+        "accounts/fireworks/models/gemma-7b-it"
+        // "accounts/fireworks/models/qwen-14b-chat",
+        // "accounts/fireworks/models/qwen-72b-chat"
     ],
     "deepinfra": [
         "meta-llama/Llama-2-70b-chat-hf",
@@ -135,8 +135,8 @@
         "llama3-70b-8192",
         "mixtral-8x7b-32768",
         "gemma-7b-it"
-    ],
-    "databricks": [
-        "databricks-dbrx-instruct"
     ]
+    // "databricks": [
+    //     "databricks-dbrx-instruct"
+    // ]
 }
