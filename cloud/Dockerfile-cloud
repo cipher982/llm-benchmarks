@@ -16,7 +16,7 @@ RUN apt-get update && \
         python3-pip
 
 # Install api stuff
-RUN pip3 install boto3 pymongo pynvml flask pytz fastapi uvicorn httpx typer redis
+RUN pip3 install boto3 pymongo pynvml flask pytz fastapi uvicorn httpx typer redis gunicorn
 
 # Install cloud providers
 RUN pip3 install boto3 google-cloud-aiplatform openai anthropic groq tiktoken
@@ -28,4 +28,4 @@ WORKDIR /app
 COPY . /app
 
 # Set the entrypoint
-CMD ["sh", "-c", "uvicorn llm_bench.cloud.server:app --host 0.0.0.0 --port ${FASTAPI_PORT_CLOUD} --workers 8"]
+CMD ["sh", "-c", "gunicorn -w 8 -k uvicorn.workers.UvicornWorker llm_bench.cloud.server:app --bind 0.0.0.0:${FASTAPI_PORT_CLOUD}"]
