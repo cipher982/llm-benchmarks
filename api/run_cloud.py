@@ -6,13 +6,16 @@ import dotenv
 import httpx
 import json5 as json
 import typer
-from llm_bench.cloud.logging import log_benchmark_request
-from llm_bench.cloud.logging import log_benchmark_status
-from llm_bench.cloud.logging import log_error
-from llm_bench.cloud.logging import log_info
+from llm_bench.cloud.logging import Logger
 from llm_bench.types import BenchmarkRequest
 
 dotenv.load_dotenv()
+
+
+# Initialize Logger
+logger = Logger(
+    logs_dir=os.getenv("LOGS_DIR", "./logs"), redis_host="localhost", redis_port=6379, redis_db=0, redis_password=""
+)
 
 # Constants
 QUERY_TEXT = "Tell me a long story of the history of the world."
@@ -30,12 +33,12 @@ with open(json_file_path) as f:
 
 
 async def post_benchmark(request: BenchmarkRequest):
-    log_benchmark_request(request)
+    logger.log_benchmark_request(request)
     timeout = httpx.Timeout(180.0, connect=180.0)
     try:
         start_time = datetime.now()
         async with httpx.AsyncClient(timeout=timeout) as client:
-            log_info(f"Sending request to {server_path}")
+            logger.log_info(f"Sending request to {server_path}")
             response = await client.post(server_path, json=request.model_dump())
             response.raise_for_status()
         end_time = datetime.now()
@@ -43,11 +46,11 @@ async def post_benchmark(request: BenchmarkRequest):
         return response.json(), response_time
     except httpx.HTTPStatusError as e:
         error_message = f"HTTP error: {e.response.status_code} - {e.response.text}"
-        log_error(f"HTTP error occurred: {error_message}")
+        logger.log_error(f"HTTP error occurred: {error_message}")
         return {"error": error_message}, None
     except Exception as e:
         error_message = f"Unexpected error: {str(e)}"
-        log_error(f"Unexpected error occurred: {error_message}")
+        logger.log_error(f"Unexpected error occurred: {error_message}")
         return {"error": error_message}, None
 
 
@@ -65,7 +68,7 @@ def main(
 
     async def benchmark_provider(provider, limit, run_always, debug):
         model_names = provider_models.get(provider, [])
-        log_info(f"Fetched {len(model_names)} models for provider: {provider}")
+        logger.log_info(f"Fetched {len(model_names)} models for provider: {provider}")
         model_status: list[dict] = []
         for model in model_names[:limit]:
             request_config = BenchmarkRequest(
@@ -91,15 +94,15 @@ def main(
                 "response_time": response_time,
             }
             if response.get("status") == "success":
-                log_info(f"✅ Success {model}, {response}")
+                logger.log_info(f"✅ Success {model}, {response}")
                 status_entry.update({"status": "success", "response": response})
             elif "error" in response or response.get("status") == "error":
                 error_message = response.get("error", "Unknown error")
-                log_error(f"❌ Error {model}, error: {error_message}")
+                logger.log_error(f"❌ Error {model}, error: {error_message}")
                 status_entry.update({"status": "error", "error": error_message})
             else:
                 unexpected_status = response.get("status", "Unknown status")
-                log_error(f"⚠️ Unexpected status {model}, status: {unexpected_status}")
+                logger.log_error(f"⚠️ Unexpected status {model}, status: {unexpected_status}")
                 status_entry.update(
                     {
                         "status": "unexpected",
@@ -112,7 +115,7 @@ def main(
     async def async_main(providers, limit, run_always, debug):
         if "all" in providers:
             providers = list(provider_models.keys())
-        log_info(f"Running benchmarks for provider(s): {providers}")
+        logger.log_info(f"Running benchmarks for provider(s): {providers}")
 
         # Run benchmarks for each provider asynchronously
         tasks = [benchmark_provider(provider, limit, run_always, debug) for provider in providers]
@@ -120,7 +123,7 @@ def main(
 
         # Flatten the list of model statuses and log final results
         combined_model_status = [status for provider_status in results if provider_status for status in provider_status]
-        log_benchmark_status(combined_model_status)
+        logger.log_benchmark_status(combined_model_status)
 
     asyncio.run(async_main(providers, limit, run_always, debug))
 
