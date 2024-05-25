@@ -1,10 +1,13 @@
 import os
 
 import click
+import dotenv
 from llm_bench.api import bench_all_models
 from llm_bench.api import print_summary
 from llm_bench.utils import fetch_hf_models
 from llm_bench.utils import filter_model_size
+
+dotenv.load_dotenv()
 
 QUANT_TYPES = [
     "4bit",
@@ -14,9 +17,11 @@ QUANT_TYPES = [
 QUERY_TEXT = "User: Tell me a long story about the history of the world.\nAI:"
 MAX_TOKENS = 256
 TEMPERATURE = 0.1
-FLASK_PORT_HF_TF = int(os.environ.get("FLASK_PORT_HF_TF", 0))
-FLASK_PORT_HF_TGI = int(os.environ.get("FLASK_PORT_HF_TGI", 0))
+FLASK_PORT_HF_TF = os.environ.get("FLASK_PORT_HF_TF")
+FLASK_PORT_HF_TGI = os.environ.get("FLASK_PORT_HF_TGI")
 CACHE_DIR = os.environ.get("HF_HUB_CACHE")
+assert FLASK_PORT_HF_TF, "FLASK_PORT_HF_TF environment variable not set"
+assert FLASK_PORT_HF_TGI, "FLASK_PORT_HF_TGI environment variable not set"
 assert CACHE_DIR, "HF_HUB_CACHE environment variable not set"
 
 
@@ -75,6 +80,7 @@ def main(
         flask_port = FLASK_PORT_HF_TGI
     else:
         raise ValueError(f"Invalid framework: {framework}")
+    print(f"Running benchmarks on port: {flask_port}")
 
     valid_models = [
         # "facebook/opt-125m",
@@ -97,7 +103,7 @@ def main(
         QUERY_TEXT,
         MAX_TOKENS,
         TEMPERATURE,
-        flask_port,
+        int(flask_port),
     )
 
     # Print summary
