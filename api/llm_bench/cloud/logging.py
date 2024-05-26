@@ -91,7 +91,9 @@ class Logger:
         except (FileNotFoundError, PermissionError) as e:
             self.log_error(f"Error accessing benchmark status file: {str(e)}")
         except (redis.ConnectionError, redis.TimeoutError) as e:
-            self.log_error(f"Error connecting to Redis: {str(e)}")
+            self.log_error(
+                f"Error logging to Redis: {self.redis_host}:{self.redis_port}, DB: {self.redis_db}. Error: {str(e)}"
+            )
         except json.JSONDecodeError as e:
             self.log_error(f"Error decoding JSON data: {str(e)}")
         except Exception as e:
