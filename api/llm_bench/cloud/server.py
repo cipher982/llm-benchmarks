@@ -92,6 +92,7 @@ async def call_cloud(request: BenchmarkRequest):
 
         # Check if model has been benchmarked before
         if LOG_TO_MONGO:
+            logger.debug("Logging to MongoDB")
             mongo_config = MongoConfig(
                 uri=MONGODB_URI,  # type: ignore
                 db=MONGODB_DB,  # type: ignore
@@ -107,6 +108,8 @@ async def call_cloud(request: BenchmarkRequest):
                     return {"status": "skipped", "reason": "model has been benchmarked before"}
             else:
                 logger.info(f"Model has not been benchmarked before: {model_name}")
+        else:
+            logger.debug("Not logging to MongoDB")
 
         # Load provider module
         module_name = PROVIDER_MODULES[provider]
