@@ -3,33 +3,20 @@ import os
 import time
 from datetime import datetime
 
-import tiktoken
 import vertexai
 from anthropic import AnthropicVertex
 from llm_bench.config import CloudConfig
 from vertexai.generative_models import GenerationConfig
 from vertexai.generative_models import GenerativeModel
-from vertexai.language_models import TextGenerationModel
 
 logger = logging.getLogger(__name__)
 
 
 PROJECT_ID = "llm-bench"
+REGION = "us-central1"
+OPUS_REGION = "us-east5"
+
 os.environ["GOOGLE_CLOUD_PROJECT"] = PROJECT_ID
-
-
-v1_models = [
-    "text-bison@002",
-    "chat-bison@002",
-    "gemini-pro",
-    "gemini-1.0-pro",
-    "gemini-1.5-pro-preview-0409",
-]
-
-anthropic_models = [
-    "claude-3-haiku@20240307",
-    "claude-3-sonnet@20240229",
-]
 
 
 def generate(config: CloudConfig, run_config: dict) -> dict:
@@ -37,85 +24,51 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     assert "query" in run_config, "query must be in run_config"
     assert "max_tokens" in run_config, "max_tokens must be in run_config"
 
-    if config.model_name in anthropic_models:
-        return generate_anthropic(config, run_config)
-    else:
-        return generate_vertex(config, run_config)
-
-
-def generate_vertex(config: CloudConfig, run_config: dict) -> dict:
-    time_0 = time.time()
-    output_tokens = 0
-
     vertexai.init(project=PROJECT_ID)
 
-    if config.model_name in v1_models:
-        model = TextGenerationModel.from_pretrained(config.model_name)
-        stream = model.predict_streaming(
-            run_config["query"],
-            max_output_tokens=run_config["max_tokens"],
-        )
-        response_str, time_to_first_token, times_between_tokens, _ = generate_tokens(stream, time_0)
-        output_tokens = count_v1_tokens(run_config["max_tokens"], response_str)
-    else:
+    if "claude" not in config.model_name.lower():
+        logger.debug("Using Vertex/GenerativeModel")
         model = GenerativeModel(config.model_name)
+        time_0 = time.time()
         stream = model.generate_content(
-            run_config["query"],
+            contents=run_config["query"],
             generation_config=GenerationConfig(max_output_tokens=run_config["max_tokens"]),
             stream=True,
         )
-        _, time_to_first_token, times_between_tokens, chunk = generate_tokens(stream, time_0)
-        output_tokens = chunk._raw_response.usage_metadata.candidates_token_count
+        _, ttft, tbts, n_tokens = generate_tokens(stream, time_0, False)
+        generate_time = time.time() - time_0
+    else:
+        logger.debug("Using Vertex/AnthropicVertex")
+        region = OPUS_REGION if "opus" in config.model_name.lower() else REGION
+        client = AnthropicVertex(region=region, project_id=PROJECT_ID)
+        time_0 = time.time()
+        with client.messages.stream(
+            max_tokens=run_config["max_tokens"],
+            messages=[{"role": "user", "content": run_config["query"]}],
+            model=config.model_name,
+        ) as stream:
+            _, ttft, tbts, n_tokens = generate_tokens(stream, time_0, True)
+        generate_time = time.time() - time_0
 
-    return calculate_metrics(run_config, output_tokens, time_0, time_to_first_token, times_between_tokens)
-
-
-def generate_anthropic(config: CloudConfig, run_config: dict) -> dict:
-    client = AnthropicVertex(region="us-central1", project_id=PROJECT_ID)
-    time_0 = time.time()
-
-    with client.messages.stream(
-        max_tokens=run_config["max_tokens"],
-        messages=[{"role": "user", "content": run_config["query"]}],
-        model=config.model_name,
-    ) as stream:
-        response_str, time_to_first_token, times_between_tokens = generate_anthropic_tokens(stream, time_0)
-
-    output_tokens = len(response_str.split())
-    return calculate_metrics(run_config, output_tokens, time_0, time_to_first_token, times_between_tokens)
+    return calculate_metrics(run_config, n_tokens, generate_time, ttft, tbts)
 
 
-def generate_tokens(stream, time_0):
+def generate_tokens(stream, time_0, is_anthropic=False):
     first_token_received = False
     previous_token_time = None
     time_to_first_token = None
     times_between_tokens = []
+    token_count = 0
     response_str = ""
 
-    for chunk in stream:
+    stream_iter = stream.text_stream if is_anthropic else stream
+
+    item = None
+    for item in stream_iter:
         current_time = time.time()
-        response_str += chunk.text
-        if not first_token_received:
-            time_to_first_token = current_time - time_0
-            first_token_received = True
-        else:
-            assert previous_token_time is not None
-            times_between_tokens.append(current_time - previous_token_time)
-        previous_token_time = current_time
-
-    return response_str, time_to_first_token, times_between_tokens, chunk
-
-
-def generate_anthropic_tokens(stream, time_0):
-    first_token_received = False
-    previous_token_time = None
-    time_to_first_token = None
-    times_between_tokens = []
-    response_str = ""
-
-    for text in stream.text_stream:
-        current_time = time.time()
+        text = item if is_anthropic else item.text
         response_str += text
+        token_count += 1
         if not first_token_received:
             time_to_first_token = current_time - time_0
             first_token_received = True
@@ -123,13 +76,14 @@ def generate_anthropic_tokens(stream, time_0):
             assert previous_token_time is not None
             times_between_tokens.append(current_time - previous_token_time)
         previous_token_time = current_time
+    assert item, "No tokens received"
 
-    return response_str, time_to_first_token, times_between_tokens
+    token_count = item._raw_response.usage_metadata.candidates_token_count if not is_anthropic else token_count
+
+    return response_str, time_to_first_token, times_between_tokens, token_count
 
 
-def calculate_metrics(run_config, output_tokens, time_0, time_to_first_token, times_between_tokens):
-    time_1 = time.time()
-    generate_time = time_1 - time_0
+def calculate_metrics(run_config, output_tokens, generate_time, time_to_first_token, times_between_tokens):
     tokens_per_second = output_tokens / generate_time if generate_time > 0 else 0
 
     return {
@@ -141,11 +95,3 @@ def calculate_metrics(run_config, output_tokens, time_0, time_to_first_token, ti
         "time_to_first_token": time_to_first_token,
         "times_between_tokens": times_between_tokens,
     }
-
-
-def count_v1_tokens(max_tokens: int, response_str: str) -> int:
-    encoder = tiktoken.get_encoding("cl100k_base")
-    openai_tokens = len(encoder.encode(response_str))
-    if not 0.9 * max_tokens <= openai_tokens <= 1.1 * max_tokens:
-        raise ValueError(f"Openai tokens {openai_tokens} not within 10% of max tokens {max_tokens}")
-    return max_tokens
