@@ -22,7 +22,7 @@ logger = Logger(
 )
 
 # Constants
-QUERY_TEXT = "Tell me a long story of the history of the world."
+QUERY_TEXT = "Tell a long and happy story about the history of the world."
 MAX_TOKENS = 256
 TEMPERATURE = 0.1
 FASTAPI_PORT = os.environ.get("FASTAPI_PORT_CLOUD")
