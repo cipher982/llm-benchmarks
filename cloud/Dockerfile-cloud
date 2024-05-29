@@ -1,4 +1,3 @@
-# lets try to use a slim version of ubuntu
 FROM ubuntu:22.04
 
 # Set environment variables
@@ -19,12 +18,12 @@ RUN apt-get update && \
 RUN pip3 install boto3 pymongo pynvml flask pytz fastapi uvicorn httpx typer redis gunicorn
 
 # Install cloud providers
-RUN pip3 install boto3 google-cloud-aiplatform openai anthropic groq tiktoken
+RUN pip3 install boto3 google-cloud-aiplatform openai tiktoken anthropic groq 
 
 # Set the working directory
 WORKDIR /app
 
-# Copy your application code to the container
+# Copy over repo code
 COPY . /app
 
 # Set the entrypoint
