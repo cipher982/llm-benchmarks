@@ -13,6 +13,4 @@ services:
       - ./logs/:/var/log
       - /home/drose/.aws:/root/.aws
       - /home/drose/.config/gcloud:/root/.config/gcloud
-      - /root/.aws:/root/.aws
-      - /root/.config/gcloud:/root/.config/gcloud
     network_mode: host
