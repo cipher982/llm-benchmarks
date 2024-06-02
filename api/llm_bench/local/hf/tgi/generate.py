@@ -4,10 +4,10 @@ import time
 from datetime import datetime
 
 from huggingface_hub import InferenceClient
-from llm_bench.config import ModelConfig
-from llm_bench.utils import get_vram_usage
 
-from llm_bench_hf.tgi import DockerContainer
+from llm_bench.config import ModelConfig
+from llm_bench.local.hf.tgi import DockerContainer
+from llm_bench.utils import get_vram_usage
 
 logger = logging.getLogger(__name__)
 

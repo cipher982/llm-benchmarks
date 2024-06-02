@@ -7,10 +7,11 @@ from datetime import datetime
 from time import time
 
 import torch
-from llm_bench.config import ModelConfig
-from llm_bench.utils import get_vram_usage
 from transformers import AutoModelForCausalLM
 from transformers import BitsAndBytesConfig
+
+from llm_bench.config import ModelConfig
+from llm_bench.utils import get_vram_usage
 
 logger = logging.getLogger(__name__)
 
