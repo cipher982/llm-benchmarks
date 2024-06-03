@@ -2,6 +2,8 @@ import logging.config
 import os
 import re
 import shutil
+from datetime import datetime
+from datetime import timedelta
 from typing import List
 from typing import Optional
 from typing import Tuple
@@ -10,6 +12,7 @@ from typing import cast
 
 import pynvml
 import requests
+from huggingface_hub import HfApi
 from pymongo import MongoClient
 
 from llm_bench.config import CloudConfig
@@ -19,7 +22,42 @@ from llm_bench.config import MongoConfig
 logger = logging.getLogger(__name__)
 
 
-def fetch_hf_models(fetch_hub: bool, cache_dir: str, model_type: str = "transformers") -> list[str]:
+def fetch_hf_models(fetch_new: bool, cache_dir: str, library: str, created_days_ago: int) -> list[str]:
+    if fetch_new:
+        try:
+            api = HfApi()
+            now = datetime.now()
+            one_month_ago = now - timedelta(days=created_days_ago)
+
+            library_name = "transformers" if library in ["transformers", "hf-tgi"] else library
+
+            # Fetch models sorted by downloads and filtered by text-generation
+            models = api.list_models(
+                sort="downloads",
+                direction=-1,
+                task="text-generation",
+                library=library_name,
+            )
+
+            # Filter models modified in the past 30 days
+            model_names = [
+                model.id
+                for model in models
+                if model.created_at and model.created_at.replace(tzinfo=None) > one_month_ago
+            ]
+            return model_names
+        except Exception as e:
+            print(f"Error fetching models from HuggingFace Hub: {e}")
+            return []
+    else:
+        try:
+            return get_cached_models(cache_dir)
+        except Exception as e:
+            print(f"Error fetching cached models: {e}")
+            return []
+
+
+def fetch_hf_models_old(fetch_hub: bool, cache_dir: str, model_type: str = "transformers") -> list[str]:
     if fetch_hub:
         try:
             response = requests.get(

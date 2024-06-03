@@ -66,7 +66,12 @@ def main(
     """
 
     # Gather models to run
-    model_names = fetch_hf_models(fetch_new_models, CACHE_DIR)
+    model_names = fetch_hf_models(
+        fetch_new=fetch_new_models,
+        cache_dir=CACHE_DIR,
+        library=framework,
+        created_days_ago=30,
+    )
     print(f"Fetched {len(model_names)} models")
 
     # Filter based on parameter count
