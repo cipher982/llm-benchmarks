@@ -72,11 +72,11 @@ def main(
         library=framework,
         created_days_ago=30,
     )
-    print(f"Fetched {len(model_names)} models")
+    print(f"Fetched {len(model_names):,} models")
 
     # Filter based on parameter count
     valid_models = filter_model_size(model_names, max_size_billion * 1_000)
-    print(f"Filtered down to {len(valid_models)} models")
+    print(f"Filtered max {max_size_billion}B params, now {len(valid_models):,} models")
 
     # Set port
     if framework == "transformers":
@@ -87,14 +87,14 @@ def main(
         raise ValueError(f"Invalid framework: {framework}")
     print(f"Running benchmarks on port: {flask_port}")
 
-    valid_models = [
-        # "facebook/opt-125m",
-        # "TheBloke/Llama-2-7B-Chat-GPTQ",
-        # "EleutherAI/pythia-160m",
-        # "TheBloke/Llama-2-7B-Chat-AWQ",
-        # "meta-llama/Llama-2-7b-chat-hf",
-        "meta-llama/Meta-Llama-3-8B",
-    ]
+    # valid_models = [
+    #     # "facebook/opt-125m",
+    #     # "TheBloke/Llama-2-7B-Chat-GPTQ",
+    #     # "EleutherAI/pythia-160m",
+    #     # "TheBloke/Llama-2-7B-Chat-AWQ",
+    #     # "meta-llama/Llama-2-7b-chat-hf",
+    #     "meta-llama/Meta-Llama-3-8B",
+    #
 
     # Run benchmarks
     model_status: dict[str, dict] = {}

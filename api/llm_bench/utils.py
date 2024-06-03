@@ -11,7 +11,6 @@ from typing import Union
 from typing import cast
 
 import pynvml
-import requests
 from huggingface_hub import HfApi
 from pymongo import MongoClient
 
@@ -37,6 +36,7 @@ def fetch_hf_models(fetch_new: bool, cache_dir: str, library: str, created_days_
                 direction=-1,
                 task="text-generation",
                 library=library_name,
+                limit=10_000,
             )
 
             # Filter models modified in the past 30 days
@@ -55,44 +55,6 @@ def fetch_hf_models(fetch_new: bool, cache_dir: str, library: str, created_days_
         except Exception as e:
             print(f"Error fetching cached models: {e}")
             return []
-
-
-def fetch_hf_models_old(fetch_hub: bool, cache_dir: str, model_type: str = "transformers") -> list[str]:
-    if fetch_hub:
-        try:
-            response = requests.get(
-                "https://huggingface.co/api/models",
-                params={
-                    "sort": "downloads",
-                    "direction": "-1",
-                    "limit": 1_000,
-                    "filter": "text-generation",
-                },
-            )
-            response.raise_for_status()
-        except requests.exceptions.RequestException as e:
-            print(f"Error fetching models from HuggingFace Hub: {e}")
-            return []
-
-        # If the request was successful
-        model_data = response.json()
-        model_names = [entry["id"] for entry in model_data]
-    else:
-        try:
-            model_names = get_cached_models(cache_dir)
-        except Exception as e:
-            print(f"Error fetching cached models: {e}")
-            return []
-
-    # Filter models based on the chosen model_type
-    if model_type == "gguf":
-        model_names = [name for name in model_names if "gguf" in name.lower()]
-    elif model_type == "transformers":
-        model_names = [name for name in model_names if "gguf" not in name.lower()]
-    else:
-        raise ValueError(f"Invalid model_type: {model_type}. Choose either 'transformers' or 'gguf'.")
-
-    return model_names
 
 
 def get_used_space_percent(directory: str) -> float:
@@ -210,10 +172,6 @@ def filter_model_size(model_ids: List[str], max_size_million: int) -> List[str]:
             valid_models.append(model_id)
         else:
             dropped_models.append(model_id)
-
-    print(f"Keeping models: {', '.join(valid_models)}\n\n")
-    print(f"Dropping models: {', '.join(dropped_models)}\n\n")
-    print(f"Model count after filtering {len(model_ids):,} -> {len(valid_models):,}")
 
     return valid_models
 
