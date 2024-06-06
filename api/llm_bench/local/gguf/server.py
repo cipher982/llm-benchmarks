@@ -11,6 +11,7 @@ from flask import jsonify
 from flask import request
 from flask.wrappers import Response
 from llama_cpp import Llama
+
 from llm_bench.config import ModelConfig
 from llm_bench.config import MongoConfig
 from llm_bench.logging import log_metrics
