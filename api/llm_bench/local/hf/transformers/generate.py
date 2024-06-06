@@ -71,13 +71,17 @@ def generate(
     time_0 = time()
     output = None
     try:
+        input_ids = torch.tensor([[0, 1, 2]]).to("cuda")
+        attention_mask = torch.ones_like(input_ids).to("cuda")
         with torch.no_grad():
             output = model.generate(
-                torch.tensor([[0, 1, 2]]).to("cuda"),
+                input_ids,
+                attention_mask=attention_mask,
                 do_sample=config.misc.get("do_sample"),
                 temperature=config.temperature if config.misc.get("do_sample") else None,
                 min_length=run_config["max_tokens"],
                 max_length=run_config["max_tokens"],
+                pad_token_id=model.config.eos_token_id,
             )
     except Exception as e:
         logger.error(f"Error generating tokens: {e}")
