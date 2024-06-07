@@ -20,7 +20,7 @@ LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 LOG_DIR = os.environ.get("LOG_DIR", "/var/log")
 LOG_FILE_TXT = os.path.join(LOG_DIR, "benchmarks_local.log")
 LOG_FILE_JSON = os.path.join(LOG_DIR, "benchmarks_local.json")
-LOG_TO_MONGO = os.getenv("LOG_TO_MONGO", "False").lower() in ("true", "1", "t")
+LOG_TO_MONGO = os.getenv("LOG_TO_MONGO")
 MONGODB_URI = os.environ.get("MONGODB_URI")
 MONGODB_DB = os.environ.get("MONGODB_DB")
 MONGODB_COLLECTION_LOCAL = os.environ.get("MONGODB_COLLECTION_LOCAL")
@@ -121,7 +121,7 @@ def call_huggingface() -> Union[Response, Tuple[Response, int]]:
             config=model_config,
             metrics=metrics,
             file_path=os.path.join(LOG_DIR, LOG_FILE_JSON),
-            log_to_mongo=LOG_TO_MONGO,
+            log_to_mongo=LOG_TO_MONGO,  # type: ignore
             mongo_uri=MONGODB_URI,
             mongo_db=MONGODB_DB,
             mongo_collection=MONGODB_COLLECTION_LOCAL,
