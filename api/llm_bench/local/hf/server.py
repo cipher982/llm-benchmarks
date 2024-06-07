@@ -12,7 +12,6 @@ from flask.wrappers import Response
 
 from llm_bench.config import ModelConfig
 from llm_bench.config import MongoConfig
-from llm_bench.local.hf.transformers import generate as generate_transformers
 from llm_bench.logging import log_metrics
 from llm_bench.utils import check_and_clean_space
 from llm_bench.utils import has_existing_run
@@ -106,10 +105,9 @@ def call_huggingface() -> Union[Response, Tuple[Response, int]]:
         check_and_clean_space(directory=CACHE_DIR, threshold=90.0)
 
         if framework == "transformers":
-            generate = generate_transformers
+            from llm_bench.local.hf.transformers import generate
         elif framework == "hf-tgi":
-            raise ValueError("hf-tgi framework implementation is broken for now")
-            # generate = generate_tgi
+            from llm_bench.local.hf.tgi import generate
         else:
             raise ValueError(f"Unknown framework: {framework}")
 
