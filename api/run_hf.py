@@ -53,12 +53,19 @@ assert CACHE_DIR, "HF_HUB_CACHE environment variable not set"
     is_flag=True,
     help="Fetch latest HF-Hub models.",
 )
+@click.option(
+    "--created-days-ago",
+    default=180,
+    type=int,
+    help="Fetch models created within the last N days.",
+)
 def main(
     framework: str,
     fetch_new_models: bool,
     limit: int,
     max_size_billion: int,
     run_always: bool,
+    created_days_ago: int,
 ) -> None:
     """
     Main entrypoint for benchmarking HuggingFace Transformers models.
@@ -70,7 +77,7 @@ def main(
         fetch_new=fetch_new_models,
         cache_dir=CACHE_DIR,
         library=framework,
-        created_days_ago=30,
+        created_days_ago=created_days_ago,
     )
     print(f"Fetched {len(model_names):,} models")
 
@@ -93,8 +100,9 @@ def main(
     #     # "EleutherAI/pythia-160m",
     #     # "TheBloke/Llama-2-7B-Chat-AWQ",
     #     # "meta-llama/Llama-2-7b-chat-hf",
-    #     "meta-llama/Meta-Llama-3-8B",
-    #
+    #     # "meta-llama/Meta-Llama-3-8B",
+    #     "mistralai/Mistral-7B-Instruct-v0.3",
+    # ]
 
     # Run benchmarks
     model_status: dict[str, dict] = {}
