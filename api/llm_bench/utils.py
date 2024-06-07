@@ -39,6 +39,11 @@ def fetch_hf_models(fetch_new: bool, cache_dir: str, library: str, created_days_
                 limit=10_000,
             )
 
+            # Try to filter out 'gguf' models
+            if library in ["transformers", "hf-tgi"]:
+                models = [model for model in models if "gguf" not in model.tags]
+                models = [model for model in models if "gguf" not in model.id.lower()]
+
             # Filter models modified in the past 30 days
             model_names = [
                 model.id
