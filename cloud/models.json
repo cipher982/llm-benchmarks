@@ -109,7 +109,7 @@
         "accounts/fireworks/models/llama-v2-7b-chat",
         "accounts/fireworks/models/llama-v2-13b",
         "accounts/fireworks/models/llama-v2-13b-chat",
-        "accounts/fireworks/models/llama-v2-34b-code",
+        // "accounts/fireworks/models/llama-v2-34b-code",
         "accounts/fireworks/models/llama-v2-70b",
         "accounts/fireworks/models/llama-v2-70b-chat",
         "accounts/fireworks/models/llama-v3-8b-instruct",
