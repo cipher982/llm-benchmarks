@@ -29,6 +29,7 @@
         "anthropic.claude-3-haiku-20240307-v1:0",
         "anthropic.claude-3-sonnet-20240229-v1:0",
         "anthropic.claude-3-opus-20240229-v1:0",
+        "anthropic.claude-3-5-sonnet-20240620",
         "amazon.titan-tg1-large",
         "amazon.titan-text-lite-v1",
         "amazon.titan-text-express-v1",
@@ -38,6 +39,7 @@
         "meta.llama3-70b-instruct-v1:0",
         "mistral.mistral-7b-instruct-v0:2",
         "mistral.mixtral-8x7b-instruct-v0:1",
+        "mistral.mistral-small-2402",
         "cohere.command-r-v1:0",
         "cohere.command-r-plus-v1:0"
     ],
