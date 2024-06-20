@@ -118,10 +118,15 @@
         "accounts/fireworks/models/mistral-7b",
         "accounts/fireworks/models/mixtral-8x7b",
         "accounts/fireworks/models/mixtral-8x7b-instruct",
+        "accounts/fireworks/models/mixtral-8x22b-instruct",
         "accounts/fireworks/models/dbrx-instruct",
-        "accounts/fireworks/models/gemma-7b-it"
+        "accounts/fireworks/models/gemma-7b-it",
         // "accounts/fireworks/models/qwen-14b-chat",
         // "accounts/fireworks/models/qwen-72b-chat"
+        "accounts/fireworks/models/qwen1p5-72b-chat",
+        "accounts/fireworks/models/qwen2-72b-instruct",
+        "accounts/fireworks/models/starcoder-16b",
+        "accounts/fireworks/models/yi-large"
     ],
     "deepinfra": [
         "meta-llama/Llama-2-70b-chat-hf",
