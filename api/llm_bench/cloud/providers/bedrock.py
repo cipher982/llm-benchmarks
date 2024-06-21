@@ -16,10 +16,13 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     assert "query" in run_config, "query must be in run_config"
     assert "max_tokens" in run_config, "max_tokens must be in run_config"
 
+    east_region_models = {"anthropic.claude-3-5-sonnet-20240620-v1:0", "mistral.mistral-small-2402-v1:0"}
+    region_name = "us-east-1" if config.model_name in east_region_models else "us-west-2"
+
     # Set up connection
     bedrock = boto3.client(
         service_name="bedrock-runtime",
-        region_name="us-west-2",
+        region_name=region_name,
     )
 
     # Define the request bodies for different models
