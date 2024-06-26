@@ -1,5 +1,3 @@
-version: "3"
-
 services:
   bench_cloud:
     image: bench_cloud_img
