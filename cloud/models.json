@@ -117,7 +117,7 @@
         "accounts/fireworks/models/llama-v3-8b-instruct",
         "accounts/fireworks/models/llama-v3-8b-instruct-hf",
         "accounts/fireworks/models/llama-v3-70b-instruct-hf",
-        "accounts/fireworks/models/mistral-7b",
+        // "accounts/fireworks/models/mistral-7b",
         "accounts/fireworks/models/mixtral-8x7b",
         "accounts/fireworks/models/mixtral-8x7b-instruct",
         "accounts/fireworks/models/mixtral-8x22b-instruct",
