@@ -1,9 +1,9 @@
-import json
 import logging
 import time
 from datetime import datetime
 
 import boto3
+from botocore.exceptions import ClientError
 from llm_bench.config import CloudConfig
 
 logger = logging.getLogger(__name__)
@@ -12,49 +12,29 @@ logger = logging.getLogger(__name__)
 def generate(config: CloudConfig, run_config: dict) -> dict:
     """Run BedRock inference and return metrics."""
 
-    assert config.provider == "bedrock", "provider must be anthropic"
+    assert config.provider == "bedrock", "provider must be bedrock"
     assert "query" in run_config, "query must be in run_config"
     assert "max_tokens" in run_config, "max_tokens must be in run_config"
 
-    east_region_models = {"anthropic.claude-3-5-sonnet-20240620-v1:0", "mistral.mistral-small-2402-v1:0"}
-    region_name = "us-east-1" if config.model_name in east_region_models else "us-west-2"
+    region_name = "us-west-2" if "opus" in config.model_name.lower() else "us-east-1"
 
     # Set up connection
-    bedrock = boto3.client(
+    bedrock_client = boto3.client(
         service_name="bedrock-runtime",
         region_name=region_name,
     )
 
-    # Define the request bodies for different models
-    request_bodies = {
-        "anthropic": {
-            "max_tokens": run_config["max_tokens"],
-            "messages": [{"role": "user", "content": run_config["query"]}],
-            "anthropic_version": "bedrock-2023-05-31",
-        },
-        "amazon": {
-            "inputText": f"Human: {run_config['query']}. \n\nAssistant:",
-            "textGenerationConfig": {"maxTokenCount": run_config["max_tokens"]},
-        },
-        "meta": {
-            "prompt": f"{run_config['query']}",
-            "max_gen_len": run_config["max_tokens"],
-        },
-        "mistral": {
-            "prompt": f"{run_config['query']}",
-            "max_tokens": run_config["max_tokens"],
-        },
-        "cohere": {
-            "message": run_config["query"],
-            "max_tokens": run_config["max_tokens"],
-        },
-    }
+    # Prepare the messages
+    messages = [{"role": "user", "content": [{"text": run_config["query"]}]}]
 
-    # Get the request body based on the model name
-    model_type = next((key for key in request_bodies if key in config.model_name), None)
-    if model_type is None:
-        raise ValueError(f"Model {config.model_name} not supported")
-    body = request_bodies[model_type]
+    # Prepare system prompts (if needed)
+    system_prompts = []
+
+    # Prepare inference config
+    inference_config = {"temperature": config.temperature, "maxTokens": run_config["max_tokens"]}
+
+    # Additional model fields
+    additional_model_fields = {}
 
     # Generate
     time_0 = time.time()
@@ -64,29 +44,38 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     output_tokens = 0
     times_between_tokens = []
 
-    response = bedrock.invoke_model_with_response_stream(
-        body=json.dumps(body),
-        modelId=config.model_name,
-    )
-    stream = response.get("body")
-    last_chunk = None
-    if stream:
-        for event in stream:
-            chunk = event.get("chunk")
-            if chunk:
-                last_chunk = chunk
-                current_time = time.time()
-                if not first_token_received:
-                    time_to_first_token = current_time - time_0
-                    first_token_received = True
-                else:
-                    assert previous_token_time is not None
-                    times_between_tokens.append(current_time - previous_token_time)
-                previous_token_time = current_time
+    try:
+        response = bedrock_client.converse_stream(
+            modelId=config.model_name,
+            messages=messages,
+            system=system_prompts,
+            inferenceConfig=inference_config,
+            additionalModelRequestFields=additional_model_fields,
+        )
 
-    if last_chunk:
-        response_metrics = json.loads(last_chunk.get("bytes").decode()).get("amazon-bedrock-invocationMetrics", {})
-        output_tokens = response_metrics.get("outputTokenCount")
+        stream = response.get("stream")
+        if stream:
+            for event in stream:
+                current_time = time.time()
+
+                if "contentBlockDelta" in event:
+                    if not first_token_received:
+                        time_to_first_token = current_time - time_0
+                        first_token_received = True
+                    else:
+                        assert previous_token_time is not None
+                        times_between_tokens.append(current_time - previous_token_time)
+                    previous_token_time = current_time
+
+                if "metadata" in event:
+                    metadata = event["metadata"]
+                    if "usage" in metadata:
+                        output_tokens = metadata["usage"]["outputTokens"]
+
+    except ClientError as err:
+        message = err.response["Error"]["Message"]
+        logger.error(f"Error: {message}")
+        raise
 
     time_1 = time.time()
     generate_time = time_1 - time_0
