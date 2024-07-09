@@ -86,6 +86,8 @@ def main(
             )
             response, response_time = await post_benchmark(request_config)
 
+            retries = response.get("retry_count", 0)
+
             # Create status entry
             status_entry = {
                 "model": model,
@@ -96,17 +98,18 @@ def main(
                     "max_tokens": MAX_TOKENS,
                 },
                 "response_time": response_time,
+                "retry_count": retries,
             }
             if response.get("status") == "success":
-                logger.log_info(f"✅ Success {model}, {response}")
+                logger.log_info(f"✅ Success {model}, {response}, Retries: {retries}")
                 status_entry.update({"status": "success", "response": response})
             elif "error" in response or response.get("status") == "error":
                 error_message = response.get("error", "Unknown error")
-                logger.log_error(f"❌ Error {model}, error: {error_message}")
+                logger.log_error(f"❌ Error {model}, error: {error_message}, Retries: {retries}")
                 status_entry.update({"status": "error", "error": error_message})
             else:
                 unexpected_status = response.get("status", "Unknown status")
-                logger.log_error(f"⚠️ Unexpected status {model}, status: {unexpected_status}")
+                logger.log_error(f"⚠️ Unexpected {model}, status: {unexpected_status}, Retries: {retries}")
                 status_entry.update(
                     {
                         "status": "unexpected",

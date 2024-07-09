@@ -3,6 +3,9 @@ import os
 from datetime import datetime
 
 from fastapi import FastAPI
+from tenacity import retry
+from tenacity import stop_after_attempt
+from tenacity import wait_fixed
 
 from llm_bench.config import CloudConfig
 from llm_bench.config import MongoConfig
@@ -51,6 +54,7 @@ app = FastAPI(
 
 @app.post("/benchmark", response_model=BenchmarkResponse)
 async def call_cloud(request: BenchmarkRequest):
+    retry_count = 0
     try:
         logger.info(f"Received benchmark request: Provider={request.provider}, Model={request.model}")
         provider = request.provider
@@ -117,20 +121,39 @@ async def call_cloud(request: BenchmarkRequest):
         generate = module.generate
 
         # Run benchmark
-        metrics = generate(model_config, run_config)
-        if not metrics:
-            error_message = "metrics is empty"
-            logger.error(error_message)
-            return {"status": "error", "message": error_message}
+        max_retries = 3
 
-        if metrics["tokens_per_second"] <= 0:
-            error_message = "tokens_per_second must be greater than 0"
-            logger.error(error_message)
-            return {"status": "error", "message": error_message}
+        @retry(stop=stop_after_attempt(max_retries), wait=wait_fixed(5))
+        def run_benchmark_with_retry():
+            nonlocal retry_count
+            try:
+                metrics = generate(model_config, run_config)
+                if not metrics:
+                    error_message = "metrics is empty"
+                    logger.error(error_message)
+                    return {"status": "error", "message": error_message}
 
+                if metrics["tokens_per_second"] <= 0:
+                    error_message = "tokens_per_second must be greater than 0"
+                    logger.error(error_message)
+                    return {"status": "error", "message": error_message}
+
+                return metrics
+            except Exception as e:
+                retry_count += 1
+                logger.warning(f"Retry attempt {retry_count} due to error: {str(e)}")
+                raise
+
+        result = run_benchmark_with_retry()
+
+        if isinstance(result, dict) and "status" in result and result["status"] == "error":
+            return {**result, "retry_count": retry_count}
+
+        metrics = result
         if debug:
             logger.info(f"Debug mode: {debug}")
             logger.info(f"Metrics: {metrics}")
+            logger.info(f"Retry count: {retry_count}")
             return {"status": "success", "metrics": metrics}
 
         # Log metrics
@@ -152,9 +175,9 @@ async def call_cloud(request: BenchmarkRequest):
         logger.info(f"Generate time: {metrics['generate_time']:.2f} s")
         logger.info(f"Tokens per second: {metrics['tokens_per_second']:.2f}")
 
-        return {"status": "success"}
+        return {"status": "success", "retry_count": retry_count}
 
     except Exception as e:
         error_message = f"An error occurred during benchmark: {str(e)}"
         logger.exception(error_message)
-        return {"status": "error", "message": error_message}
+        return {"status": "error", "message": error_message, "retry_count": retry_count}
