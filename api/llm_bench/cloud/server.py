@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi import FastAPI
 from tenacity import retry
 from tenacity import stop_after_attempt
-from tenacity import wait_fixed
+from tenacity import wait_exponential
 
 from llm_bench.config import CloudConfig
 from llm_bench.config import MongoConfig
@@ -123,7 +123,7 @@ async def call_cloud(request: BenchmarkRequest):
         # Run benchmark
         max_retries = 3
 
-        @retry(stop=stop_after_attempt(max_retries), wait=wait_fixed(5))
+        @retry(stop=stop_after_attempt(max_retries), wait=wait_exponential(multiplier=1, min=1, max=5))
         def run_benchmark_with_retry():
             nonlocal retry_count
             try:
