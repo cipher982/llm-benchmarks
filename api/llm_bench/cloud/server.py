@@ -154,19 +154,18 @@ async def call_cloud(request: BenchmarkRequest):
             logger.info(f"Debug mode: {debug}")
             logger.info(f"Metrics: {metrics}")
             logger.info(f"Retry count: {retry_count}")
-            return {"status": "success", "metrics": metrics}
-
-        # Log metrics
-        log_metrics(
-            model_type="cloud",
-            config=model_config,
-            metrics=metrics,
-            file_path=os.path.join(LOG_DIR, LOG_FILE_JSON),
-            log_to_mongo=LOG_TO_MONGO,
-            mongo_uri=MONGODB_URI,
-            mongo_db=MONGODB_DB,
-            mongo_collection=MONGODB_COLLECTION_CLOUD,
-        )
+        else:
+            # Log metrics
+            log_metrics(
+                model_type="cloud",
+                config=model_config,
+                metrics=metrics,
+                file_path=os.path.join(LOG_DIR, LOG_FILE_JSON),
+                log_to_mongo=LOG_TO_MONGO,
+                mongo_uri=MONGODB_URI,
+                mongo_db=MONGODB_DB,
+                mongo_collection=MONGODB_COLLECTION_CLOUD,
+            )
 
         # Print metrics
         logger.info(f"===== Model: {provider}/{model_name} =====")
