@@ -1,6 +1,8 @@
 import asyncio
 import os
 from datetime import datetime
+from typing import List
+from typing import Optional
 
 import dotenv
 import httpx
@@ -8,6 +10,7 @@ import json5 as json
 import typer
 from llm_bench.cloud.logging import Logger
 from llm_bench.types import BenchmarkRequest
+from tenacity import RetryError
 from tenacity import retry
 from tenacity import stop_after_attempt
 from tenacity import wait_exponential
@@ -41,44 +44,82 @@ with open(json_file_path) as f:
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=5))
 async def post_benchmark(request: BenchmarkRequest):
-    logger.log_benchmark_request(request)
     timeout = httpx.Timeout(60.0, connect=10.0)
+    start_time = datetime.now()
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        logger.log_info(f"Sending request to {server_path}")
+        response = await client.post(server_path, json=request.model_dump())
+        response.raise_for_status()
+
+    end_time = datetime.now()
+    response_time = (end_time - start_time).total_seconds()
+    response_data = response.json()
+
+    if "error" in response_data or response_data.get("status") == "error":
+        raise ValueError(response_data.get("message", "Unknown error"))
+
+    return response_data, response_time
+
+
+# Wrap the post_benchmark function to handle final output
+async def benchmark_with_retries(request: BenchmarkRequest):
     retry_count = 0
-    max_retries = 3
+    try:
+        while True:
+            try:
+                response_data, response_time = await post_benchmark(request)
+                return {
+                    "status": "success",
+                    "data": response_data,
+                    "response_time": response_time,
+                    "retry_count": retry_count,
+                }
+            except Exception:
+                retry_count += 1
+                if retry_count >= 3:  # Max retries
+                    raise
+    except RetryError as e:
+        return {"status": "error", "message": str(e.last_attempt.exception()), "retry_count": retry_count}
+    except Exception as e:
+        return {"status": "error", "message": str(e), "retry_count": retry_count}
 
-    while True:
+
+async def benchmark_provider(provider, limit, run_always, debug):
+    model_names = provider_models.get(provider, [])[:limit]
+    logger.log_info(f"Fetching {len(model_names)} models for provider: {provider}")
+
+    for model in model_names:
+        request_config = BenchmarkRequest(
+            provider=provider,
+            model=model,
+            query=QUERY_TEXT,
+            max_tokens=MAX_TOKENS,
+            temperature=TEMPERATURE,
+            run_always=run_always,
+            debug=debug,
+        )
+
         try:
-            start_time = datetime.now()
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                logger.log_info(f"Sending request to {server_path}")
-                response = await client.post(server_path, json=request.model_dump())
-                response.raise_for_status()
-            end_time = datetime.now()
-            response_time = (end_time - start_time).total_seconds()
-            response_data = response.json()
-            if "error" in response_data or response_data.get("status") == "error":
-                error_message = response_data.get("message", "Unknown error")
-                logger.log_error(f"Server returned error: {error_message}")
-                raise Exception(error_message)  # Raise exception to trigger retry
-            response_data["retry_count"] = retry_count
-            return response_data, response_time
-        except httpx.HTTPStatusError as e:
-            error_message = f"HTTP error: {e.response.status_code} - {e.response.text}"
-            logger.log_error(f"HTTP error occurred: {error_message}")
-        except httpx.ReadError as e:
-            error_message = f"Read error: {str(e)}"
-            logger.log_error(f"Read error occurred: {error_message}")
-        except Exception as e:
-            error_message = f"Unexpected error: {str(e)}"
-            logger.log_error(f"Unexpected error occurred: {error_message}")
+            response_data, response_time = await post_benchmark(request_config)
+            logger.log_info(f"✅ Success {model}, {response_data}")
+            status = "success"
+            error = None
+        except RetryError as e:
+            logger.log_error(f"❌ Error {model}, error: {e.last_attempt.exception()}")
+            status = "error"
+            error = str(e.last_attempt.exception())
+            response_data, response_time = None, 0
 
-        retry_count += 1
-        if retry_count >= max_retries:
-            raise Exception(f"Max retries ({max_retries}) reached. Last error: {error_message}")
-
-        wait_time = 2**retry_count
-        logger.log_info(f"Retrying in {wait_time} seconds (attempt {retry_count + 1}/{max_retries})")
-        await asyncio.sleep(wait_time)
+        yield {
+            "model": model,
+            "timestamp": datetime.now().isoformat(),
+            "request": {"provider": provider, "model": model, "max_tokens": MAX_TOKENS},
+            "status": status,
+            "response": response_data,
+            "error": error,
+            "response_time": response_time,
+        }
 
 
 app = typer.Typer()
@@ -86,76 +127,25 @@ app = typer.Typer()
 
 @app.command()
 def main(
-    providers: list[str] = typer.Option(["all"], "--providers", help="Providers to use for benchmarking."),
+    providers: Optional[List[str]] = typer.Option(None, "--providers", help="Providers to use for benchmarking."),
     limit: int = typer.Option(100, "--limit", help="Limit the number of models run."),
     run_always: bool = typer.Option(False, "--run-always", is_flag=True, help="Flag to always run benchmarks."),
     debug: bool = typer.Option(False, "--debug", is_flag=True, help="Flag to enable debug mode."),
 ) -> None:
-    """Main entrypoint for benchmarking cloud models."""
-
-    async def benchmark_provider(provider, limit, run_always, debug):
-        model_names = provider_models.get(provider, [])
-        logger.log_info(f"Fetched {len(model_names)} models for provider: {provider}")
-        model_status: list[dict] = []
-        for model in model_names[:limit]:
-            request_config = BenchmarkRequest(
-                provider=provider,
-                model=model,
-                query=QUERY_TEXT,
-                max_tokens=MAX_TOKENS,
-                temperature=TEMPERATURE,
-                run_always=run_always,
-                debug=debug,
-            )
-            response, response_time = await post_benchmark(request_config)
-
-            retries = response.get("retry_count", 0)
-
-            # Create status entry
-            status_entry = {
-                "model": model,
-                "timestamp": datetime.now().isoformat(),
-                "request": {
-                    "provider": provider,
-                    "model": model,
-                    "max_tokens": MAX_TOKENS,
-                },
-                "response_time": response_time,
-                "retry_count": retries,
-            }
-            if response.get("status") == "success":
-                logger.log_info(f"✅ Success {model}, {response}, Retries: {retries}")
-                status_entry.update({"status": "success", "response": response})
-            elif "error" in response or response.get("status") == "error":
-                error_message = response.get("error", "Unknown error")
-                logger.log_error(f"❌ Error {model}, error: {error_message}, Retries: {retries}")
-                status_entry.update({"status": "error", "error": error_message})
-            else:
-                unexpected_status = response.get("status", "Unknown status")
-                logger.log_error(f"⚠️ Unexpected {model}, status: {unexpected_status}, Retries: {retries}")
-                status_entry.update(
-                    {
-                        "status": "unexpected",
-                        "error": f"Unexpected status: {unexpected_status}",
-                    }
-                )
-            model_status.append(status_entry)
-        return model_status
-
-    async def async_main(providers, limit, run_always, debug):
-        if "all" in providers:
+    async def async_main():
+        nonlocal providers
+        if providers is None or "all" in providers:
             providers = list(provider_models.keys())
         logger.log_info(f"Running benchmarks for provider(s): {providers}")
 
-        # Run benchmarks for each provider asynchronously
-        tasks = [benchmark_provider(provider, limit, run_always, debug) for provider in providers]
-        results = await asyncio.gather(*tasks)
+        all_results = []
+        for provider in providers:
+            async for result in benchmark_provider(provider, limit, run_always, debug):
+                all_results.append(result)
 
-        # Flatten the list of model statuses and log final results
-        combined_model_status = [status for provider_status in results if provider_status for status in provider_status]
-        logger.log_benchmark_status(combined_model_status)
+        logger.log_benchmark_status(all_results)
 
-    asyncio.run(async_main(providers, limit, run_always, debug))
+    asyncio.run(async_main())
 
 
 if __name__ == "__main__":
