@@ -18,7 +18,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
 
     # For some reason newer or bigger models start only in us-west-2
     REGION_MAP = {"opus": "us-west-2", "llama3-1": "us-west-2"}
-    region_name = REGION_MAP.get(next((k for k in REGION_MAP if k in config.model_name.lower()), "us-east-1"))
+    region_name = next((REGION_MAP[k] for k in REGION_MAP if k in config.model_name.lower()), "us-east-1")
 
     # Set up connection
     bedrock_client = boto3.client(
