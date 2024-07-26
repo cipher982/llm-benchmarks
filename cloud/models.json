@@ -1,20 +1,11 @@
 {
     "openai": [
         "gpt-4",
-        "gpt-4-turbo-preview",
-        "gpt-4-vision-preview",
-        "gpt-4-0613",
-        "gpt-4-1106-preview",
-        "gpt-4-0125-preview",
-        "gpt-4-turbo-2024-04-09",
-        "gpt-4o-2024-05-13",
+        "gpt-4-turbo",
+        "gpt-4o",
+        "gpt-4o-mini", // works
         "gpt-3.5-turbo",
-        "gpt-3.5-turbo-16k",
-        "gpt-3.5-turbo-instruct",
-        "gpt-3.5-turbo-0613",
-        "gpt-3.5-turbo-16k-0613",
-        "gpt-3.5-turbo-1106",
-        "gpt-3.5-turbo-0125"
+        "gpt-3.5-turbo-instruct"
     ],
     "anthropic": [
         "claude-instant-1.2",
@@ -38,6 +29,9 @@
         "meta.llama2-13b-chat-v1",
         "meta.llama3-8b-instruct-v1:0",
         "meta.llama3-70b-instruct-v1:0",
+        "meta.llama3-1-8b-instruct-v1:0",
+        "meta.llama3-1-70b-instruct-v1:0", // works (sometimes)
+        "meta.llama3-1-405b-instruct-v1:0",
         "mistral.mistral-7b-instruct-v0:2",
         "mistral.mixtral-8x7b-instruct-v0:1",
         "mistral.mistral-small-2402-v1:0",
@@ -56,6 +50,10 @@
         "claude-3-sonnet@20240229",
         "claude-3-opus@20240229",
         "claude-3-5-sonnet@20240620"
+        // "meta/llama3-8b-instruct-maas",
+        // "meta/llama3-70b-instruct-maas", // dont work, might need to use openai api
+        // "meta/llama3-405b-instruct-maas"
+
     ],
     "anyscale": [
         "meta-llama/Llama-2-7b-chat-hf",
@@ -74,6 +72,9 @@
         "meta-llama/Llama-2-70b-hf",
         "meta-llama/Meta-Llama-3-8B",
         "meta-llama/Meta-Llama-3-70B",
+        "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+        "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+        "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
         "mistralai/Mistral-7B-Instruct-v0.2",
         "mistralai/Mixtral-8x7B-Instruct-v0.1",
         "mistralai/Mixtral-8x22B",
@@ -117,6 +118,9 @@
         "accounts/fireworks/models/llama-v3-8b-instruct",
         "accounts/fireworks/models/llama-v3-8b-instruct-hf",
         "accounts/fireworks/models/llama-v3-70b-instruct-hf",
+        "accounts/fireworks/models/llama-v3p1-8b-instruct",
+        "accounts/fireworks/models/llama-v3p1-70b-instruct",
+        "accounts/fireworks/models/llama-v3p1-405b-instruct",
         // "accounts/fireworks/models/mistral-7b",
         "accounts/fireworks/models/mixtral-8x7b",
         "accounts/fireworks/models/mixtral-8x7b-instruct",
@@ -144,6 +148,9 @@
     "groq": [
         "llama3-8b-8192",
         "llama3-70b-8192",
+        "llama-3.1-8b-instant",
+        "llama-3.1-70b-versatile",
+        "llama-3.1-405b-reasoning",
         "mixtral-8x7b-32768",
         "gemma-7b-it",
         "gemma2-9b-it"
