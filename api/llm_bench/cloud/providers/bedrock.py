@@ -16,7 +16,9 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     assert "query" in run_config, "query must be in run_config"
     assert "max_tokens" in run_config, "max_tokens must be in run_config"
 
-    region_name = "us-west-2" if "opus" in config.model_name.lower() else "us-east-1"
+    # For some reason newer or bigger models start only in us-west-2
+    REGION_MAP = {"opus": "us-west-2", "llama3-1": "us-west-2"}
+    region_name = REGION_MAP.get(next((k for k in REGION_MAP if k in config.model_name.lower()), "us-east-1"))
 
     # Set up connection
     bedrock_client = boto3.client(
@@ -57,7 +59,6 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         if stream:
             for event in stream:
                 current_time = time.time()
-
                 if "contentBlockDelta" in event:
                     if not first_token_received:
                         time_to_first_token = current_time - time_0
@@ -66,11 +67,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
                         assert previous_token_time is not None
                         times_between_tokens.append(current_time - previous_token_time)
                     previous_token_time = current_time
-
-                if "metadata" in event:
-                    metadata = event["metadata"]
-                    if "usage" in metadata:
-                        output_tokens = metadata["usage"]["outputTokens"]
+                    output_tokens += 1
 
     except ClientError as err:
         message = err.response["Error"]["Message"]

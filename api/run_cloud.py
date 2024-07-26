@@ -8,6 +8,9 @@ import json5 as json
 import typer
 from llm_bench.cloud.logging import Logger
 from llm_bench.types import BenchmarkRequest
+from tenacity import retry
+from tenacity import stop_after_attempt
+from tenacity import wait_exponential
 
 dotenv.load_dotenv()
 
@@ -36,26 +39,46 @@ with open(json_file_path) as f:
     provider_models = json.load(f)
 
 
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=5))
 async def post_benchmark(request: BenchmarkRequest):
     logger.log_benchmark_request(request)
-    timeout = httpx.Timeout(180.0, connect=180.0)
-    try:
-        start_time = datetime.now()
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            logger.log_info(f"Sending request to {server_path}")
-            response = await client.post(server_path, json=request.model_dump())
-            response.raise_for_status()
-        end_time = datetime.now()
-        response_time = (end_time - start_time).total_seconds()
-        return response.json(), response_time
-    except httpx.HTTPStatusError as e:
-        error_message = f"HTTP error: {e.response.status_code} - {e.response.text}"
-        logger.log_error(f"HTTP error occurred: {error_message}")
-        return {"error": error_message}, None
-    except Exception as e:
-        error_message = f"Unexpected error: {str(e)}"
-        logger.log_error(f"Unexpected error occurred: {error_message}")
-        return {"error": error_message}, None
+    timeout = httpx.Timeout(60.0, connect=10.0)
+    retry_count = 0
+    max_retries = 3
+
+    while True:
+        try:
+            start_time = datetime.now()
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                logger.log_info(f"Sending request to {server_path}")
+                response = await client.post(server_path, json=request.model_dump())
+                response.raise_for_status()
+            end_time = datetime.now()
+            response_time = (end_time - start_time).total_seconds()
+            response_data = response.json()
+            if "error" in response_data or response_data.get("status") == "error":
+                error_message = response_data.get("message", "Unknown error")
+                logger.log_error(f"Server returned error: {error_message}")
+                raise Exception(error_message)  # Raise exception to trigger retry
+            response_data["retry_count"] = retry_count
+            return response_data, response_time
+        except httpx.HTTPStatusError as e:
+            error_message = f"HTTP error: {e.response.status_code} - {e.response.text}"
+            logger.log_error(f"HTTP error occurred: {error_message}")
+        except httpx.ReadError as e:
+            error_message = f"Read error: {str(e)}"
+            logger.log_error(f"Read error occurred: {error_message}")
+        except Exception as e:
+            error_message = f"Unexpected error: {str(e)}"
+            logger.log_error(f"Unexpected error occurred: {error_message}")
+
+        retry_count += 1
+        if retry_count >= max_retries:
+            raise Exception(f"Max retries ({max_retries}) reached. Last error: {error_message}")
+
+        wait_time = 2**retry_count
+        logger.log_info(f"Retrying in {wait_time} seconds (attempt {retry_count + 1}/{max_retries})")
+        await asyncio.sleep(wait_time)
 
 
 app = typer.Typer()
