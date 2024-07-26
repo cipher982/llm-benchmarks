@@ -18,7 +18,7 @@ RUN apt-get update && \
 RUN pip3 install boto3 pymongo pynvml flask pytz fastapi uvicorn httpx typer redis gunicorn tenacity
 
 # Install cloud providers
-RUN pip3 install boto3 google-cloud-aiplatform openai tiktoken groq anthropic
+RUN pip3 install boto3 google-cloud-aiplatform openai tiktoken anthropic groq
 
 # Set the working directory
 WORKDIR /app
