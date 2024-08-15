@@ -68,6 +68,10 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
                         times_between_tokens.append(current_time - previous_token_time)
                     previous_token_time = current_time
                     output_tokens += 1
+                elif "metadata" in event:
+                    metadata = event["metadata"]
+                    if "usage" in metadata and "outputTokens" in metadata["usage"]:
+                        output_tokens = metadata["usage"]["outputTokens"]
 
     except ClientError as err:
         message = err.response["Error"]["Message"]
