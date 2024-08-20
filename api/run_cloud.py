@@ -57,7 +57,9 @@ async def post_benchmark(request: BenchmarkRequest):
     response_data = response.json()
 
     if "error" in response_data or response_data.get("status") == "error":
-        raise ValueError(response_data.get("message", "Unknown error"))
+        error_message = response_data.get("message", "Unknown error")
+        logger.log_error(f"Error in response: {error_message}")
+        raise ValueError(error_message)
 
     return response_data, response_time
 
