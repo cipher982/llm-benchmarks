@@ -37,16 +37,21 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
             messages=[{"role": "user", "content": run_config["query"]}],
         ) as stream:
             time_to_first_token = None
-            for text in stream.text_stream:
+            for event in stream:
                 current_time = time.time()
-                if not first_token_received:
-                    time_to_first_token = current_time - time_0
-                    first_token_received = True
-                else:
-                    assert previous_token_time is not None
-                    times_between_tokens.append(current_time - previous_token_time)
-                previous_token_time = current_time
-                output_tokens += 1
+                event_type = type(event).__name__
+                if event_type == "RawMessageStartEvent":
+                    first_token_received = False
+                elif event_type == "RawContentBlockDeltaEvent":
+                    if not first_token_received:
+                        time_to_first_token = current_time - time_0
+                        first_token_received = True
+                    else:
+                        assert previous_token_time is not None
+                        times_between_tokens.append(current_time - previous_token_time)
+                    previous_token_time = current_time
+                elif event_type == "MessageStopEvent":
+                    output_tokens = event.message.usage.output_tokens  # type: ignore
 
     time_1 = time.time()
     generate_time = time_1 - time_0
