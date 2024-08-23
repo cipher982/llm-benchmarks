@@ -65,26 +65,31 @@ async def post_benchmark(request: BenchmarkRequest):
 
 
 # Wrap the post_benchmark function to handle final output
+
+
 async def benchmark_with_retries(request: BenchmarkRequest):
     retry_count = 0
-    try:
-        while True:
-            try:
-                response_data, response_time = await post_benchmark(request)
-                return {
-                    "status": "success",
-                    "data": response_data,
-                    "response_time": response_time,
-                    "retry_count": retry_count,
-                }
-            except Exception:
-                retry_count += 1
-                if retry_count >= 3:  # Max retries
-                    raise
-    except RetryError as e:
-        return {"status": "error", "message": str(e.last_attempt.exception()), "retry_count": retry_count}
-    except Exception as e:
-        return {"status": "error", "message": str(e), "retry_count": retry_count}
+    last_error = None
+    while retry_count < 3:
+        try:
+            response_data, response_time = await post_benchmark(request)
+            return {
+                "status": "success",
+                "data": response_data,
+                "response_time": response_time,
+                "retry_count": retry_count,
+            }
+        except httpx.HTTPStatusError as e:
+            last_error = f"HTTP error: {e.response.status_code} - {e.response.text}"
+        except ValueError as e:
+            last_error = str(e)
+        except Exception as e:
+            last_error = f"Unexpected error: {str(e)}"
+
+        logger.log_error(f"❌ Error {request.model}, error: {last_error}")
+        retry_count += 1
+
+    return {"status": "error", "message": f"Max retries reached. Last error: {last_error}", "retry_count": retry_count}
 
 
 async def benchmark_provider(provider, limit, run_always, debug):

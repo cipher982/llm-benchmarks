@@ -141,7 +141,8 @@ async def call_cloud(request: BenchmarkRequest):
 
     except Exception as e:
         error_message = f"An error occurred during benchmark: {str(e)}"
-        raise
+        logger.error(error_message)
+        return {"status": "error", "message": error_message}
 
     if debug:
         logger.info(f"Debug mode: {debug}")
