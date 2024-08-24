@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ID = "llm-bench"
 REGION = "us-central1"
-OPUS_REGION = "us-east5"
+SECONDARY_REGION = "us-east5"
 
 os.environ["GOOGLE_CLOUD_PROJECT"] = PROJECT_ID
 
@@ -35,11 +35,12 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
             generation_config=GenerationConfig(max_output_tokens=run_config["max_tokens"]),
             stream=True,
         )
-        _, ttft, tbts, n_tokens = generate_tokens(stream, time_0, False)
+        ttft, tbts, n_tokens = generate_tokens(stream, time_0, False)
         generate_time = time.time() - time_0
     else:
         logger.debug("Using Vertex/AnthropicVertex")
-        region = OPUS_REGION if "opus" in config.model_name.lower() else REGION
+        keywords = ["opus", "3-5"]
+        region = SECONDARY_REGION if any(keyword in config.model_name.lower() for keyword in keywords) else REGION
         client = AnthropicVertex(region=region, project_id=PROJECT_ID)
         time_0 = time.time()
         with client.messages.stream(
@@ -47,7 +48,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
             messages=[{"role": "user", "content": run_config["query"]}],
             model=config.model_name,
         ) as stream:
-            _, ttft, tbts, n_tokens = generate_tokens(stream, time_0, True)
+            ttft, tbts, n_tokens = generate_tokens(stream, time_0, True)
         generate_time = time.time() - time_0
 
     return calculate_metrics(run_config, n_tokens, generate_time, ttft, tbts)
@@ -59,16 +60,12 @@ def generate_tokens(stream, time_0, is_anthropic=False):
     time_to_first_token = None
     times_between_tokens = []
     token_count = 0
-    response_str = ""
 
-    stream_iter = stream.text_stream if is_anthropic else stream
+    stream_iter = stream if is_anthropic else stream
 
     item = None
     for item in stream_iter:
         current_time = time.time()
-        text = item if is_anthropic else item.text
-        response_str += text
-        token_count += 1
         if not first_token_received:
             time_to_first_token = current_time - time_0
             first_token_received = True
@@ -78,9 +75,12 @@ def generate_tokens(stream, time_0, is_anthropic=False):
         previous_token_time = current_time
     assert item, "No tokens received"
 
-    token_count = item._raw_response.usage_metadata.candidates_token_count if not is_anthropic else token_count
+    if is_anthropic:
+        token_count = item.message.usage.output_tokens
+    else:
+        token_count = item._raw_response.usage_metadata.candidates_token_count
 
-    return response_str, time_to_first_token, times_between_tokens, token_count
+    return time_to_first_token, times_between_tokens, token_count
 
 
 def calculate_metrics(run_config, output_tokens, generate_time, time_to_first_token, times_between_tokens):
