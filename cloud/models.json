@@ -124,8 +124,8 @@
     // ],
     "fireworks": [
         // "accounts/fireworks/models/llama-v2-7b-chat",
-        "accounts/fireworks/models/llama-v2-13b",
-        "accounts/fireworks/models/llama-v2-13b-chat",
+        // "accounts/fireworks/models/llama-v2-13b",
+        // "accounts/fireworks/models/llama-v2-13b-chat",
         // "accounts/fireworks/models/llama-v2-34b-code",
         "accounts/fireworks/models/llama-v2-70b",
         "accounts/fireworks/models/llama-v2-70b-chat",
@@ -135,7 +135,9 @@
         "accounts/fireworks/models/llama-v3p1-8b-instruct",
         "accounts/fireworks/models/llama-v3p1-70b-instruct",
         "accounts/fireworks/models/llama-v3p1-405b-instruct",
-        // "accounts/fireworks/models/mistral-7b",
+        "accounts/fireworks/models/llama-v3p2-3b-instruct",
+        "accounts/fireworks/models/llama-v3p2-11b-vision-instruct",
+        // "accounts/fireworks/models/llama-v3p2-90b-vision-instruct", // not available yet check later
         "accounts/fireworks/models/mixtral-8x7b",
         "accounts/fireworks/models/mixtral-8x7b-instruct",
         "accounts/fireworks/models/mixtral-8x22b-instruct",
