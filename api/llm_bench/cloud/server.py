@@ -23,7 +23,12 @@ MONGODB_COLLECTION_CLOUD = os.environ.get("MONGODB_COLLECTION_CLOUD")
 FASTAPI_PORT_CLOUD = os.environ.get("FASTAPI_PORT_CLOUD")
 assert FASTAPI_PORT_CLOUD, "FASTAPI_PORT_CLOUD environment variable not set"
 
-logging.basicConfig(filename=os.path.join(LOG_DIR, LOG_FILE_TXT), level=LOG_LEVEL)
+logging.basicConfig(
+    filename=os.path.join(LOG_DIR, LOG_FILE_TXT),
+    level=LOG_LEVEL,
+    format="%(asctime)s|%(name)s|%(levelname)s|%(funcName)s:%(lineno)d|%(message)s",
+    datefmt="%m-%d %H:%M:%S",
+)
 logger = logging.getLogger(__name__)
 
 PROVIDER_MODULES = {
