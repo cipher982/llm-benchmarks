@@ -19,14 +19,11 @@ class CustomJSONEncoder(json.JSONEncoder):
 
 
 class Logger:
-    def __init__(self, logs_dir: str, redis_host: str, redis_port: int, redis_db: int, redis_password: str):
+    def __init__(self, logs_dir: str, redis_url: str):
         self.logs_dir = logs_dir
         self.full_logs_file = os.path.join(logs_dir, "run_history.log")
         self.current_status_file = os.path.join(logs_dir, "run_status.json")
-        self.redis_host = redis_host
-        self.redis_port = redis_port
-        self.redis_db = redis_db
-        self.redis_password = redis_password
+        self.redis_url = redis_url
 
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
@@ -102,20 +99,13 @@ class Logger:
             with open(self.current_status_file, "w") as f:
                 json.dump(existing_data, f, indent=2, cls=CustomJSONEncoder)
 
-            with redis.Redis(
-                host=self.redis_host,
-                port=self.redis_port,
-                db=self.redis_db,
-                password=self.redis_password,
-            ) as redis_client:
+            with redis.Redis.from_url(self.redis_url) as redis_client:
                 redis_client.set("cloud_log_status", json.dumps(existing_data))
-                self.log_info(f"Successfully updated api status to redis on {self.redis_host}")
+                self.log_info("Successfully updated api status to redis")
         except (FileNotFoundError, PermissionError) as e:
             self.log_error(f"Error accessing benchmark status file: {str(e)}")
         except (redis.ConnectionError, redis.TimeoutError) as e:
-            self.log_error(
-                f"Error logging to Redis: {self.redis_host}:{self.redis_port}, DB: {self.redis_db}. Error: {str(e)}"
-            )
+            self.log_error(f"Error logging to Redis: {str(e)}")
         except json.JSONDecodeError as e:
             self.log_error(f"Error decoding JSON data: {str(e)}")
         except Exception as e:

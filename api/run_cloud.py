@@ -20,10 +20,7 @@ dotenv.load_dotenv()
 # Initialize Logger
 logger = Logger(
     logs_dir=os.getenv("LOGS_DIR", "./logs"),
-    redis_host=os.getenv("REDIS_HOST", "localhost"),
-    redis_port=int(os.getenv("REDIS_PORT", 6379)),
-    redis_db=int(os.getenv("REDIS_DB", 0)),
-    redis_password=os.getenv("REDIS_PASSWORD", ""),
+    redis_url=os.getenv("REDIS_URL"),
 )
 
 # Constants
