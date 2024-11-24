@@ -2,7 +2,6 @@ import asyncio
 import os
 from datetime import datetime
 from typing import List
-from typing import Optional
 
 import dotenv
 import httpx
@@ -152,23 +151,36 @@ async def benchmark_provider(provider, limit, run_always, debug):
 app = typer.Typer()
 
 
+async def collect_provider_results(provider: str, limit: int, run_always: bool, debug: bool) -> List[dict]:
+    results = []
+    async for result in benchmark_provider(provider, limit, run_always, debug):
+        results.append(result)
+    return results
+
+
 @app.command()
 def main(
-    providers: Optional[List[str]] = typer.Option(None, "--providers", help="Providers to use for benchmarking."),
+    providers: str = typer.Option(
+        None,
+        "--providers",
+        help="Comma-separated providers to use for benchmarking (e.g. 'azure,openai'). Use 'all' for all providers.",
+    ),
     limit: int = typer.Option(100, "--limit", help="Limit the number of models run."),
     run_always: bool = typer.Option(False, "--run-always", is_flag=True, help="Flag to always run benchmarks."),
     debug: bool = typer.Option(False, "--debug", is_flag=True, help="Flag to enable debug mode."),
 ) -> None:
     async def async_main():
-        nonlocal providers
-        if providers is None or "all" in providers:
-            providers = list(provider_models.keys())
-        logger.log_info(f"Running benchmarks for provider(s): {providers}")
+        provider_list = None if not providers else [p.strip() for p in providers.split(",")]
+        if provider_list is None or "all" in provider_list:
+            provider_list = list(provider_models.keys())
+        logger.log_info(f"Running benchmarks for provider(s): {provider_list}")
 
-        all_results = []
-        for provider in providers:
-            async for result in benchmark_provider(provider, limit, run_always, debug):
-                all_results.append(result)
+        # Run all providers in parallel
+        provider_tasks = [collect_provider_results(provider, limit, run_always, debug) for provider in provider_list]
+        all_results_nested = await asyncio.gather(*provider_tasks)
+
+        # Flatten results from all providers
+        all_results = [result for provider_results in all_results_nested for result in provider_results]
 
         logger.log_benchmark_status(all_results)
 

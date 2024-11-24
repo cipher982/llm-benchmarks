@@ -17,13 +17,14 @@ class CustomJSONEncoder(json.JSONEncoder):
 
 
 class Logger:
-    def __init__(self, logs_dir: str, redis_url: str):
+    def __init__(self, logs_dir: str, redis_url: str, max_runs: int = 10):
         if not redis_url:
             raise ValueError("redis_url must be provided")
         if not redis_url.startswith("redis://"):
             raise ValueError("redis_url must start with 'redis://'")
 
         self.redis_url = redis_url
+        self.max_runs = max_runs  # Number of runs to keep in history
 
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
@@ -42,8 +43,8 @@ class Logger:
     def log_benchmark_request(self, request: Any) -> None:
         self.log_info(f"Benchmark Request - Provider: {request.provider}, Model: {request.model}")
 
-    def get_run_outcome(self, status: Dict[str, Any]) -> str:
-        return "success" if status.get("status") == "success" else "error"
+    def get_run_outcome(self, status: Dict[str, Any]) -> bool:
+        return status.get("status") == "success"
 
     def log_benchmark_status(self, model_status: List[Dict[str, Any]]) -> None:
         try:
@@ -56,18 +57,10 @@ class Logger:
                 current_providers = {status.get("provider") for status in model_status if status.get("provider")}
                 self.log_info(f"Updating status for providers: {current_providers}")
 
-                # Remove existing entries for providers we're updating
-                existing_keys = list(existing_data.keys())
-                for key in existing_keys:
-                    if ":" in key:
-                        provider = key.split(":")[0]
-                        if provider in current_providers:
-                            del existing_data[key]
-
                 # Process new results
                 for status in model_status:
                     try:
-                        self.log_info(f"Processing status: {json.dumps(status, default=str)}")
+                        # self.log_info(f"Processing status: {json.dumps(status, default=str)}")
 
                         model = status["model"]
                         provider = status.get("provider")
@@ -83,7 +76,15 @@ class Logger:
                                 "last_run_timestamp": status.get("timestamp", datetime.now().isoformat()),
                             }
                         )
+
+                        # Add new run to the end of the list
                         existing_data[composite_key]["runs"].append(self.get_run_outcome(status))
+                        # If we exceed max_runs, remove oldest entries (from the beginning)
+                        if len(existing_data[composite_key]["runs"]) > self.max_runs:
+                            existing_data[composite_key]["runs"] = existing_data[composite_key]["runs"][
+                                -self.max_runs :
+                            ]
+
                     except KeyError as e:
                         self.log_error(f"KeyError processing status: {e}, Status: {json.dumps(status, default=str)}")
                         continue
