@@ -18,9 +18,13 @@ dotenv.load_dotenv()
 
 
 # Initialize Logger
+redis_url = os.getenv("REDIS_URL")
+if not redis_url:
+    raise ValueError("REDIS_URL environment variable is not set")
+
 logger = Logger(
     logs_dir=os.getenv("LOGS_DIR", "./logs"),
-    redis_url=os.getenv("REDIS_URL"),
+    redis_url=redis_url,
 )
 
 # Constants

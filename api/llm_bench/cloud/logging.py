@@ -20,6 +20,11 @@ class CustomJSONEncoder(json.JSONEncoder):
 
 class Logger:
     def __init__(self, logs_dir: str, redis_url: str):
+        if not redis_url:
+            raise ValueError("redis_url must be provided")
+        if not redis_url.startswith("redis://"):
+            raise ValueError("redis_url must start with 'redis://'")
+
         self.logs_dir = logs_dir
         self.full_logs_file = os.path.join(logs_dir, "run_history.log")
         self.current_status_file = os.path.join(logs_dir, "run_status.json")
