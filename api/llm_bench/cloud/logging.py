@@ -60,24 +60,42 @@ class Logger:
             else:
                 existing_data = defaultdict(lambda: {"runs": []})
 
-            updated_models = {f"{status['request']['provider']}:{status['model']}" for status in model_status}
+            updated_models = set()
 
             for status in model_status:
-                model = status["model"]
-                provider = status["request"]["provider"]
-                composite_key = f"{provider}:{model}"
+                try:
+                    # Debug logging
+                    self.log_info(f"Processing status: {json.dumps(status, default=str)}")
 
-                existing_data[composite_key].update(
-                    {
-                        "provider": provider,
-                        "model": model,
-                        "last_run_timestamp": status["timestamp"],
-                    }
-                )
-                existing_data[composite_key]["runs"].append(self.get_run_outcome(status))
+                    model = status["model"]
+                    # Check if request exists in the status object
+                    provider = status.get("request", {}).get("provider") or status.get("provider")
+                    if not provider:
+                        self.log_error(f"No provider found in status: {json.dumps(status, default=str)}")
+                        continue
+
+                    composite_key = f"{provider}:{model}"
+                    updated_models.add(composite_key)
+
+                    existing_data[composite_key].update(
+                        {
+                            "provider": provider,
+                            "model": model,
+                            "last_run_timestamp": status.get("timestamp", datetime.now().isoformat()),
+                        }
+                    )
+                    existing_data[composite_key]["runs"].append(self.get_run_outcome(status))
+                except KeyError as e:
+                    self.log_error(f"KeyError processing status: {e}, Status: {json.dumps(status, default=str)}")
+                    continue
+                except Exception as e:
+                    self.log_error(
+                        f"Error processing individual status: {str(e)}, Status: {json.dumps(status, default=str)}"
+                    )
+                    continue
 
             # Only mark models as did-not-run if they have the same provider
-            for key in existing_data:
+            for key in list(existing_data.keys()):
                 if key not in updated_models and ":" in key:  # Ensure we only process composite keys
                     existing_data[key]["runs"].append("did-not-run")
 
