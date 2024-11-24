@@ -70,8 +70,8 @@ class Logger:
                     self.log_info(f"Processing status: {json.dumps(status, default=str)}")
 
                     model = status["model"]
-                    # Check if request exists in the status object
-                    provider = status.get("request", {}).get("provider") or status.get("provider")
+                    # Get provider directly from status - it should be there from benchmark_provider
+                    provider = status.get("provider")
                     if not provider:
                         self.log_error(f"No provider found in status: {json.dumps(status, default=str)}")
                         continue
