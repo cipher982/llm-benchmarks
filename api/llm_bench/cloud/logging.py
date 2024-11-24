@@ -60,22 +60,26 @@ class Logger:
             else:
                 existing_data = defaultdict(lambda: {"runs": []})
 
-            updated_models = {status["model"] for status in model_status}
+            updated_models = {f"{status['request']['provider']}:{status['model']}" for status in model_status}
 
             for status in model_status:
                 model = status["model"]
-                existing_data[model].update(
+                provider = status["request"]["provider"]
+                composite_key = f"{provider}:{model}"
+
+                existing_data[composite_key].update(
                     {
-                        "provider": status["request"]["provider"],
+                        "provider": provider,
                         "model": model,
                         "last_run_timestamp": status["timestamp"],
                     }
                 )
-                existing_data[model]["runs"].append(self.get_run_outcome(status))
+                existing_data[composite_key]["runs"].append(self.get_run_outcome(status))
 
-            for model in existing_data:
-                if model not in updated_models:
-                    existing_data[model]["runs"].append("did-not-run")
+            # Only mark models as did-not-run if they have the same provider
+            for key in existing_data:
+                if key not in updated_models and ":" in key:  # Ensure we only process composite keys
+                    existing_data[key]["runs"].append("did-not-run")
 
             with open(self.current_status_file, "w") as f:
                 json.dump(existing_data, f, indent=2, cls=CustomJSONEncoder)
