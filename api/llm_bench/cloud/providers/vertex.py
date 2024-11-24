@@ -3,20 +3,35 @@ import os
 import time
 from datetime import datetime
 
+import openai
 import vertexai
 from anthropic import AnthropicVertex
+from google.auth import default
+from google.auth import transport
 from llm_bench.config import CloudConfig
 from vertexai.generative_models import GenerationConfig
 from vertexai.generative_models import GenerativeModel
 
 logger = logging.getLogger(__name__)
 
-
 PROJECT_ID = "llm-bench"
 REGION = "us-central1"
 SECONDARY_REGION = "us-east5"
+MAAS_ENDPOINT = f"{REGION}-aiplatform.googleapis.com"
 
 os.environ["GOOGLE_CLOUD_PROJECT"] = PROJECT_ID
+
+
+def _get_openai_client():
+    """Get an OpenAI client configured for Vertex AI."""
+    credentials, _ = default()
+    auth_request = transport.requests.Request()
+    credentials.refresh(auth_request)
+
+    return openai.OpenAI(
+        base_url=f"https://{MAAS_ENDPOINT}/v1beta1/projects/{PROJECT_ID}/locations/{REGION}/endpoints/openapi",
+        api_key=credentials.token,
+    )
 
 
 def generate(config: CloudConfig, run_config: dict) -> dict:
@@ -26,7 +41,19 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
 
     vertexai.init(project=PROJECT_ID)
 
-    if "claude" not in config.model_name.lower():
+    if "llama" in config.model_name.lower():
+        logger.debug("Using Vertex/OpenAI API for Llama model")
+        client = _get_openai_client()
+        time_0 = time.time()
+        stream = client.chat.completions.create(
+            model=config.model_name,
+            messages=[{"role": "user", "content": run_config["query"]}],
+            max_tokens=run_config["max_tokens"],
+            stream=True,
+        )
+        ttft, tbts, n_tokens = generate_tokens(stream, time_0, False, is_openai=True)
+        generate_time = time.time() - time_0
+    elif "claude" not in config.model_name.lower():
         logger.debug("Using Vertex/GenerativeModel")
         model = GenerativeModel(config.model_name)
         time_0 = time.time()
@@ -54,14 +81,14 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     return calculate_metrics(run_config, n_tokens, generate_time, ttft, tbts)
 
 
-def generate_tokens(stream, time_0, is_anthropic=False):
+def generate_tokens(stream, time_0, is_anthropic=False, is_openai=False):
     first_token_received = False
     previous_token_time = None
     time_to_first_token = None
     times_between_tokens = []
     token_count = 0
 
-    stream_iter = stream if is_anthropic else stream
+    stream_iter = stream if is_anthropic or is_openai else stream
 
     item = None
     for item in stream_iter:
@@ -73,10 +100,13 @@ def generate_tokens(stream, time_0, is_anthropic=False):
             assert previous_token_time is not None
             times_between_tokens.append(current_time - previous_token_time)
         previous_token_time = current_time
+
     assert item, "No tokens received"
 
     if is_anthropic:
         token_count = item.message.usage.output_tokens
+    elif is_openai:
+        token_count = item.usage.completion_tokens
     else:
         token_count = item._raw_response.usage_metadata.candidates_token_count
 
