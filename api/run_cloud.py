@@ -10,7 +10,6 @@ import json5 as json
 import typer
 from llm_bench.cloud.logging import Logger
 from llm_bench.types import BenchmarkRequest
-from tenacity import RetryError
 from tenacity import retry
 from tenacity import stop_after_attempt
 from tenacity import wait_exponential
@@ -34,6 +33,7 @@ TEMPERATURE = 0.1
 FASTAPI_PORT = os.environ.get("FASTAPI_PORT_CLOUD")
 assert FASTAPI_PORT, "FASTAPI_PORT environment variable not set"
 server_path = f"http://localhost:{FASTAPI_PORT}/benchmark"
+MAX_RETRIES = 3
 
 # Load provider models from JSON
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -48,29 +48,48 @@ async def post_benchmark(request: BenchmarkRequest):
     start_time = datetime.now()
 
     async with httpx.AsyncClient(timeout=timeout) as client:
-        logger.log_info(f"Sending request to {server_path}")
-        response = await client.post(server_path, json=request.model_dump())
-        response.raise_for_status()
+        try:
+            response = await client.post(server_path, json=request.model_dump())
+            response.raise_for_status()
+        except httpx.HTTPError as e:
+            error_msg = f"HTTP Error: {str(e)} (Status: {e.response.status_code if hasattr(e, 'response') else 'N/A'})"
+            if hasattr(e, "response"):
+                try:
+                    error_data = e.response.json()
+                    if error_data:
+                        error_msg += f" - {error_data}"
+                except Exception as e:
+                    pass
+            raise ValueError(error_msg)
 
     end_time = datetime.now()
     response_time = (end_time - start_time).total_seconds()
     response_data = response.json()
 
     if "error" in response_data or response_data.get("status") == "error":
-        error_message = response_data.get("message", "Unknown error")
-        logger.log_error(f"Error in response: {error_message}")
-        raise ValueError(error_message)
+        error_details = []
+        if response_data.get("reason"):
+            error_details.append(response_data["reason"])
+        if response_data.get("message"):
+            error_details.append(response_data["message"])
+        if response_data.get("error"):
+            error_details.append(str(response_data["error"]))
+        if response_data.get("metrics"):
+            error_details.append(f"metrics: {response_data['metrics']}")
+
+        error_msg = " | ".join(filter(None, error_details))
+        if not error_msg:
+            error_msg = f"Server returned error status with response: {response_data}"
+        raise ValueError(error_msg)
 
     return response_data, response_time
-
-
-# Wrap the post_benchmark function to handle final output
 
 
 async def benchmark_with_retries(request: BenchmarkRequest):
     retry_count = 0
     last_error = None
-    while retry_count < 3:
+
+    while retry_count < MAX_RETRIES:
         try:
             response_data, response_time = await post_benchmark(request)
             return {
@@ -79,17 +98,24 @@ async def benchmark_with_retries(request: BenchmarkRequest):
                 "response_time": response_time,
                 "retry_count": retry_count,
             }
-        except httpx.HTTPStatusError as e:
-            last_error = f"HTTP error: {e.response.status_code} - {e.response.text}"
-        except ValueError as e:
-            last_error = str(e)
         except Exception as e:
-            last_error = f"Unexpected error: {str(e)}"
+            retry_count += 1
+            # Get the actual error message, not just the RetryError wrapper
+            if hasattr(e, "last_attempt") and hasattr(e.last_attempt, "exception"):
+                last_error = str(e.last_attempt.exception())
+            else:
+                last_error = str(e)
 
-        logger.log_error(f"❌ Error {request.model}, error: {last_error}")
-        retry_count += 1
+            if retry_count >= MAX_RETRIES:
+                logger.log_error(f"❌ Error {request.model}: {last_error} (after {retry_count} attempts)")
+                break
+            else:
+                logger.log_info(
+                    f"Attempt {retry_count}/{MAX_RETRIES} failed for {request.model}: {last_error}, retrying..."
+                )
+                await asyncio.sleep(1)
 
-    return {"status": "error", "message": f"Max retries reached. Last error: {last_error}", "retry_count": retry_count}
+    return {"status": "error", "message": last_error, "retry_count": retry_count, "response_time": None, "data": None}
 
 
 async def benchmark_provider(provider, limit, run_always, debug):
@@ -107,25 +133,18 @@ async def benchmark_provider(provider, limit, run_always, debug):
             debug=debug,
         )
 
-        try:
-            response_data, response_time = await post_benchmark(request_config)
-            logger.log_info(f"✅ Success {model}, {response_data}")
-            status = "success"
-            error = None
-        except RetryError as e:
-            logger.log_error(f"❌ Error {model}, error: {e.last_attempt.exception()}")
-            status = "error"
-            error = str(e.last_attempt.exception())
-            response_data, response_time = None, 0
+        result = await benchmark_with_retries(request_config)
+        if result["status"] == "success":
+            logger.log_info(f"✅ Success {model}, {result['data']}")
 
         yield {
             "model": model,
-            "timestamp": datetime.now().isoformat(),
-            "request": {"provider": provider, "model": model, "max_tokens": MAX_TOKENS},
-            "status": status,
-            "response": response_data,
-            "error": error,
-            "response_time": response_time,
+            "provider": provider,
+            "status": result["status"],
+            "data": result["data"],
+            "response_time": result["response_time"],
+            "error": result.get("message"),
+            "retry_count": result["retry_count"],
         }
 
 
