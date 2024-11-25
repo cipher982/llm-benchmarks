@@ -90,26 +90,26 @@
         "cohere-cmd-r-plus"
     ],
     "fireworks": [
-        "accounts/fireworks/models/llama-v2-70b",
-        "accounts/fireworks/models/llama-v2-70b-chat",
         "accounts/fireworks/models/llama-v3-8b-instruct",
         "accounts/fireworks/models/llama-v3-8b-instruct-hf",
+        "accounts/fireworks/models/llama-v3-70b-instruct",
         "accounts/fireworks/models/llama-v3-70b-instruct-hf",
         "accounts/fireworks/models/llama-v3p1-8b-instruct",
         "accounts/fireworks/models/llama-v3p1-70b-instruct",
         "accounts/fireworks/models/llama-v3p1-405b-instruct",
+        "accounts/fireworks/models/llama-v3p2-1b-instruct",
         "accounts/fireworks/models/llama-v3p2-3b-instruct",
         "accounts/fireworks/models/llama-v3p2-11b-vision-instruct",
-        // "accounts/fireworks/models/llama-v3p2-90b-vision-instruct", // not available yet check later
-        "accounts/fireworks/models/mixtral-8x7b",
+        "accounts/fireworks/models/llama-v3p2-90b-vision-instruct",
         "accounts/fireworks/models/mixtral-8x7b-instruct",
+        "accounts/fireworks/models/mixtral-8x7b-instruct-hf",
         "accounts/fireworks/models/mixtral-8x22b-instruct",
-        "accounts/fireworks/models/dbrx-instruct",
-        "accounts/fireworks/models/gemma-7b-it",
-        "accounts/fireworks/models/qwen1p5-72b-chat",
-        "accounts/fireworks/models/qwen2-72b-instruct",
+        "accounts/fireworks/models/qwen2p5-72b-instruct",
+        "accounts/fireworks/models/qwen2p5-coder-32b-instruct",
+        "accounts/fireworks/models/starcoder-7b",
         "accounts/fireworks/models/starcoder-16b",
-        "accounts/fireworks/models/yi-large"
+        "accounts/fireworks/models/gemma2-9b-it",
+        "accounts/yi-01-ai/models/yi-large"
     ],
     "deepinfra": [
         "meta-llama/Llama-2-70b-chat-hf",
