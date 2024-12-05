@@ -56,17 +56,17 @@
         "claude-3-opus@20240229",
         "meta/llama-3.2-90b-vision-instruct-maas"
     ],
-    "anyscale": [
-        "meta-llama/Llama-2-7b-chat-hf",
-        "meta-llama/Llama-2-13b-chat-hf",
-        "meta-llama/Llama-2-70b-chat-hf",
-        "mistralai/Mistral-7B-Instruct-v0.1",
-        "mistralai/Mixtral-8x7B-Instruct-v0.1",
-        "mistralai/Mixtral-8x22B-Instruct-v0.1",
-        "google/gemma-7b-it",
-        "meta-llama/Meta-Llama-3-8B-Instruct",
-        "meta-llama/Meta-Llama-3-70B-Instruct"
-    ],
+    // "anyscale": [ # serverless has been deprecated
+    //     "meta-llama/Llama-2-7b-chat-hf",
+    //     "meta-llama/Llama-2-13b-chat-hf",
+    //     "meta-llama/Llama-2-70b-chat-hf",
+    //     "mistralai/Mistral-7B-Instruct-v0.1",
+    //     "mistralai/Mixtral-8x7B-Instruct-v0.1",
+    //     "mistralai/Mixtral-8x22B-Instruct-v0.1",
+    //     "google/gemma-7b-it",
+    //     "meta-llama/Meta-Llama-3-8B-Instruct",
+    //     "meta-llama/Meta-Llama-3-70B-Instruct"
+    // ],
     "together": [
         "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
         "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
