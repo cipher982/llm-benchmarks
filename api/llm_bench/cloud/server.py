@@ -45,6 +45,7 @@ PROVIDER_MODULES = {
     "deepinfra": "llm_bench.cloud.providers.deepinfra",
     "groq": "llm_bench.cloud.providers.groq",
     "databricks": "llm_bench.cloud.providers.databricks",
+    "lambda": "llm_bench.cloud.providers.lambda",
 }
 
 app = FastAPI(
