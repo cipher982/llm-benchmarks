@@ -29,7 +29,7 @@
         "meta.llama3-8b-instruct-v1:0",
         "meta.llama3-70b-instruct-v1:0",
         "meta.llama3-1-8b-instruct-v1:0",
-        "meta.llama3-1-70b-instruct-v1:0", // works (sometimes)
+        "meta.llama3-1-70b-instruct-v1:0",
         "meta.llama3-1-405b-instruct-v1:0",
         "us.meta.llama3-2-1b-instruct-v1:0",
         "us.meta.llama3-2-3b-instruct-v1:0",
@@ -56,17 +56,6 @@
         "claude-3-opus@20240229",
         "meta/llama-3.2-90b-vision-instruct-maas"
     ],
-    // "anyscale": [ # serverless has been deprecated
-    //     "meta-llama/Llama-2-7b-chat-hf",
-    //     "meta-llama/Llama-2-13b-chat-hf",
-    //     "meta-llama/Llama-2-70b-chat-hf",
-    //     "mistralai/Mistral-7B-Instruct-v0.1",
-    //     "mistralai/Mixtral-8x7B-Instruct-v0.1",
-    //     "mistralai/Mixtral-8x22B-Instruct-v0.1",
-    //     "google/gemma-7b-it",
-    //     "meta-llama/Meta-Llama-3-8B-Instruct",
-    //     "meta-llama/Meta-Llama-3-70B-Instruct"
-    // ],
     "together": [
         "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
         "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
@@ -112,7 +101,8 @@
         "accounts/fireworks/models/starcoder-7b",
         "accounts/fireworks/models/starcoder-16b",
         "accounts/fireworks/models/gemma2-9b-it",
-        "accounts/yi-01-ai/models/yi-large"
+        "accounts/yi-01-ai/models/yi-large",
+        "accounts/fireworks/models/deepseek-v3"
     ],
     "deepinfra": [
         "meta-llama/Llama-2-70b-chat-hf",
