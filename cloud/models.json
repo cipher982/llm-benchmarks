@@ -73,7 +73,8 @@
         "google/gemma-2-27b-it",
         "mistralai/Mistral-7B-Instruct-v0.3",
         "deepseek-ai/deepseek-llm-67b-chat",
-        "deepseek-ai/DeepSeek-V3"
+        "deepseek-ai/DeepSeek-V3",
+        "deepseek-ai/DeepSeek-R1"
     ],
     "azure": [
         "llama-2-7b-chat",
@@ -103,7 +104,8 @@
         "accounts/fireworks/models/starcoder-16b",
         "accounts/fireworks/models/gemma2-9b-it",
         "accounts/yi-01-ai/models/yi-large",
-        "accounts/fireworks/models/deepseek-v3"
+        "accounts/fireworks/models/deepseek-v3",
+        "accounts/fireworks/models/deepseek-r1"
     ],
     "deepinfra": [
         "meta-llama/Llama-2-70b-chat-hf",
@@ -122,7 +124,8 @@
         "mistralai/Mistral-7B-Instruct-v0.2",
         "databricks/dbrx-instruct",
         "bigcode/starcoder2-15b",
-        "Qwen/Qwen2.5-72B-Instruct"
+        "Qwen/Qwen2.5-72B-Instruct",
+        "deepseek-ai/DeepSeek-R1"
     ],
     "groq": [
         "llama3-8b-8192",
