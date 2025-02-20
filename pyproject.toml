@@ -1,18 +1,62 @@
-[tool.poetry]
+[project]
 name = "llm-benchmarks"
 version = "0.1.0"
 description = "Benchmarking local and cloud LLMs"
-authors = ["David Rose <david@drose.io>"]
-license = "MIT"
-package-mode = false
+authors = [
+    { name = "David Rose", email = "david@drose.io" }
+]
+requires-python = ">=3.11,<3.13"
+
+dependencies = [
+    "httpx>=0.27.0",
+    "typer>=0.12.3",
+    "tenacity>=9.0.0",
+    "python-dotenv>=1.0.1",
+    "json5>=0.9.25",
+    "fastapi>=0.110.2",
+    "uvicorn>=0.29.0",
+    "flask>=3.0.3",
+    "pymongo>=4.6.3",
+    "pynvml>=11.5.0",
+    "redis>=5.0.3",
+    "pytz>=2024.1",
+    "gunicorn>=23.0.0",
+    "filelock>=3.17.0",
+    "openai>=1.23.2",
+    "huggingface-hub>=0.29.0",
+    "boto3>=1.36.24",
+    "google-cloud-aiplatform>=1.81.0",
+    "openai>=1.63.2",
+    "tiktoken>=0.9.0",
+    "anthropic>=0.46.0",
+    "groq>=0.18.0",
+    "pre-commit>=3.7.0",
+    "ipykernel>=6.29.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["api"]
 
 [tool.ruff]
 line-length = 120
 
 [tool.ruff.lint]
-select = ["I", "E", "F"]
-ignore = []
+select = ["I", "E", "F", "Q000"]
 
 [tool.ruff.lint.isort]
 force-single-line = true
+
+[tool.ruff.lint.flake8-quotes]
+docstring-quotes = "double"
+inline-quotes = "double"
+multiline-quotes = "double"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
 
