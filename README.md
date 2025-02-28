@@ -2,6 +2,19 @@
 
 # LLM Benchmarks
 
+### 🌐 Live at: [llm-benchmarks.com](https://llm-benchmarks.com)
+[![Status](https://img.shields.io/uptimerobot/status/m797914664-fefc15fb1a5bba071a8a5c91)](https://stats.uptimerobot.com/m797914664-fefc15fb1a5bba071a8a5c91)
+[![Uptime](https://img.shields.io/uptimerobot/ratio/30/m797914664-fefc15fb1a5bba071a8a5c91)](https://stats.uptimerobot.com/m797914664-fefc15fb1a5bba071a8a5c91)
+
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Docker](https://img.shields.io/badge/docker-compose-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com/)
+[![MongoDB](https://img.shields.io/badge/MongoDB-4EA94B.svg?logo=mongodb&logoColor=white)](https://www.mongodb.com/)
+[![Redis](https://img.shields.io/badge/Redis-DC382D.svg?logo=redis&logoColor=white)](https://redis.io/)
+[![NVIDIA CUDA](https://img.shields.io/badge/NVIDIA-CUDA-76B900.svg?logo=nvidia&logoColor=white)](https://developer.nvidia.com/cuda-toolkit)
+[![vLLM](https://img.shields.io/badge/vLLM-Accelerated_Inference-orange.svg)](https://github.com/vllm-project/vllm)
+[![Hugging Face](https://img.shields.io/badge/🤗_Hugging_Face-Transformers-yellow.svg)](https://huggingface.co/docs/transformers/index)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A comprehensive framework for benchmarking LLM inference speeds across various models and frameworks.
 
 ## Overview
