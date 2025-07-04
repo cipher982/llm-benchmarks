@@ -9,6 +9,6 @@ services:
     volumes:
       - ../api/llm_bench:/app/llm_bench
       - ./logs/:/var/log
-      - /home/drose/.aws:/root/.aws
-      - /home/drose/.config/gcloud:/root/.config/gcloud
+      - ${HOME}/.aws:/root/.aws:ro
+      - ${HOME}/.config/gcloud:/root/.config/gcloud:ro
     network_mode: host

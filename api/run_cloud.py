@@ -35,11 +35,9 @@ assert FASTAPI_PORT, "FASTAPI_PORT environment variable not set"
 server_path = f"http://localhost:{FASTAPI_PORT}/benchmark"
 MAX_RETRIES = 3
 
-# Load provider models from JSON
-script_dir = os.path.dirname(os.path.abspath(__file__))
-json_file_path = os.path.join(script_dir, "../cloud/models.json")
-with open(json_file_path) as f:
-    provider_models = json.load(f)
+# Load provider models from database or JSON (with feature flag)
+from llm_bench.models_db import load_provider_models
+provider_models = load_provider_models()
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=5))
