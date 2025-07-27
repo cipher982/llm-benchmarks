@@ -9,7 +9,6 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![Docker](https://img.shields.io/badge/docker-compose-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com/)
 [![MongoDB](https://img.shields.io/badge/MongoDB-4EA94B.svg?logo=mongodb&logoColor=white)](https://www.mongodb.com/)
-[![Redis](https://img.shields.io/badge/Redis-DC382D.svg?logo=redis&logoColor=white)](https://redis.io/)
 [![NVIDIA CUDA](https://img.shields.io/badge/NVIDIA-CUDA-76B900.svg?logo=nvidia&logoColor=white)](https://developer.nvidia.com/cuda-toolkit)
 [![vLLM](https://img.shields.io/badge/vLLM-Accelerated_Inference-orange.svg)](https://github.com/vllm-project/vllm)
 [![Hugging Face](https://img.shields.io/badge/🤗_Hugging_Face-Transformers-yellow.svg)](https://huggingface.co/docs/transformers/index)
@@ -43,7 +42,6 @@ The system uses Docker with various frameworks (vLLM, Transformers, Text-Generat
 - NVIDIA GPU with CUDA support
 - Python 3.9+
 - MongoDB (optional, for result storage)
-- Redis (for task queuing)
 
 ### Setup
 
@@ -65,7 +63,6 @@ The system uses Docker with various frameworks (vLLM, Transformers, Text-Generat
    - Set `HF_HUB_CACHE` to your Hugging Face model cache directory
    - Configure MongoDB connection if using (`MONGODB_URI`, `MONGODB_DB`, etc.)
    - Set API keys for cloud providers if benchmarking them
-   - Configure Redis connection details
 
 ### Running Benchmarks
 

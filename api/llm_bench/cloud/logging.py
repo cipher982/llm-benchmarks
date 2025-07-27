@@ -1,12 +1,9 @@
 import json
 import logging
-from collections import defaultdict
 from datetime import datetime
 from typing import Any
 from typing import Dict
 from typing import List
-
-import redis
 
 
 class CustomJSONEncoder(json.JSONEncoder):
@@ -17,13 +14,8 @@ class CustomJSONEncoder(json.JSONEncoder):
 
 
 class Logger:
-    def __init__(self, logs_dir: str, redis_url: str, max_runs: int = 10):
-        if not redis_url:
-            raise ValueError("redis_url must be provided")
-        if not redis_url.startswith("redis://"):
-            raise ValueError("redis_url must start with 'redis://'")
-
-        self.redis_url = redis_url
+    def __init__(self, logs_dir: str, max_runs: int = 10):
+        self.logs_dir = logs_dir
         self.max_runs = max_runs  # Number of runs to keep in history
 
         self.logger = logging.getLogger(__name__)
@@ -47,62 +39,35 @@ class Logger:
         return status.get("status") == "success"
 
     def log_benchmark_status(self, model_status: List[Dict[str, Any]]) -> None:
+        """Log benchmark status. Redis has been removed - this now just logs to console."""
         try:
-            with redis.Redis.from_url(self.redis_url) as redis_client:
-                # Get current data from Redis
-                current_data = redis_client.get("cloud_log_status")
-                existing_data = defaultdict(lambda: {"runs": []}, json.loads(current_data) if current_data else {})
+            # Track which providers we're updating in this run
+            current_providers = {status.get("provider") for status in model_status if status.get("provider")}
+            self.log_info(f"Updating status for providers: {current_providers}")
 
-                # Track which providers we're updating in this run
-                current_providers = {status.get("provider") for status in model_status if status.get("provider")}
-                self.log_info(f"Updating status for providers: {current_providers}")
-
-                # Process new results
-                for status in model_status:
-                    try:
-                        # self.log_info(f"Processing status: {json.dumps(status, default=str)}")
-
-                        model = status["model"]
-                        provider = status.get("provider")
-                        if not provider:
-                            self.log_error(f"No provider found in status: {json.dumps(status, default=str)}")
-                            continue
-
-                        composite_key = f"{provider}:{model}"
-                        existing_data[composite_key].update(
-                            {
-                                "provider": provider,
-                                "model": model,
-                                "last_run_timestamp": status.get("timestamp", datetime.now().isoformat()),
-                            }
-                        )
-
-                        # Add new run to the end of the list
-                        existing_data[composite_key]["runs"].append(self.get_run_outcome(status))
-                        # If we exceed max_runs, remove oldest entries (from the beginning)
-                        if len(existing_data[composite_key]["runs"]) > self.max_runs:
-                            existing_data[composite_key]["runs"] = existing_data[composite_key]["runs"][
-                                -self.max_runs :
-                            ]
-
-                    except KeyError as e:
-                        self.log_error(f"KeyError processing status: {e}, Status: {json.dumps(status, default=str)}")
-                        continue
-                    except Exception as e:
-                        self.log_error(
-                            f"Error processing individual status: {str(e)}, Status: {json.dumps(status, default=str)}"
-                        )
+            # Process and log results
+            for status in model_status:
+                try:
+                    model = status["model"]
+                    provider = status.get("provider")
+                    if not provider:
+                        self.log_error(f"No provider found in status: {json.dumps(status, default=str)}")
                         continue
 
-                # Update Redis with new data
-                redis_client.set("cloud_log_status", json.dumps(existing_data, cls=CustomJSONEncoder))
-                self.log_info("Successfully updated api status to redis")
+                    outcome = self.get_run_outcome(status)
+                    outcome_str = "SUCCESS" if outcome else "FAILED"
+                    self.log_info(f"Benchmark {outcome_str}: {provider}:{model}")
 
-        except redis.ConnectionError as e:
-            self.log_error(f"Redis connection error: {str(e)}")
-        except redis.RedisError as e:
-            self.log_error(f"Redis error: {str(e)}")
-        except json.JSONDecodeError as e:
-            self.log_error(f"Error decoding Redis data: {str(e)}")
+                except KeyError as e:
+                    self.log_error(f"KeyError processing status: {e}, Status: {json.dumps(status, default=str)}")
+                    continue
+                except Exception as e:
+                    self.log_error(
+                        f"Error processing individual status: {str(e)}, Status: {json.dumps(status, default=str)}"
+                    )
+                    continue
+
+            self.log_info("Successfully logged benchmark status")
+
         except Exception as e:
             self.log_error(f"Unexpected error occurred: {str(e)}")

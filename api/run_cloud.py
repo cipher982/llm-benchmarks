@@ -13,17 +13,12 @@ from tenacity import retry
 from tenacity import stop_after_attempt
 from tenacity import wait_exponential
 
-dotenv.load_dotenv()
+dotenv.load_dotenv("../cloud/.env")
 
 
 # Initialize Logger
-redis_url = os.getenv("REDIS_URL")
-if not redis_url:
-    raise ValueError("REDIS_URL environment variable is not set")
-
 logger = Logger(
     logs_dir=os.getenv("LOGS_DIR", "./logs"),
-    redis_url=redis_url,
 )
 
 # Constants
@@ -31,7 +26,7 @@ QUERY_TEXT = "Tell a long and happy story about the history of the world."
 MAX_TOKENS = 64
 TEMPERATURE = 0.1
 FASTAPI_PORT = os.environ.get("FASTAPI_PORT_CLOUD")
-assert FASTAPI_PORT, "FASTAPI_PORT environment variable not set"
+assert FASTAPI_PORT, "FASTAPI_PORT_CLOUD environment variable not set"
 server_path = f"http://localhost:{FASTAPI_PORT}/benchmark"
 MAX_RETRIES = 3
 

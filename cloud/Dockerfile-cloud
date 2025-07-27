@@ -15,7 +15,7 @@ RUN apt-get update && \
         python3-pip
 
 # Install api stuff
-RUN pip3 install pymongo pynvml flask pytz fastapi uvicorn httpx typer redis gunicorn tenacity filelock huggingface_hub
+RUN pip3 install pymongo pynvml flask pytz fastapi uvicorn httpx typer gunicorn tenacity filelock huggingface_hub
 
 # Install cloud providers
 RUN pip3 install boto3 google-cloud-aiplatform openai tiktoken anthropic groq
