@@ -55,6 +55,12 @@ app = FastAPI(
 )
 
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for container monitoring"""
+    return {"status": "healthy", "service": "llm-benchmarking", "timestamp": datetime.now().isoformat()}
+
+
 @app.post("/benchmark", response_model=BenchmarkResponse)
 async def call_cloud(request: BenchmarkRequest):
     logger.info(f"Received benchmark request: Provider={request.provider}, Model={request.model}")

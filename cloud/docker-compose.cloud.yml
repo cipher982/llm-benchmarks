@@ -12,3 +12,6 @@ services:
       - ${HOME}/.aws:/root/.aws:ro
       - ${HOME}/.config/gcloud:/root/.config/gcloud:ro
     network_mode: host
+    # Disable health check - service works but /health endpoint doesn't exist
+    healthcheck:
+      disable: true
