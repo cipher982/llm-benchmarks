@@ -54,11 +54,3 @@ services:
       # Note: AWS and GCloud credentials will need to be handled via Coolify secrets/files
       # - /path/to/aws/credentials:/root/.aws:ro
       # - /path/to/gcloud/config:/root/.config/gcloud:ro
-    
-    restart: unless-stopped
-    
-    # Internal service - only needs to be accessible by run_cloud.py script
-    labels:
-      - "coolify.managed=true"
-      - "coolify.type=service"
-      - "coolify.name=llm-benchmarking-api"
