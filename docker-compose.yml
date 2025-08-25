@@ -1,0 +1,21 @@
+services:
+  llm-benchmarking-api:
+    build:
+      context: .
+      dockerfile: cloud/Dockerfile-cloud
+    
+    env_file:
+      - .env
+    
+    ports:
+      - "5004:5004"
+    
+    volumes:
+      - ./cloud/logs:/var/log
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5004/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
