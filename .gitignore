@@ -3,8 +3,8 @@ wandb/
 __pycache__/
 results/
 old/
-*.lock
 *.ipynb
 *.env
 logs/
 docs/
+
