@@ -41,4 +41,4 @@ HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
   CMD pgrep cron || exit 1
 
 # Start cron and tail the log file to keep container alive
-CMD ["sh", "-c", "cron && tail -f /var/log/cron.log"]
+CMD ["sh", "-c", "cron && touch /var/log/cron.log && tail -f /var/log/cron.log"]
