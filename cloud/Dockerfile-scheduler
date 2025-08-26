@@ -1,0 +1,44 @@
+# syntax=docker/dockerfile:1.6
+FROM python:3.11-slim
+
+# Environment
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH="/app/api:$PYTHONPATH"
+
+# System deps (curl for healthcheck, git for vcs installs if ever needed, cron for scheduling)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl git cron \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv (fast Python package manager)
+ENV UV_INSTALL_DIR=/root/.local/bin
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    ln -s /root/.local/bin/uv /usr/local/bin/uv
+
+WORKDIR /app
+
+# Leverage layer caching: copy only dependency manifests first
+COPY pyproject.toml ./
+COPY uv.lock ./
+COPY api /app/api
+
+# Create project venv and install dependencies (lockfile is mandatory)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --no-dev --frozen
+
+# Ensure venv binaries are first on PATH
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Add crontab entry to run benchmarks every 30 minutes
+RUN echo "*/30 * * * * cd /app && /app/.venv/bin/python api/run_cloud.py --providers all --run-always >> /var/log/cron.log 2>&1" | crontab -
+
+# Create log file for cron output
+RUN touch /var/log/cron.log
+
+# Health check - verify cron is running
+HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
+  CMD pgrep cron || exit 1
+
+# Start cron and tail the log file to keep container alive
+CMD ["sh", "-c", "cron && tail -f /var/log/cron.log"]

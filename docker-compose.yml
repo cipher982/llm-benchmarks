@@ -16,3 +16,17 @@ services:
       timeout: 10s
       start_period: 30s
       retries: 3
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: cloud/Dockerfile-scheduler
+    
+    depends_on:
+      - llm-benchmarking-api
+    
+    env_file:
+      - .env
+    
+    volumes:
+      - ./cloud/logs:/var/log
