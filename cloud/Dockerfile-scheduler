@@ -31,4 +31,4 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Default CMD - can be overridden by docker-compose. Logs go to stdout.
-CMD ["sh", "-c", "while true; do cd /app && python api/run_cloud.py --providers all --run-always; sleep 1800; done"]
+CMD ["sh", "-c", "while true; do cd /app && python api/bench_headless.py --providers all --fresh-minutes ${FRESH_MINUTES:-30}; sleep ${SLEEP_SECONDS:-1800}; done"]

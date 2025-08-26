@@ -98,28 +98,30 @@ The system uses Docker with various frameworks (vLLM, Transformers, Text-Generat
 
 #### Cloud Benchmarks
 
-1. Start the cloud benchmark container:
+There is no HTTP API required for scheduled runs. A headless scheduler runs providers in-process and writes results directly to MongoDB.
+
+1. Start the scheduler container (from repo root):
    ```bash
-   cd cloud
-   docker compose -f docker-compose.cloud.yml up --build
+   DOCKER_BUILDKIT=1 docker compose up --build
    ```
 
-2. Run benchmarks for cloud providers:
+   - Configure frequency via env vars in `.env`:
+     - `FRESH_MINUTES` (default 30): skip models with a run newer than this window
+     - `SLEEP_SECONDS` (default 1800): sleep between cycles
+
+2. Optional: run a one-off benchmark locally without Docker:
    ```bash
-   python api/run_cloud.py --providers openai
+   python api/bench_headless.py --providers openai --limit 5 --fresh-minutes 30
    # Or run all configured providers
-   python api/run_cloud.py --providers all
+   python api/bench_headless.py --providers all
    ```
 
 ## Viewing Results
 
-Results can be viewed in several ways:
+Results can be viewed in two ways:
 
 1. **Dashboard**: Visit [llm-benchmarks.com](https://llm-benchmarks.com) to see the latest benchmark results
-2. **Log Files**: Check the `logs/` directory for:
-   - `benchmarks_local.log` and `benchmarks_cloud.log`: Text logs with detailed metrics
-   - `benchmarks_local.json` and `benchmarks_cloud.json`: JSON-formatted logs
-3. **MongoDB**: If configured, results are stored in MongoDB collections
+2. **MongoDB**: Cloud results are stored in `MONGODB_COLLECTION_CLOUD`; errors in `MONGODB_COLLECTION_ERRORS`
 
 ## Benchmark Results
 

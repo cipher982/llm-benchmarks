@@ -256,3 +256,32 @@ def has_existing_run(model_name: str, model_config: Union[CloudConfig, ModelConf
         logger.info("Model not benchmarked.")
         client.close()
         return False
+
+
+def has_recent_cloud_run(model_name: str, provider: str, since_utc: datetime) -> bool:
+    """Return True if there is a cloud run for (provider, model_name) with gen_ts >= since_utc.
+
+    Expects MONGODB_* envs to be set and collection to contain cloud metrics as inserted by log_mongo().
+    """
+    uri = os.getenv("MONGODB_URI")
+    db_name = os.getenv("MONGODB_DB")
+    coll = os.getenv("MONGODB_COLLECTION_CLOUD")
+    if not uri or not db_name or not coll:
+        return False
+
+    client = MongoClient(uri)
+    try:
+        collection = client[db_name][coll]
+        doc = collection.find_one(
+            {
+                "provider": provider,
+                "model_name": model_name,
+                "gen_ts": {"$gte": since_utc},
+            },
+            projection={"_id": 1},
+        )
+        return doc is not None
+    except Exception:
+        return False
+    finally:
+        client.close()

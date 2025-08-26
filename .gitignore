@@ -5,6 +5,9 @@ results/
 old/
 *.ipynb
 *.env
+*.env.*
+Makefile
+TESTING_SETUP.md
+.env.staging
 logs/
 docs/
-
