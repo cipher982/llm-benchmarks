@@ -27,7 +27,8 @@ MAX_TOKENS = 64
 TEMPERATURE = 0.1
 FASTAPI_PORT = os.environ.get("FASTAPI_PORT_CLOUD")
 assert FASTAPI_PORT, "FASTAPI_PORT_CLOUD environment variable not set"
-server_path = f"http://localhost:{FASTAPI_PORT}/benchmark"
+FASTAPI_HOST = os.environ.get("FASTAPI_HOST_CLOUD", "localhost")
+server_path = f"http://{FASTAPI_HOST}:{FASTAPI_PORT}/benchmark"
 MAX_RETRIES = 3
 
 # Load provider models from database or JSON (with feature flag)
