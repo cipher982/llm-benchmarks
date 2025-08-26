@@ -30,3 +30,5 @@ services:
     
     volumes:
       - ./cloud/logs:/var/log
+    
+    command: sh -c "while true; do cd /app && python api/run_cloud.py --providers all --run-always >> /var/log/benchmark.log 2>&1; sleep 1800; done"
