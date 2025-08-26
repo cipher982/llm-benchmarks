@@ -37,21 +37,7 @@ def get_models_from_database() -> Dict[str, List[str]]:
 
 def load_provider_models() -> Dict[str, List[str]]:
     """
-    Load models from database OR JSON file (feature flag controlled).
+    Load models from database.
     This is the only function the benchmarking service needs to call.
     """
-    use_database = os.getenv("USE_DATABASE_MODELS", "false").lower() == "true"
-    
-    if use_database:
-        try:
-            return get_models_from_database()
-        except Exception:
-            # If database fails, fall back to JSON file
-            pass
-    
-    # Load from JSON file (default behavior or fallback)
-    import json5 as json
-    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    json_file_path = os.path.join(script_dir, "../cloud/models.json")
-    with open(json_file_path) as f:
-        return json.load(f)
+    return get_models_from_database()
