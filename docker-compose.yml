@@ -3,13 +3,10 @@ services:
     build:
       context: .
       dockerfile: cloud/Dockerfile-cloud
-    
     env_file:
       - .env
-    
     volumes:
       - ./cloud/logs:/var/log
-    
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5004/health"]
       interval: 30s
@@ -21,14 +18,9 @@ services:
     build:
       context: .
       dockerfile: cloud/Dockerfile-scheduler
-    
     depends_on:
       - llm-benchmarking-api
-    
     env_file:
       - .env
-    
-    volumes:
-      - ./cloud/logs:/var/log
-    
-    command: sh -c "while true; do cd /app && python api/run_cloud.py --providers all --run-always >> /var/log/benchmark.log 2>&1; sleep 1800; done"
+    # Emit logs to stdout/stderr (captured by Docker), no volume mount
+    command: sh -c "while true; do cd /app && python api/run_cloud.py --providers all --run-always; sleep 1800; done"

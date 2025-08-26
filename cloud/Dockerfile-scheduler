@@ -30,12 +30,5 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Ensure venv binaries are first on PATH
 ENV PATH="/app/.venv/bin:$PATH"
 
-# Create log file for benchmark output
-RUN touch /var/log/benchmark.log
-
-# Health check - verify log file exists and is being written to
-HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
-  CMD test -f /var/log/benchmark.log || exit 1
-
-# Default CMD - can be overridden by docker-compose
-CMD ["sh", "-c", "while true; do cd /app && python api/run_cloud.py --providers all --run-always >> /var/log/benchmark.log 2>&1; sleep 1800; done"]
+# Default CMD - can be overridden by docker-compose. Logs go to stdout.
+CMD ["sh", "-c", "while true; do cd /app && python api/run_cloud.py --providers all --run-always; sleep 1800; done"]
