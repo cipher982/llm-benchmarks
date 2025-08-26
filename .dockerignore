@@ -1,0 +1,33 @@
+# Ignore VCS and local dev files
+.git
+.gitignore
+.env
+__pycache__
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.venv
+venv
+env
+
+# Python build artifacts
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+dist/
+build/
+
+# IDE/editor
+.vscode
+.idea
+
+# Data and caches
+*.log
+.cache
+/data
+
+# Node/npm if any UI appears later
+node_modules
+
