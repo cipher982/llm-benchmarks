@@ -11,3 +11,4 @@ TESTING_SETUP.md
 .env.staging
 logs/
 docs/
+scratch/
