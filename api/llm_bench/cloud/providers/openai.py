@@ -9,81 +9,105 @@ from openai import OpenAI
 logger = logging.getLogger(__name__)
 
 
-NON_CHAT_MODELS = ["gpt-3.5-turbo-instruct"]
+# Legacy instruct models use completions endpoint
+NON_CHAT_MODELS = ["gpt-3.5-turbo-instruct", "gpt-3.5-turbo-instruct-0914"]
 
 
-def process_non_chat_model(client, config, run_config):
-    return (
-        client.completions.create(
-            model=config.model_name,
-            prompt=run_config["query"],
-            max_tokens=run_config["max_tokens"],
-            stream=True,
-        ),
-        "text",
-    )
-
-
-def process_chat_model(client, config, run_config):
-    return (
-        client.chat.completions.create(
-            model=config.model_name,
-            messages=[{"role": "user", "content": run_config["query"]}],
-            max_tokens=run_config["max_tokens"],
-            stream=True,
-        ),
-        "choices",
-    )
+def _make_chat_request(client: OpenAI, config: CloudConfig, run_config: dict, use_max_tokens: bool = True):
+    """Make chat completions request with appropriate token parameter."""
+    request_params = {
+        "model": config.model_name,
+        "messages": [{"role": "user", "content": run_config["query"]}],
+        "stream": True,
+    }
+    
+    if use_max_tokens:
+        request_params["max_tokens"] = run_config["max_tokens"]
+    else:
+        request_params["max_completion_tokens"] = run_config["max_tokens"]
+    
+    return client.chat.completions.create(**request_params)
 
 
 def generate(config: CloudConfig, run_config: dict) -> dict:
-    """Run OpenAI inference and return metrics."""
-
+    """Run OpenAI inference using Chat Completions API with automatic parameter detection."""
+    
     assert config.provider == "openai", "provider must be openai"
     assert "query" in run_config, "query must be in run_config"
     assert "max_tokens" in run_config, "max_tokens must be in run_config"
 
-    # Set up connection
     client = OpenAI()
-
-    # Generate
+    
     time_0 = time.time()
     first_token_received = False
     previous_token_time = None
-    output_chunks = 0
     times_between_tokens = []
     time_to_first_token = 0
     response_str = ""
 
-    process_func = process_non_chat_model if config.model_name in NON_CHAT_MODELS else process_chat_model
-    stream, response_key = process_func(client, config, run_config)
-
-    for chunk in stream:
-        if config.model_name in NON_CHAT_MODELS:
-            response = chunk.choices[0]
-            response_content = getattr(response, response_key)
-        else:
-            response = chunk.choices[0].delta  # type: ignore
-            response_content = response.content if response is not None else None
-
-        if response_content is not None:
-            current_time = time.time()
-            if not first_token_received:
-                time_to_first_token = current_time - time_0
-                first_token_received = True
+    # Handle legacy instruct models
+    if config.model_name in NON_CHAT_MODELS:
+        stream = client.completions.create(
+            model=config.model_name,
+            prompt=run_config["query"],
+            max_tokens=run_config["max_tokens"],
+            stream=True,
+        )
+        
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].text:
+                current_time = time.time()
+                content = chunk.choices[0].text
+                
+                if not first_token_received:
+                    time_to_first_token = current_time - time_0
+                    first_token_received = True
+                else:
+                    if previous_token_time is not None:
+                        times_between_tokens.append(current_time - previous_token_time)
+                
+                previous_token_time = current_time
+                response_str += content
+    else:
+        # Handle chat models with automatic parameter detection
+        try:
+            # Try max_tokens first (works for most models)
+            stream = _make_chat_request(client, config, run_config, use_max_tokens=True)
+        except Exception as e:
+            if "max_completion_tokens" in str(e):
+                # Model requires max_completion_tokens, retry with correct parameter
+                stream = _make_chat_request(client, config, run_config, use_max_tokens=False)
             else:
-                assert previous_token_time is not None
-                times_between_tokens.append(current_time - previous_token_time)
-            previous_token_time = current_time
-            response_str += response_content
-            output_chunks += 1
+                # Different error, re-raise
+                raise e
+        
+        for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                current_time = time.time()
+                content = chunk.choices[0].delta.content
+                
+                if not first_token_received:
+                    time_to_first_token = current_time - time_0
+                    first_token_received = True
+                else:
+                    if previous_token_time is not None:
+                        times_between_tokens.append(current_time - previous_token_time)
+                
+                previous_token_time = current_time
+                response_str += content
 
     time_1 = time.time()
     generate_time = time_1 - time_0
 
     # Calculate tokens
-    encoder = tiktoken.encoding_for_model(config.model_name)
-    output_tokens = len(encoder.encode(response_str))
+    try:
+        encoder = tiktoken.encoding_for_model(config.model_name)
+        output_tokens = len(encoder.encode(response_str))
+    except KeyError:
+        # Fallback for models without tiktoken support
+        logger.warning(f"No tiktoken encoder for {config.model_name}, using word count approximation")
+        output_tokens = int(len(response_str.split()) * 1.3)
+    
     tokens_per_second = output_tokens / generate_time if generate_time > 0 else 0
 
     metrics = {
