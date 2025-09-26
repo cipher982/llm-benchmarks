@@ -1,5 +1,5 @@
-services:
-  llm-benchmarking-api:
+  services:
+    llm-benchmarking-api-service:
     ports:
       - "5004:5004"
 

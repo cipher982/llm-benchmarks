@@ -1,5 +1,5 @@
 services:
-  scheduler:
+  llm-bench-api-service:
     build:
       context: .
       dockerfile: cloud/Dockerfile-scheduler
