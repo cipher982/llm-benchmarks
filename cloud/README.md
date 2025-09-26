@@ -1,5 +1,5 @@
 # How to Run
-1. Create an `.env` file from `.env.example` and fill in MongoDB and provider API keys.
+1. Create an `.env` file from `.env.example` and fill in MongoDB and provider API keys (including `CEREBRAS_API_KEY` if you plan to benchmark Cerebras).
 2. From the repo root, run `DOCKER_BUILDKIT=1 docker compose up --build` to start the headless scheduler (no HTTP API).
 
 ## Development

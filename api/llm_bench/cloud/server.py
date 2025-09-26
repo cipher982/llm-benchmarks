@@ -46,6 +46,7 @@ PROVIDER_MODULES = {
     "groq": "llm_bench.cloud.providers.groq",
     "databricks": "llm_bench.cloud.providers.databricks",
     "lambda": "llm_bench.cloud.providers.lambda",
+    "cerebras": "llm_bench.cloud.providers.cerebras",
 }
 
 app = FastAPI(

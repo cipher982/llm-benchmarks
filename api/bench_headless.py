@@ -1,6 +1,6 @@
 import os
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
 import dotenv
@@ -38,6 +38,7 @@ PROVIDER_MODULES: Dict[str, str] = {
     "groq": "llm_bench.cloud.providers.groq",
     "databricks": "llm_bench.cloud.providers.databricks",
     "lambda": "llm_bench.cloud.providers.lambda",
+    "cerebras": "llm_bench.cloud.providers.cerebras",
 }
 
 
@@ -82,7 +83,7 @@ def _log_error_mongo(provider: str, model: str, stage: str, message: str, tb: Op
             doc = {
                 "provider": provider,
                 "model_name": model,
-                "ts": datetime.utcnow(),
+                "ts": datetime.now(timezone.utc),
                 "stage": stage,
                 "message": message,
             }
@@ -125,7 +126,7 @@ def _claim_next_job() -> Optional[Dict]:
         jobs = client[db][coll_name]
         job = jobs.find_one_and_update(
             {"status": "pending"},
-            {"$set": {"status": "running", "started_at": datetime.utcnow()}},
+            {"$set": {"status": "running", "started_at": datetime.now(timezone.utc)}},
             sort=[("created_at", 1)],
             return_document=ReturnDocument.AFTER,
         )
@@ -141,7 +142,7 @@ def _complete_job(job_id) -> None:
     uri, db = _mongo()
     client = MongoClient(uri)
     try:
-        client[db][coll_name].update_one({"_id": job_id}, {"$set": {"status": "done", "finished_at": datetime.utcnow()}})
+        client[db][coll_name].update_one({"_id": job_id}, {"$set": {"status": "done", "finished_at": datetime.now(timezone.utc)}})
     finally:
         client.close()
 
@@ -155,7 +156,7 @@ def _fail_job(job_id, message: str) -> None:
     try:
         client[db][coll_name].update_one(
             {"_id": job_id},
-            {"$set": {"status": "error", "error": message, "finished_at": datetime.utcnow()}},
+            {"$set": {"status": "error", "error": message, "finished_at": datetime.now(timezone.utc)}}
         )
     finally:
         client.close()
@@ -203,7 +204,7 @@ def _run_single_model(
 
     # Skip based on freshness window using Mongo metrics
     if not run_always and fresh_minutes > 0:
-        since = datetime.utcnow() - timedelta(minutes=fresh_minutes)
+        since = datetime.now(timezone.utc) - timedelta(minutes=fresh_minutes)
         if has_recent_cloud_run(model_name=model, provider=provider, since_utc=since):
             print(f"⏭️ Skipped {provider}:{model} (fresh < {fresh_minutes}m)")
             return {"status": "skipped", "reason": f"fresh < {fresh_minutes}m"}

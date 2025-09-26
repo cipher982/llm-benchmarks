@@ -62,7 +62,7 @@ The system uses Docker with various frameworks (vLLM, Transformers, Text-Generat
 3. Edit the `.env` files with your configuration:
    - Set `HF_HUB_CACHE` to your Hugging Face model cache directory
    - Configure MongoDB connection if using (`MONGODB_URI`, `MONGODB_DB`, etc.)
-   - Set API keys for cloud providers if benchmarking them
+   - Set API keys for cloud providers if benchmarking them (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `CEREBRAS_API_KEY`, etc.)
 
 ### Running Benchmarks
 
@@ -114,6 +114,8 @@ There is no HTTP API required for scheduled runs. A headless scheduler runs prov
    python api/bench_headless.py --providers openai --limit 5 --fresh-minutes 30
    # Or run all configured providers
    python api/bench_headless.py --providers all
+   # Run only Cerebras once you have set CEREBRAS_API_KEY
+   python api/bench_headless.py --providers cerebras --limit 5
    ```
 
 ## Viewing Results
@@ -122,6 +124,10 @@ Results can be viewed in two ways:
 
 1. **Dashboard**: Visit [llm-benchmarks.com](https://llm-benchmarks.com) to see the latest benchmark results
 2. **MongoDB**: Cloud results are stored in `MONGODB_COLLECTION_CLOUD`; errors in `MONGODB_COLLECTION_ERRORS`
+
+### Do self-hosted benchmarks upload to llm-benchmarks.com?
+
+No. When you run the project locally (as of September 26, 2025) the scheduler only writes to the MongoDB instance configured in your `.env`. The public site uses a separate, access-controlled database; your runs will appear there only if you intentionally point `MONGODB_URI` at that shared database and have credentials to write to it. This keeps local experiments private by default.
 
 ## Benchmark Results
 
