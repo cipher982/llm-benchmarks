@@ -1,6 +1,9 @@
 # How to Run
-1. Create an `.env` file from `.env.example` and fill in MongoDB and provider API keys (including `CEREBRAS_API_KEY` if you plan to benchmark Cerebras).
+1. Configure the root `.env` file with MongoDB connection and provider API keys.
 2. From the repo root, run `DOCKER_BUILDKIT=1 docker compose up --build` to start the headless scheduler (no HTTP API).
+
+## Adding Models
+To add new cloud provider models, use `../manage-models.sh` from the parent directory. Models are loaded dynamically from MongoDB.
 
 ## Development
 Use the root compose as needed; no separate dev compose is provided.

@@ -1,5 +1,7 @@
 Scripts to help prepare MongoDB for the headless scheduler.
 
+**Note:** For adding models to production, use `../manage-models.sh` from the parent directory. These scripts are for staging/testing or emergency operations.
+
 Prereqs
 - Install `mongosh` on your machine.
 - Set env vars pointing to your staging DB/collections.
@@ -19,7 +21,7 @@ Create indexes
 2) Or with the script (uses env var names):
    MONGODB_COLLECTION_CLOUD=metrics_cloud_staging mongosh "$MONGODB_URI/$MONGODB_DB" scripts/mongo_indexes.js
 
-Seed a model
+Seed a model (staging/testing only - use `../manage-models.sh` for production)
 - Example (enable an OpenAI model):
   PROVIDER=openai MODEL_ID=gpt-4o-mini mongosh "$MONGODB_URI/$MONGODB_DB" scripts/seed_model.js
 

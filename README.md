@@ -53,16 +53,14 @@ The system uses Docker with various frameworks (vLLM, Transformers, Text-Generat
 
 2. Set up environment variables:
    ```bash
-   # For local benchmarks
-   cp local/.env.example local/.env
-   # For cloud benchmarks
-   cp cloud/.env.example cloud/.env
+   # Copy and edit .env file
+   cp .env.example .env
    ```
 
-3. Edit the `.env` files with your configuration:
+3. Edit the `.env` file with your configuration:
    - Set `HF_HUB_CACHE` to your Hugging Face model cache directory
-   - Configure MongoDB connection if using (`MONGODB_URI`, `MONGODB_DB`, etc.)
-   - Set API keys for cloud providers if benchmarking them (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `CEREBRAS_API_KEY`, etc.)
+   - Configure MongoDB connection (`MONGODB_URI`, `MONGODB_DB`, `MONGODB_COLLECTION_CLOUD`, etc.)
+   - Set API keys for cloud providers (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `CEREBRAS_API_KEY`, etc.)
 
 ### Running Benchmarks
 
@@ -161,6 +159,10 @@ Benchmarks have been run on various GPUs including:
 - NVIDIA H100
 
 The H100 consistently delivers the fastest performance but at a higher cost (~$2.40/hour). Surprisingly, the A10 performed below expectations despite its higher tensor core count, possibly due to memory bandwidth limitations.
+
+## Managing Models
+
+Models are stored in MongoDB and loaded dynamically by the scheduler. To add new models to the system, use the model management tools in the parent directory (`../manage-models.sh`).
 
 ## Contributing
 
