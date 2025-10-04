@@ -5,5 +5,15 @@ services:
       dockerfile: cloud/Dockerfile-scheduler
     env_file:
       - .env
+    environment:
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/gcp-key.json
+      - MONGODB_URI=${MONGODB_URI}
+      - MONGODB_DB=${MONGODB_DB:-llm-bench}
+      - MONGODB_COLLECTION_CLOUD=${MONGODB_COLLECTION_CLOUD:-metrics_cloud_v2}
+      - MONGODB_COLLECTION_ERRORS=${MONGODB_COLLECTION_ERRORS:-errors_cloud}
+      - MONGODB_COLLECTION_MODELS=${MONGODB_COLLECTION_MODELS:-models}
+      - MONGODB_COLLECTION_JOBS=${MONGODB_COLLECTION_JOBS:-jobs}
+    volumes:
+      - /home/drose/bench-sa-key.json:/app/gcp-key.json:ro
     # Emit logs to stdout/stderr (captured by Docker), no volume mount
     command: sh -c "while true; do cd /app && python api/bench_headless.py --providers all --fresh-minutes ${FRESH_MINUTES:-30}; sleep ${SLEEP_SECONDS:-1800}; done"

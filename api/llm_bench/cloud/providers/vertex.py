@@ -66,8 +66,15 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         generate_time = time.time() - time_0
     else:
         logger.debug("Using Vertex/AnthropicVertex")
-        keywords = ["opus", "3-5"]
-        region = SECONDARY_REGION if any(keyword in config.model_name.lower() for keyword in keywords) else REGION
+        # Use global endpoint for Claude 4/4.5 models (newer models only available globally)
+        # Use us-east5 for opus/3-5 models, us-central1 for everything else
+        model_lower = config.model_name.lower()
+        if any(keyword in model_lower for keyword in ["claude-4", "sonnet-4", "opus-4"]):
+            region = "global"  # Claude 4.x models use global endpoint
+        elif any(keyword in model_lower for keyword in ["opus", "3-5"]):
+            region = SECONDARY_REGION  # us-east5
+        else:
+            region = REGION  # us-central1
         client = AnthropicVertex(region=region, project_id=PROJECT_ID)
         time_0 = time.time()
         with client.messages.stream(
