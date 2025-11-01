@@ -5,6 +5,7 @@ from datetime import datetime
 
 from groq import Groq
 from llm_bench.config import CloudConfig
+from llm_bench.utils import get_current_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     tokens_per_second = output_tokens / generate_time if generate_time > 0 else 0
 
     metrics = {
-        "gen_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "gen_ts": get_current_timestamp(),
         "requested_tokens": run_config["max_tokens"],
         "output_tokens": output_tokens,
         "generate_time": generate_time,

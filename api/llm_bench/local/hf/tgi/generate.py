@@ -8,6 +8,7 @@ from huggingface_hub import InferenceClient
 from llm_bench.config import ModelConfig
 from llm_bench.local.hf.tgi import DockerContainer
 from llm_bench.utils import get_vram_usage
+from llm_bench.utils import get_current_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ def generate(config: ModelConfig, run_config: dict):
             output_tokens = len(response.details.tokens) if response.details is not None else 0
             vram_usage = get_vram_usage(int(GPU_DEVICE))
             metrics = {
-                "gen_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "gen_ts": get_current_timestamp(),
                 "requested_tokens": [run_config["max_tokens"]],
                 "output_tokens": [output_tokens],
                 "gpu_mem_usage": [vram_usage],

@@ -7,6 +7,7 @@ from typing import Dict
 from typing import Tuple
 
 from llm_bench.config import CloudConfig
+from llm_bench.utils import get_current_timestamp
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ def process_stream_response(stream, start_time: float, max_tokens: int) -> Tuple
         raise ValueError(f"Received {output_tokens} tokens, expected around {max_tokens}")
 
     metrics = {
-        "gen_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "gen_ts": get_current_timestamp(),
         "output_tokens": output_tokens,
         "generate_time": time.time() - start_time,
         "tokens_per_second": output_tokens / (time.time() - start_time),

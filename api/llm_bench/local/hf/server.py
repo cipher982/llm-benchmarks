@@ -62,7 +62,7 @@ def call_huggingface() -> Union[Response, Tuple[Response, int]]:
         model_config = ModelConfig(
             framework=framework,
             model_name=model_name,
-            run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            run_ts=get_current_timestamp(),
             model_dtype="torch.float16",
             quantization_method=quant_method,
             quantization_bits=quant_bits,
@@ -108,6 +108,7 @@ def call_huggingface() -> Union[Response, Tuple[Response, int]]:
             from llm_bench.local.hf.transformers import generate
         elif framework == "hf-tgi":
             from llm_bench.local.hf.tgi import generate
+from llm_bench.utils import get_current_timestamp
         else:
             raise ValueError(f"Unknown framework: {framework}")
 

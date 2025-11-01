@@ -20,6 +20,13 @@ from llm_bench.config import MongoConfig
 
 logger = logging.getLogger(__name__)
 
+_TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def get_current_timestamp() -> str:
+    """Return current timestamp in standard format."""
+    return datetime.now().strftime(_TIMESTAMP_FORMAT)
+
 
 def fetch_hf_models(fetch_new: bool, cache_dir: str, library: str, created_days_ago: int) -> list[str]:
     if fetch_new:

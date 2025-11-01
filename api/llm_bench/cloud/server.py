@@ -10,6 +10,7 @@ from llm_bench.logging import log_metrics
 from llm_bench.types import BenchmarkRequest
 from llm_bench.types import BenchmarkResponse
 from llm_bench.utils import has_existing_run
+from llm_bench.utils import get_current_timestamp
 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 LOG_DIR = os.environ.get("LOG_DIR", "/var/log")
@@ -85,7 +86,7 @@ async def call_cloud(request: BenchmarkRequest):
 
     logger.info(f"Received request for model: {model_name}")
 
-    run_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    run_ts = get_current_timestamp()
 
     # Create model config
     model_config = CloudConfig(

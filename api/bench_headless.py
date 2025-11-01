@@ -11,6 +11,7 @@ from llm_bench.config import CloudConfig
 from llm_bench.logging import log_mongo
 from llm_bench.models_db import load_provider_models
 from llm_bench.utils import has_recent_cloud_run
+from llm_bench.utils import get_current_timestamp
 
 
 app = typer.Typer(add_completion=False)
@@ -188,7 +189,7 @@ def _run_single_model(
     debug: bool,
 ) -> Dict[str, Optional[str]]:
     # Build configs
-    run_ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    run_ts = get_current_timestamp()
     model_config = CloudConfig(
         provider=provider,
         model_name=model,

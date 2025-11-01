@@ -9,6 +9,7 @@ from anthropic import AnthropicVertex
 from google.auth import default
 from google.auth import transport
 from llm_bench.config import CloudConfig
+from llm_bench.utils import get_current_timestamp
 from vertexai.generative_models import GenerationConfig
 from vertexai.generative_models import GenerativeModel
 
@@ -124,7 +125,7 @@ def calculate_metrics(run_config, output_tokens, generate_time, time_to_first_to
     tokens_per_second = output_tokens / generate_time if generate_time > 0 else 0
 
     return {
-        "gen_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "gen_ts": get_current_timestamp(),
         "requested_tokens": run_config["max_tokens"],
         "output_tokens": output_tokens,
         "generate_time": generate_time,

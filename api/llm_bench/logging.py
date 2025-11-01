@@ -16,6 +16,7 @@ from pymongo.collection import Collection
 
 from llm_bench.config import CloudConfig
 from llm_bench.config import ModelConfig
+from llm_bench.utils import get_current_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ def insert_into_benchmark_metrics(data: dict, collection: Collection) -> None:
 def log_json(model_type: str, config: Union[ModelConfig, CloudConfig], metrics: Dict[str, Any], file_path: str) -> None:
     """Logs the metrics to a JSON file for a model run."""
     log_entry = {
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "timestamp": get_current_timestamp(),
         "model_type": model_type,
         "model_name": config.model_name,
         "temperature": config.temperature,

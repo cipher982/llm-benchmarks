@@ -16,6 +16,7 @@ from llm_bench.config import ModelConfig
 from llm_bench.config import MongoConfig
 from llm_bench.logging import log_metrics
 from llm_bench.utils import has_existing_run
+from llm_bench.utils import get_current_timestamp
 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 LOG_DIR = os.environ.get("LOG_DIR", "/var/log")
@@ -62,7 +63,7 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
         model_config = ModelConfig(
             framework=framework,
             model_name=model_name,
-            run_ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            run_ts=get_current_timestamp(),
             model_dtype="half_float::half",
             quantization_method=quant_method,
             quantization_bits=quant_bits,
@@ -133,7 +134,7 @@ def benchmark_gguf() -> Union[Response, Tuple[Response, int]]:
         output_tokens = output["usage"]["completion_tokens"]  # type: ignore
 
         metrics = {
-            "gen_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "gen_ts": get_current_timestamp(),
             "requested_tokens": [max_tokens],
             "output_tokens": [output_tokens],
             "gpu_mem_usage": [info.used],

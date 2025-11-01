@@ -12,6 +12,7 @@ from transformers import BitsAndBytesConfig
 
 from llm_bench.config import ModelConfig
 from llm_bench.utils import get_vram_usage
+from llm_bench.utils import get_current_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +94,7 @@ def generate(
     vram_usage = get_vram_usage(int(GPU_DEVICE))
 
     metrics = {
-        "gen_ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "gen_ts": get_current_timestamp(),
         "requested_tokens": [run_config["max_tokens"]],
         "output_tokens": [output_tokens],
         "gpu_mem_usage": [vram_usage],
