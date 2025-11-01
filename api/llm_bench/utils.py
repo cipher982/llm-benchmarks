@@ -265,18 +265,43 @@ def has_existing_run(model_name: str, model_config: Union[CloudConfig, ModelConf
         return False
 
 
-def has_recent_cloud_run(model_name: str, provider: str, since_utc: datetime) -> bool:
+def has_recent_cloud_run(
+    model_name: str,
+    provider: str,
+    since_utc: datetime,
+    client: Optional[MongoClient] = None,
+    db_name: Optional[str] = None
+) -> bool:
     """Return True if there is a cloud run for (provider, model_name) with gen_ts >= since_utc.
 
     Expects MONGODB_* envs to be set and collection to contain cloud metrics as inserted by log_mongo().
+
+    Args:
+        model_name: Name of the model to check
+        provider: Provider name
+        since_utc: Check for runs since this timestamp
+        client: Optional MongoDB client to reuse. If not provided, a new client will be created.
+        db_name: Optional database name. If not provided, will use MONGODB_DB env var.
+                Only used if client is also provided.
+
+    Returns:
+        True if a recent run exists, False otherwise
     """
     uri = os.getenv("MONGODB_URI")
-    db_name = os.getenv("MONGODB_DB")
     coll = os.getenv("MONGODB_COLLECTION_CLOUD")
+
+    # If db_name not provided via param, get from env
+    if db_name is None:
+        db_name = os.getenv("MONGODB_DB")
+
     if not uri or not db_name or not coll:
         return False
 
-    client = MongoClient(uri)
+    # Determine if we need to create and close a client
+    should_close_client = client is None
+    if client is None:
+        client = MongoClient(uri)
+
     try:
         collection = client[db_name][coll]
         doc = collection.find_one(
@@ -291,4 +316,6 @@ def has_recent_cloud_run(model_name: str, provider: str, since_utc: datetime) ->
     except Exception:
         return False
     finally:
-        client.close()
+        # Only close the client if we created it
+        if should_close_client and client:
+            client.close()

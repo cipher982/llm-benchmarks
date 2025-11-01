@@ -187,6 +187,8 @@ def _run_single_model(
     run_always: bool,
     fresh_minutes: int,
     debug: bool,
+    client: Optional[MongoClient] = None,
+    db_name: Optional[str] = None,
 ) -> Dict[str, Optional[str]]:
     # Build configs
     run_ts = get_current_timestamp()
@@ -206,7 +208,7 @@ def _run_single_model(
     # Skip based on freshness window using Mongo metrics
     if not run_always and fresh_minutes > 0:
         since = datetime.now(timezone.utc) - timedelta(minutes=fresh_minutes)
-        if has_recent_cloud_run(model_name=model, provider=provider, since_utc=since):
+        if has_recent_cloud_run(model_name=model, provider=provider, since_utc=since, client=client, db_name=db_name):
             print(f"⏭️ Skipped {provider}:{model} (fresh < {fresh_minutes}m)")
             return {"status": "skipped", "reason": f"fresh < {fresh_minutes}m"}
 
@@ -284,30 +286,52 @@ def main(
 
     print(f"Running providers: {selected}")
 
-    # 1) Drain ad-hoc jobs first (optional)
-    while True:
-        job = _claim_next_job()
-        if not job:
-            break
-        job_provider = job.get("provider")
-        job_model = job.get("model") or job.get("model_id") or job.get("model_name")
-        ignore_freshness = bool(job.get("ignore_freshness", False))
-        if not job_provider or not job_model:
-            msg = "invalid job doc (missing provider/model)"
-            print(f"❌ Error job - {msg}")
-            _fail_job(job.get("_id"), msg)
-            continue
-        res = _run_single_model(job_provider, job_model, run_always or ignore_freshness, fresh_minutes, debug)
-        if res.get("status") == "success":
-            _complete_job(job.get("_id"))
-        else:
-            _fail_job(job.get("_id"), res.get("reason") or "unknown error")
+    # Create one MongoDB client for the entire run (connection pooling)
+    client: Optional[MongoClient] = None
+    db_name: Optional[str] = None
+    try:
+        # Get MongoDB connection params
+        uri = os.getenv("MONGODB_URI")
+        db_name = os.getenv("MONGODB_DB")
 
-    # 2) Periodic pass for all enabled models per provider
-    for provider in selected:
-        models = provider_models.get(provider, [])[:limit]
-        for model in models:
-            _run_single_model(provider, model, run_always, fresh_minutes, debug)
+        if uri and db_name:
+            print(f"🔗 Creating MongoDB client for connection pooling")
+            client = MongoClient(uri)
+            print(f"✅ Connected to MongoDB: {db_name}")
+        else:
+            print("⚠️ MongoDB URI or DB name not set, creating connections per query")
+
+        # 1) Drain ad-hoc jobs first (optional)
+        while True:
+            job = _claim_next_job()
+            if not job:
+                break
+            job_provider = job.get("provider")
+            job_model = job.get("model") or job.get("model_id") or job.get("model_name")
+            ignore_freshness = bool(job.get("ignore_freshness", False))
+            if not job_provider or not job_model:
+                msg = "invalid job doc (missing provider/model)"
+                print(f"❌ Error job - {msg}")
+                _fail_job(job.get("_id"), msg)
+                continue
+            res = _run_single_model(job_provider, job_model, run_always or ignore_freshness, fresh_minutes, debug, client, db_name)
+            if res.get("status") == "success":
+                _complete_job(job.get("_id"))
+            else:
+                _fail_job(job.get("_id"), res.get("reason") or "unknown error")
+
+        # 2) Periodic pass for all enabled models per provider
+        for provider in selected:
+            models = provider_models.get(provider, [])[:limit]
+            for model in models:
+                _run_single_model(provider, model, run_always, fresh_minutes, debug, client, db_name)
+
+    finally:
+        # Always close the client if we created it
+        if client:
+            print("🔒 Closing MongoDB client")
+            client.close()
+            print("✅ MongoDB client closed")
 
 
 if __name__ == "__main__":
