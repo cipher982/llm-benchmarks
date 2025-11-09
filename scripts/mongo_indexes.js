@@ -10,8 +10,10 @@ print(`Using DB: ${db.getName()}`);
 print(`Collections: models=${modelsColl}, metrics=${metricsColl}, errors=${errorsColl}, jobs=${jobsColl}`);
 
 // models
-db.getCollection(modelsColl).createIndex({ provider: 1, model_id: 1, enabled: 1 });
-print('Created index on models (provider, model_id, enabled)');
+// Optimized index: put enabled first since queries filter on it
+// Also keeps provider/model_id for other queries
+db.getCollection(modelsColl).createIndex({ enabled: 1, provider: 1, model_id: 1 });
+print('Created index on models (enabled, provider, model_id)');
 
 // metrics
 db.getCollection(metricsColl).createIndex({ provider: 1, model_name: 1, gen_ts: -1 });
