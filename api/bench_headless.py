@@ -1,7 +1,7 @@
 import os
 import traceback
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import dotenv
 import typer
@@ -50,12 +50,27 @@ def _bool_env(name: str, default: bool = False) -> bool:
     return val.lower() in ("true", "1", "t", "yes", "y")
 
 
+# Cache for imported provider modules
+_PROVIDER_MODULES_CACHE: Dict[str, Any] = {}
+
+
 def _load_provider_func(provider: str):
+    """Load and cache provider module to avoid repeated imports."""
     if provider not in PROVIDER_MODULES:
         raise ValueError(f"Unsupported provider: {provider}")
+
+    # Return cached function if already loaded
+    if provider in _PROVIDER_MODULES_CACHE:
+        return _PROVIDER_MODULES_CACHE[provider]
+
+    # Import and cache the module
     module_name = PROVIDER_MODULES[provider]
     module = __import__(module_name, fromlist=["generate"])  # type: ignore
-    return module.generate
+    generate_func = module.generate
+
+    # Cache for future use
+    _PROVIDER_MODULES_CACHE[provider] = generate_func
+    return generate_func
 
 
 def _mongo() -> Tuple[str, str]:
