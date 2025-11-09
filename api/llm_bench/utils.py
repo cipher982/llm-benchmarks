@@ -241,7 +241,8 @@ def has_existing_run(model_name: str, model_config: Union[CloudConfig, ModelConf
             {
                 "provider": model_config.provider,
                 "model_name": model_name,
-            }
+            },
+            projection={"_id": 1}  # Only fetch _id, we just need to check existence
         )
     elif isinstance(model_config, ModelConfig):
         existing_config = collection.find_one(
@@ -250,7 +251,8 @@ def has_existing_run(model_name: str, model_config: Union[CloudConfig, ModelConf
                 "model_name": model_name,
                 "quantization_method": model_config.quantization_method,
                 "quantization_bits": model_config.quantization_bits,
-            }
+            },
+            projection={"_id": 1}  # Only fetch _id, we just need to check existence
         )
     else:
         raise Exception(f"Invalid model_config type: {type(model_config)}")
