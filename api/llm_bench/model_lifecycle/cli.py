@@ -35,6 +35,10 @@ def _risk_weight(status: LifecycleStatus) -> int:
     return STATUS_WEIGHTS.get(status, 0)
 
 
+def _status_bucket(decision: LifecycleDecision) -> str:
+    return decision.status.value
+
+
 def _format_dt(value: Optional[datetime]) -> str:
     if value is None:
         return "—"
@@ -151,6 +155,91 @@ def report(
         else:
             _write_results(results, collection)
             typer.echo(f"Persisted {len(results)} lifecycle entries into collection '{collection}'.")
+
+
+@app.command()
+def summary(
+    provider: List[str] = typer.Option(None, "--provider", "-p", help="Filter to provider(s)."),
+    include_active: bool = typer.Option(False, help="Include active models in the summary."),
+    json_output: bool = typer.Option(False, "--json", help="Print JSON instead of a table."),
+) -> None:
+    """Show aggregate lifecycle signal counts per provider."""
+
+    now = datetime.now(timezone.utc)
+    snapshots = collect_lifecycle_snapshots(provider_filter=provider or None, now=now)
+
+    totals: Dict[str, Dict[str, int]] = {}
+    sample_reasons: Dict[str, Dict[str, str]] = {}
+
+    for snapshot in snapshots:
+        decision = classify_snapshot(snapshot, now=now)
+        if not include_active and decision.status == LifecycleStatus.ACTIVE:
+            continue
+
+        provider_key = snapshot.provider
+        bucket = _status_bucket(decision)
+
+        provider_totals = totals.setdefault(provider_key, {})
+        provider_totals[bucket] = provider_totals.get(bucket, 0) + 1
+
+        if decision.reasons:
+            provider_reasons = sample_reasons.setdefault(provider_key, {})
+            provider_reasons.setdefault(bucket, decision.reasons[0])
+
+    rows: List[Dict[str, object]] = []
+    for provider_name, counts in sorted(totals.items()):
+        total = sum(counts.values())
+        rows.append(
+            {
+                "provider": provider_name,
+                "total": total,
+                "counts": counts,
+                "sample_reason": sample_reasons.get(provider_name, {}),
+            }
+        )
+
+    if json_output:
+        typer.echo(json.dumps(rows, indent=2))
+    else:
+        _print_summary_table(rows)
+
+
+def _print_summary_table(rows: List[Dict[str, object]]) -> None:
+    if not rows:
+        typer.echo("No providers matched the current filters.")
+        return
+
+    headers = ["PROVIDER", "TOTAL", "LIKELY_DEPRECATED", "FAILING", "STALE", "NEVER_SUCCEEDED", "MONITOR", "DISABLED"]
+    col_widths = [len(h) for h in headers]
+
+    def get_count(row: Dict[str, object], key: str) -> int:
+        counts = row.get("counts", {})
+        if isinstance(counts, dict):
+            return int(counts.get(key, 0))
+        return 0
+
+    table: List[List[str]] = []
+    for row in rows:
+        line = [
+            str(row["provider"]),
+            str(row["total"]),
+            str(get_count(row, LifecycleStatus.LIKELY_DEPRECATED.value)),
+            str(get_count(row, LifecycleStatus.FAILING.value)),
+            str(get_count(row, LifecycleStatus.STALE.value)),
+            str(get_count(row, LifecycleStatus.NEVER_SUCCEEDED.value)),
+            str(get_count(row, LifecycleStatus.MONITOR.value)),
+            str(get_count(row, LifecycleStatus.DISABLED.value)),
+        ]
+        table.append(line)
+        for idx, value in enumerate(line):
+            col_widths[idx] = max(col_widths[idx], len(value))
+
+    header_row = "  ".join(headers[idx].ljust(col_widths[idx]) for idx in range(len(headers)))
+    typer.echo(header_row)
+    typer.echo("  ".join("-" * width for width in col_widths))
+
+    for line in table:
+        typer.echo("  ".join(value.ljust(col_widths[idx]) for idx, value in enumerate(line)))
 
 
 def _print_table(rows: List[Dict]) -> None:

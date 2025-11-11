@@ -13,6 +13,7 @@ Env vars
 - `MONGODB_COLLECTION_CLOUD`: e.g., metrics_cloud_staging
 - `MONGODB_COLLECTION_ERRORS`: default errors_cloud
 - `MONGODB_COLLECTION_JOBS`: default jobs
+- `MONGODB_COLLECTION_MODEL_STATUS`: default model_status
 
 Create indexes
 1) One-liner (example; adjust names):
@@ -29,3 +30,7 @@ Enqueue a job
 - Example (runs regardless of freshness):
   PROVIDER=openai MODEL=gpt-4o-mini IGNORE_FRESHNESS=true mongosh "$MONGODB_URI/$MONGODB_DB" scripts/enqueue_job.js
 
+Lifecycle status report (dry-run by default)
+- Example:
+  MONGODB_URI=... MONGODB_DB=llm-bench scripts/model_status_report.sh --provider vertex --json
+  Add `--apply --yes` to persist into the `model_status` collection once you review the output.
