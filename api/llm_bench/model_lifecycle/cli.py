@@ -8,12 +8,15 @@ from typing import Dict, List, Optional
 
 import typer
 from pymongo import MongoClient
+import dotenv
 
 from .classifier import LifecycleDecision, LifecycleStatus, classify_snapshot
 from .collector import LifecycleSnapshot, collect_lifecycle_snapshots
 
 
 app = typer.Typer(help="Model lifecycle monitoring utilities")
+
+dotenv.load_dotenv()
 
 
 STATUS_WEIGHTS: Dict[LifecycleStatus, int] = {
@@ -204,4 +207,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
