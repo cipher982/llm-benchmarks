@@ -19,7 +19,10 @@ def load_provider_models() -> Dict[str, List[str]]:
     client = MongoClient(uri)
     try:
         coll = client[db_name][coll_name]
-        cursor = coll.find({"enabled": True}, {"provider": 1, "model_id": 1, "_id": 0})
+        cursor = coll.find(
+            {"enabled": True, "deprecated": {"$ne": True}},
+            {"provider": 1, "model_id": 1, "_id": 0},
+        )
         result: Dict[str, List[str]] = {}
         for doc in cursor:
             provider = doc.get("provider")
