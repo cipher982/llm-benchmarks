@@ -97,6 +97,7 @@ class LLMUsage:
         """Estimate cost based on model pricing."""
         # Pricing as of Dec 2024 (per 1M tokens)
         pricing = {
+            "gpt-5-mini": {"input": 0.15, "output": 0.60},
             "gpt-4o-mini": {"input": 0.15, "output": 0.60},
             "o1-mini": {"input": 3.0, "output": 12.0, "reasoning": 3.0},
             "o1": {"input": 15.0, "output": 60.0, "reasoning": 15.0},
@@ -109,13 +110,13 @@ class LLMUsage:
 
 
 async def call_openai_classifier(prompt: str, system_prompt: str) -> tuple[list[dict], LLMUsage]:
-    """Call GPT-4o-mini for classification. Returns (classifications, usage)."""
+    """Call GPT-5-mini for classification. Returns (classifications, usage)."""
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise ValueError("OPENAI_API_KEY not set")
 
     request_body = {
-        "model": "gpt-4o-mini",
+        "model": "gpt-5-mini",
         "temperature": 0,
         "max_tokens": 4096,
         "messages": [
@@ -143,7 +144,7 @@ async def call_openai_classifier(prompt: str, system_prompt: str) -> tuple[list[
         reasoning_tokens = usage_data.get("completion_tokens_details", {}).get("reasoning_tokens", 0)
 
         usage = LLMUsage(
-            model=result.get("model", "gpt-4o-mini"),
+            model=result.get("model", "gpt-5-mini"),
             input_tokens=usage_data.get("prompt_tokens", 0),
             output_tokens=usage_data.get("completion_tokens", 0),
             reasoning_tokens=reasoning_tokens,
