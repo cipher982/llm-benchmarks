@@ -2,8 +2,12 @@
 """
 LLM-based error classification for llm-benchmarks.
 
-Classifies unique error fingerprints (not individual errors) using Claude Haiku or GPT-4o-mini.
+Classifies unique error fingerprints (not individual errors) using OpenAI models.
 This reduces LLM API calls by 100-1000x compared to per-error classification.
+
+Configuration:
+    LLM_CLASSIFIER_MODEL - OpenAI model to use (default: gpt-5-mini)
+    OPENAI_API_KEY - Required for classification
 
 Usage:
     from llm_bench.ops.llm_error_classifier import classify_unclassified_rollups
@@ -28,6 +32,10 @@ import httpx
 from pymongo import MongoClient
 
 from llm_bench.ops.error_taxonomy import ErrorKind
+
+
+# Configuration
+OPENAI_MODEL = os.getenv("LLM_CLASSIFIER_MODEL", "gpt-5-mini")
 
 
 @dataclass
@@ -110,13 +118,13 @@ class LLMUsage:
 
 
 async def call_openai_classifier(prompt: str, system_prompt: str) -> tuple[list[dict], LLMUsage]:
-    """Call GPT-5-mini for classification. Returns (classifications, usage)."""
+    """Call OpenAI for classification. Returns (classifications, usage)."""
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise ValueError("OPENAI_API_KEY not set")
 
     request_body = {
-        "model": "gpt-5-mini",
+        "model": OPENAI_MODEL,
         "temperature": 0,
         "max_tokens": 4096,
         "messages": [
@@ -144,7 +152,7 @@ async def call_openai_classifier(prompt: str, system_prompt: str) -> tuple[list[
         reasoning_tokens = usage_data.get("completion_tokens_details", {}).get("reasoning_tokens", 0)
 
         usage = LLMUsage(
-            model=result.get("model", "gpt-5-mini"),
+            model=result.get("model", OPENAI_MODEL),
             input_tokens=usage_data.get("prompt_tokens", 0),
             output_tokens=usage_data.get("completion_tokens", 0),
             reasoning_tokens=reasoning_tokens,
