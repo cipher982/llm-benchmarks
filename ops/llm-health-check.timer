@@ -1,0 +1,13 @@
+[Unit]
+Description=Daily LLM Benchmark Health Check Timer
+
+[Timer]
+# Run daily at 08:00 UTC (3-4 AM Eastern depending on DST)
+OnCalendar=*-*-* 08:00:00
+# Catch up if missed (e.g., server was down)
+Persistent=true
+# Add some randomization to avoid thundering herd
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

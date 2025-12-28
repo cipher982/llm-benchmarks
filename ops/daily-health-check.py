@@ -1,0 +1,550 @@
+#!/usr/bin/env python3
+"""
+Daily LLM Benchmark Health Check
+
+Queries MongoDB for recent errors, sends to OpenAI for analysis,
+and emails a summary. Designed to run daily via systemd timer.
+
+Usage:
+    # Set environment variables
+    export MONGODB_URI="mongodb://..."
+    export OPENAI_API_KEY="sk-..."
+    export NOTIFY_EMAIL="david010@gmail.com"
+
+    python daily-health-check.py
+    python daily-health-check.py --days 7  # Look back further
+    python daily-health-check.py --dry-run  # Print but don't email
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional
+
+import httpx
+from pymongo import MongoClient
+
+
+# --- Configuration ---
+
+MONGODB_URI = os.getenv("MONGODB_URI")
+MONGODB_DB = os.getenv("MONGODB_DB", "llm-bench")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+NOTIFY_EMAIL = os.getenv("NOTIFY_EMAIL", "david010@gmail.com")
+
+# Collections
+ERRORS_COLLECTION = os.getenv("MONGODB_COLLECTION_ERRORS", "errors_cloud")
+ROLLUPS_COLLECTION = os.getenv("MONGODB_COLLECTION_ERROR_ROLLUPS", "error_rollups")
+METRICS_COLLECTION = os.getenv("MONGODB_COLLECTION_CLOUD", "metrics_cloud_v2")
+
+
+# --- Data Collection ---
+
+@dataclass
+class HealthData:
+    """Aggregated health metrics for the report."""
+    period_hours: int
+    total_errors: int
+    total_successes: int
+    errors_by_kind: dict[str, int]
+    top_failing_models: list[dict[str, Any]]
+    new_error_fingerprints: list[dict[str, Any]]
+    models_with_only_errors: list[dict[str, Any]]  # No successes in period
+    provider_summary: dict[str, dict[str, int]]
+
+
+def collect_health_data(client: MongoClient, hours: int = 24) -> HealthData:
+    """Query MongoDB and aggregate health metrics."""
+    db = client[MONGODB_DB]
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(hours=hours)
+
+    # 1. Count errors by kind in period
+    errors_pipeline = [
+        {"$match": {"ts": {"$gte": since}}},
+        {"$group": {
+            "_id": "$error_kind",
+            "count": {"$sum": 1}
+        }}
+    ]
+    errors_by_kind = {}
+    for doc in db[ERRORS_COLLECTION].aggregate(errors_pipeline):
+        kind = doc["_id"] or "unknown"
+        errors_by_kind[kind] = doc["count"]
+
+    total_errors = sum(errors_by_kind.values())
+
+    # 2. Count successes in period
+    success_count = db[METRICS_COLLECTION].count_documents({
+        "$or": [
+            {"gen_ts": {"$gte": since}},
+            {"run_ts": {"$gte": since}}
+        ]
+    })
+
+    # 3. Top failing models (by error count)
+    top_failing_pipeline = [
+        {"$match": {"ts": {"$gte": since}}},
+        {"$sort": {"ts": -1}},  # Sort first so $last gets the most recent message
+        {"$group": {
+            "_id": {"provider": "$provider", "model": "$model_name"},
+            "error_count": {"$sum": 1},
+            "kinds": {"$addToSet": "$error_kind"},
+            "last_error": {"$max": "$ts"},
+            "sample_message": {"$last": "$normalized_message"}
+        }},
+        {"$sort": {"error_count": -1}},
+        {"$limit": 15}
+    ]
+    top_failing = []
+    for doc in db[ERRORS_COLLECTION].aggregate(top_failing_pipeline):
+        top_failing.append({
+            "provider": doc["_id"]["provider"],
+            "model": doc["_id"]["model"],
+            "error_count": doc["error_count"],
+            "error_kinds": doc["kinds"],
+            "last_error": doc["last_error"].isoformat() if doc["last_error"] else None,
+            "sample_message": (doc.get("sample_message") or "")[:200]
+        })
+
+    # 4. New error fingerprints (first_seen in period)
+    new_fingerprints_pipeline = [
+        {"$match": {"first_seen": {"$gte": since}}},
+        {"$sort": {"first_seen": -1}},
+        {"$limit": 20},
+        {"$project": {
+            "_id": 0,
+            "provider": 1,
+            "model_name": 1,
+            "error_kind": 1,
+            "count": 1,
+            "first_seen": 1,
+            "sample_messages": {"$slice": ["$sample_messages", 2]}
+        }}
+    ]
+    new_fingerprints = list(db[ROLLUPS_COLLECTION].aggregate(new_fingerprints_pipeline))
+    for fp in new_fingerprints:
+        if fp.get("first_seen"):
+            fp["first_seen"] = fp["first_seen"].isoformat()
+
+    # 5. Models with errors but no successes in period (potential dead models)
+    # Get all models that had errors
+    models_with_errors = db[ERRORS_COLLECTION].distinct(
+        "model_name",
+        {"ts": {"$gte": since}}
+    )
+
+    # Get all models that had successes
+    models_with_success = set()
+    for field in ["gen_ts", "run_ts"]:
+        models_with_success.update(
+            db[METRICS_COLLECTION].distinct(
+                "model_name",
+                {field: {"$gte": since}}
+            )
+        )
+
+    # Find models with only errors
+    error_only_models = []
+    for model in models_with_errors:
+        if model not in models_with_success:
+            # Get error details for this model
+            sample = db[ERRORS_COLLECTION].find_one(
+                {"model_name": model, "ts": {"$gte": since}},
+                {"provider": 1, "error_kind": 1, "normalized_message": 1}
+            )
+            if sample:
+                error_only_models.append({
+                    "provider": sample.get("provider"),
+                    "model": model,
+                    "error_kind": sample.get("error_kind"),
+                    "sample": (sample.get("normalized_message") or "")[:150]
+                })
+
+    # 6. Provider summary
+    provider_pipeline = [
+        {"$match": {"ts": {"$gte": since}}},
+        {"$group": {
+            "_id": "$provider",
+            "errors": {"$sum": 1}
+        }}
+    ]
+    provider_errors = {doc["_id"]: doc["errors"] for doc in db[ERRORS_COLLECTION].aggregate(provider_pipeline)}
+
+    provider_success_pipeline = [
+        {"$match": {"$or": [{"gen_ts": {"$gte": since}}, {"run_ts": {"$gte": since}}]}},
+        {"$group": {
+            "_id": "$provider",
+            "successes": {"$sum": 1}
+        }}
+    ]
+    provider_successes = {doc["_id"]: doc["successes"] for doc in db[METRICS_COLLECTION].aggregate(provider_success_pipeline)}
+
+    all_providers = set(provider_errors.keys()) | set(provider_successes.keys())
+    provider_summary = {}
+    for p in all_providers:
+        provider_summary[p] = {
+            "errors": provider_errors.get(p, 0),
+            "successes": provider_successes.get(p, 0)
+        }
+
+    return HealthData(
+        period_hours=hours,
+        total_errors=total_errors,
+        total_successes=success_count,
+        errors_by_kind=errors_by_kind,
+        top_failing_models=top_failing,
+        new_error_fingerprints=new_fingerprints,
+        models_with_only_errors=error_only_models,
+        provider_summary=provider_summary
+    )
+
+
+def format_health_data(data: HealthData) -> str:
+    """Format health data as a summary string for the LLM."""
+    lines = [
+        f"## LLM Benchmark Health Report",
+        f"Period: Last {data.period_hours} hours",
+        f"Total: {data.total_successes} successes, {data.total_errors} errors",
+        "",
+        "### Errors by Kind",
+    ]
+
+    for kind, count in sorted(data.errors_by_kind.items(), key=lambda x: -x[1]):
+        lines.append(f"  {kind}: {count}")
+
+    lines.append("")
+    lines.append("### Provider Summary")
+    for provider, stats in sorted(data.provider_summary.items()):
+        rate = stats["errors"] / (stats["errors"] + stats["successes"]) * 100 if (stats["errors"] + stats["successes"]) > 0 else 0
+        lines.append(f"  {provider}: {stats['successes']} ok, {stats['errors']} err ({rate:.1f}% error rate)")
+
+    if data.models_with_only_errors:
+        lines.append("")
+        lines.append("### Models with ONLY Errors (no successes in period)")
+        for m in data.models_with_only_errors[:10]:
+            lines.append(f"  {m['provider']}:{m['model']} - {m['error_kind']} - {m['sample'][:80]}")
+
+    if data.new_error_fingerprints:
+        lines.append("")
+        lines.append("### New Error Patterns (first seen in period)")
+        for fp in data.new_error_fingerprints[:10]:
+            samples = fp.get("sample_messages", [])
+            sample_str = samples[0][:80] if samples else "no message"
+            lines.append(f"  {fp.get('provider')}:{fp.get('model_name')} - {fp.get('error_kind')} ({fp.get('count')} times)")
+            lines.append(f"    → {sample_str}")
+
+    if data.top_failing_models:
+        lines.append("")
+        lines.append("### Top Failing Models")
+        for m in data.top_failing_models[:10]:
+            lines.append(f"  {m['provider']}:{m['model']} - {m['error_count']} errors - kinds: {m['error_kinds']}")
+
+    return "\n".join(lines)
+
+
+# --- OpenAI Analysis ---
+
+SYSTEM_PROMPT = """You are a DevOps engineer monitoring an LLM benchmarking service. Your job is to analyze daily health reports and provide actionable insights.
+
+## CONTEXT
+This service benchmarks multiple LLM providers (OpenAI, Anthropic, Bedrock, Vertex, etc.) every few hours. It tracks successes and errors, classifying errors by type:
+- auth: API key / authentication issues (401/403)
+- billing: Payment / quota issues (402)
+- rate_limit: Rate limiting (429)
+- hard_model: Model not found / deprecated (404, "does not exist")
+- hard_capability: Wrong endpoint or capability mismatch ("use responses API", "not a chat model")
+- transient_provider: Server errors (5xx)
+- network: Timeouts, connection issues
+- unknown: Unclassified
+
+## YOUR TASK
+Analyze the health report and provide:
+1. Overall assessment: Is the system healthy? Any concerns?
+2. Models likely deprecated: Models with hard_model errors and no successes
+3. Code fixes needed: Models with hard_capability errors (these need code updates, not disabling)
+4. Provider issues: Any provider-wide problems (auth, billing, rate limits)?
+5. Recommended actions: What should the human operator do?
+
+## GUIDELINES
+- Be concise but specific
+- Distinguish between model-level issues and provider-level issues
+- hard_capability errors mean OUR code needs updating (new API version, endpoint change)
+- hard_model errors mean the model is likely deprecated/removed by the provider
+- Transient errors are usually fine unless they're persistent
+- If everything looks normal, say so briefly"""
+
+USER_PROMPT_TEMPLATE = """Here is today's LLM benchmark health report:
+
+{health_data}
+
+Please analyze this report and provide your assessment. What needs attention? What actions should I take?"""
+
+
+def analyze_with_openai(health_summary: str) -> Optional[str]:
+    """Send health data to OpenAI for analysis."""
+    if not OPENAI_API_KEY:
+        return None
+
+    request_body = {
+        "model": "gpt-4o-mini",  # Fast and cheap for daily summaries
+        "max_output_tokens": 2000,  # Cap response size
+        "input": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": USER_PROMPT_TEMPLATE.format(health_data=health_summary)}
+        ],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "health_assessment",
+                "description": "Analysis of LLM benchmark health",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "overall_status": {
+                            "type": "string",
+                            "enum": ["healthy", "warning", "critical"],
+                            "description": "Overall system health"
+                        },
+                        "summary": {
+                            "type": "string",
+                            "description": "2-3 sentence executive summary"
+                        },
+                        "models_likely_deprecated": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of 'provider:model' that appear deprecated"
+                        },
+                        "code_fixes_needed": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of 'provider:model' needing code updates"
+                        },
+                        "provider_issues": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Provider-wide issues (e.g., 'openai: auth errors')"
+                        },
+                        "recommended_actions": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Specific actions the operator should take"
+                        }
+                    },
+                    "required": ["overall_status", "summary", "models_likely_deprecated", "code_fixes_needed", "provider_issues", "recommended_actions"],
+                    "additionalProperties": False
+                },
+                "strict": True
+            }
+        }
+    }
+
+    try:
+        with httpx.Client(timeout=60) as client:
+            response = client.post(
+                "https://api.openai.com/v1/responses",
+                headers={
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json=request_body
+            )
+            response.raise_for_status()
+
+            result = response.json()
+            # Extract the message content from the Responses API format
+            for output in result.get("output", []):
+                if output.get("type") == "message":
+                    for content in output.get("content", []):
+                        if content.get("type") == "output_text":
+                            return content.get("text")
+
+            return None
+    except Exception as e:
+        print(f"OpenAI API error: {e}", file=sys.stderr)
+        return None
+
+
+# --- Email ---
+
+def format_email_body(health_data: HealthData, ai_analysis: Optional[dict]) -> str:
+    """Format the full email body."""
+    lines = []
+
+    # AI analysis section (if available)
+    if ai_analysis:
+        status_emoji = {"healthy": "✅", "warning": "⚠️", "critical": "🚨"}.get(ai_analysis.get("overall_status"), "❓")
+        lines.append(f"{status_emoji} Status: {ai_analysis.get('overall_status', 'unknown').upper()}")
+        lines.append("")
+        lines.append(ai_analysis.get("summary", ""))
+        lines.append("")
+
+        if ai_analysis.get("models_likely_deprecated"):
+            lines.append("📦 Models Likely Deprecated:")
+            for m in ai_analysis["models_likely_deprecated"]:
+                lines.append(f"  • {m}")
+            lines.append("")
+
+        if ai_analysis.get("code_fixes_needed"):
+            lines.append("🔧 Code Fixes Needed:")
+            for m in ai_analysis["code_fixes_needed"]:
+                lines.append(f"  • {m}")
+            lines.append("")
+
+        if ai_analysis.get("provider_issues"):
+            lines.append("🏢 Provider Issues:")
+            for issue in ai_analysis["provider_issues"]:
+                lines.append(f"  • {issue}")
+            lines.append("")
+
+        if ai_analysis.get("recommended_actions"):
+            lines.append("📋 Recommended Actions:")
+            for action in ai_analysis["recommended_actions"]:
+                lines.append(f"  • {action}")
+            lines.append("")
+    else:
+        lines.append("⚠️ AI analysis unavailable (check OPENAI_API_KEY)")
+        lines.append("")
+
+    # Raw stats
+    lines.append("─" * 50)
+    lines.append("RAW METRICS")
+    lines.append("─" * 50)
+    lines.append(f"Period: {health_data.period_hours}h")
+    lines.append(f"Successes: {health_data.total_successes}")
+    lines.append(f"Errors: {health_data.total_errors}")
+    lines.append("")
+
+    lines.append("Errors by Kind:")
+    for kind, count in sorted(health_data.errors_by_kind.items(), key=lambda x: -x[1]):
+        lines.append(f"  {kind}: {count}")
+    lines.append("")
+
+    lines.append("Provider Summary:")
+    for provider, stats in sorted(health_data.provider_summary.items()):
+        total = stats["errors"] + stats["successes"]
+        rate = stats["errors"] / total * 100 if total > 0 else 0
+        lines.append(f"  {provider}: {stats['successes']} ok / {stats['errors']} err ({rate:.0f}%)")
+
+    if health_data.models_with_only_errors:
+        lines.append("")
+        lines.append("Models with ONLY Errors:")
+        for m in health_data.models_with_only_errors[:5]:
+            lines.append(f"  {m['provider']}:{m['model']} ({m['error_kind']})")
+
+    return "\n".join(lines)
+
+
+def send_email(subject: str, body: str, dry_run: bool = False) -> bool:
+    """Send email via msmtp."""
+    if dry_run:
+        print(f"\n{'='*60}")
+        print(f"DRY RUN - Would send email:")
+        print(f"To: {NOTIFY_EMAIL}")
+        print(f"Subject: {subject}")
+        print(f"{'='*60}")
+        print(body)
+        print(f"{'='*60}\n")
+        return True
+
+    message = f"Subject: {subject}\n\n{body}"
+
+    try:
+        result = subprocess.run(
+            ["msmtp", NOTIFY_EMAIL],
+            input=message.encode(),
+            capture_output=True,
+            timeout=30
+        )
+        if result.returncode != 0:
+            print(f"msmtp error: {result.stderr.decode()}", file=sys.stderr)
+            return False
+        return True
+    except FileNotFoundError:
+        print("msmtp not installed - cannot send email", file=sys.stderr)
+        return False
+    except Exception as e:
+        print(f"Email error: {e}", file=sys.stderr)
+        return False
+
+
+# --- Main ---
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Daily LLM benchmark health check")
+    parser.add_argument("--days", type=float, default=1, help="Look back this many days (default: 1)")
+    parser.add_argument("--dry-run", action="store_true", help="Print report but don't email")
+    args = parser.parse_args()
+
+    hours = max(1, int(args.days * 24))  # Minimum 1 hour to avoid empty queries
+
+    # Validate environment
+    if not MONGODB_URI:
+        print("ERROR: MONGODB_URI not set", file=sys.stderr)
+        sys.exit(1)
+
+    # Collect data
+    print(f"Collecting health data for last {hours} hours...")
+    client = MongoClient(MONGODB_URI)
+    try:
+        health_data = collect_health_data(client, hours=hours)
+    finally:
+        client.close()
+
+    print(f"Found {health_data.total_successes} successes, {health_data.total_errors} errors")
+
+    # Format for AI
+    health_summary = format_health_data(health_data)
+
+    # AI analysis
+    ai_analysis = None
+    if OPENAI_API_KEY:
+        print("Sending to OpenAI for analysis...")
+        ai_response = analyze_with_openai(health_summary)
+        if ai_response:
+            try:
+                ai_analysis = json.loads(ai_response)
+                print(f"AI assessment: {ai_analysis.get('overall_status', 'unknown')}")
+            except json.JSONDecodeError:
+                print(f"Failed to parse AI response: {ai_response[:200]}", file=sys.stderr)
+    else:
+        print("OPENAI_API_KEY not set - skipping AI analysis")
+
+    # Determine email subject tag
+    if ai_analysis:
+        status = ai_analysis.get("overall_status", "unknown")
+        if status == "critical":
+            tag = "[CRITICAL]"
+        elif status == "warning":
+            tag = "[URGENT]"
+        else:
+            tag = "[INFO]"
+    else:
+        # No AI, use error count heuristic
+        if health_data.total_errors > 100:
+            tag = "[URGENT]"
+        else:
+            tag = "[INFO]"
+
+    # Format and send email
+    subject = f"{tag} LLM Benchmarks Daily Health - {datetime.now().strftime('%Y-%m-%d')}"
+    body = format_email_body(health_data, ai_analysis)
+
+    if send_email(subject, body, dry_run=args.dry_run):
+        print(f"Email sent: {subject}")
+    else:
+        print("Failed to send email", file=sys.stderr)
+        # Print to stdout as fallback
+        print("\n" + body)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

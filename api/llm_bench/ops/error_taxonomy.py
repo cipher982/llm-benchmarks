@@ -29,6 +29,13 @@ _HARD_CAPABILITY_HINTS = (
     "not supported in the v1/chat/completions",
     "not a chat model",
     "max_output_tokens",
+    # Audio/image-only models (not text chat models)
+    "modality contain audio",
+    "requires audio",
+    "audio input",
+    "audio output",
+    "image generation",
+    "not supported for this model",
 )
 
 _HARD_MODEL_HINTS = (
@@ -49,6 +56,13 @@ _AUTH_HINTS = (
     "authentication",
     "credentials",
     "api key",
+    # AWS/cloud credential issues
+    "profilenotfound",
+    "config profile",  # AWS profile errors: "config profile ... could not be found"
+    "nosuchprofile",
+    "access denied",
+    "security token",
+    "expired token",
 )
 
 _BILLING_HINTS = (

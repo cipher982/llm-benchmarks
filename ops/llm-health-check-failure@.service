@@ -1,0 +1,6 @@
+[Unit]
+Description=LLM Health Check Failure Notification for %i
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'echo -e "Subject: [CRITICAL] $(hostname) LLM Health Check Failed\n\nThe daily LLM benchmark health check service crashed.\n\nFailed unit: %i\nTimestamp: $(date -Iseconds)\nHostname: $(hostname)\n\nCheck logs with: journalctl -u %i -n 50" | msmtp david010@gmail.com'
