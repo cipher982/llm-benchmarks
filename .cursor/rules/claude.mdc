@@ -1,0 +1,10 @@
+---
+description: Load repo instructions from AGENTS.md
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+Follow the instructions in AGENTS.md for this repository.
+
+See @../AGENTS.md for full context.

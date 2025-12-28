@@ -15,8 +15,7 @@ services:
       - MONGODB_COLLECTION_JOBS=${MONGODB_COLLECTION_JOBS:-jobs}
       - BENCHMARK_PROVIDERS=${BENCHMARK_PROVIDERS:-all}
       - FRESH_MINUTES=${FRESH_MINUTES:-30}
-      - SLEEP_SECONDS=${SLEEP_SECONDS:-1800}
     volumes:
       - /home/drose/bench-sa-key.json:/app/gcp-key.json:ro
     # Emit logs to stdout/stderr (captured by Docker), no volume mount
-    command: sh -c "while true; do cd /app && python api/bench_headless.py --providers ${BENCHMARK_PROVIDERS:-all} --fresh-minutes ${FRESH_MINUTES:-30}; sleep ${SLEEP_SECONDS:-1800}; done"
+    command: python api/bench_headless.py --daemon

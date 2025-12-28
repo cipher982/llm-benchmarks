@@ -13,6 +13,14 @@ logger = logging.getLogger(__name__)
 # Legacy instruct models use completions endpoint
 NON_CHAT_MODELS = ["gpt-3.5-turbo-instruct", "gpt-3.5-turbo-instruct-0914"]
 
+_RESPONSES_ONLY_HINTS = (
+    "only supported in v1/responses",
+    "not supported in the v1/chat/completions",
+    "not a chat model",
+    "max_output_tokens",
+    "empty chat content",
+)
+
 
 def _make_chat_request(client: OpenAI, config: CloudConfig, run_config: dict, use_max_tokens: bool = True):
     """Make chat completions request with appropriate token parameter."""
@@ -28,6 +36,73 @@ def _make_chat_request(client: OpenAI, config: CloudConfig, run_config: dict, us
         request_params["max_completion_tokens"] = run_config["max_tokens"]
     
     return client.chat.completions.create(**request_params)
+
+def _make_responses_request(client: OpenAI, config: CloudConfig, run_config: dict):
+    # Prefer Responses API for models that don't support chat.completions.
+    # Some models (e.g. codex-max) may consume the entire max_output_tokens budget in
+    # internal reasoning and emit no output text unless given a larger budget.
+    max_out = int(run_config["max_tokens"])
+    is_codex_max = "codex-max" in config.model_name.lower()
+    if is_codex_max:
+        max_out = max(max_out, 256)
+
+    base_params = {
+        "model": config.model_name,
+        "input": run_config["query"],
+        "max_output_tokens": max_out,
+        "temperature": config.temperature,
+    }
+    if is_codex_max:
+        base_params["reasoning"] = {"effort": "low"}
+
+    # Some models reject parameters like temperature/reasoning; retry by removing unsupported ones.
+    attempts = [
+        dict(base_params),
+        {k: v for k, v in base_params.items() if k != "temperature"},
+        {k: v for k, v in base_params.items() if k != "reasoning"},
+        {k: v for k, v in base_params.items() if k not in ("temperature", "reasoning")},
+    ]
+
+    last_err = None
+    for params in attempts:
+        try:
+            return client.responses.create(**params)
+        except Exception as e:
+            last_err = e
+            msg = str(e).lower()
+            if "unsupported parameter" in msg or "not supported" in msg:
+                continue
+            raise
+    assert last_err is not None
+    # Final fallback for codex-max: give it a much larger budget if it kept failing due to output caps.
+    if is_codex_max:
+        for params in attempts:
+            try:
+                params = dict(params)
+                params["max_output_tokens"] = max(params.get("max_output_tokens", 0), 1024)
+                return client.responses.create(**params)
+            except Exception as e:
+                last_err = e
+    raise last_err
+
+
+def _response_output_text(resp) -> str:
+    # openai>=1.x provides `output_text` convenience property for Responses.
+    out = getattr(resp, "output_text", None)
+    if isinstance(out, str) and out:
+        return out
+    try:
+        dumped = resp.model_dump()
+        text_parts = []
+        for item in dumped.get("output", []) or []:
+            if item.get("type") != "message":
+                continue
+            for content in item.get("content", []) or []:
+                if content.get("type") == "output_text" and content.get("text"):
+                    text_parts.append(content.get("text"))
+        return "".join(text_parts)
+    except Exception:
+        return ""
 
 
 def generate(config: CloudConfig, run_config: dict) -> dict:
@@ -70,32 +145,53 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
                 previous_token_time = current_time
                 response_str += content
     else:
-        # Handle chat models with automatic parameter detection
+        # Handle chat models with automatic parameter detection and fallback to Responses API.
         try:
-            # Try max_tokens first (works for most models)
             stream = _make_chat_request(client, config, run_config, use_max_tokens=True)
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                    current_time = time.time()
+                    content = chunk.choices[0].delta.content
+                    if not first_token_received:
+                        time_to_first_token = current_time - time_0
+                        first_token_received = True
+                    else:
+                        if previous_token_time is not None:
+                            times_between_tokens.append(current_time - previous_token_time)
+                    previous_token_time = current_time
+                    response_str += content
+            # Some models may stream non-text deltas (reasoning/tool calls) without `delta.content`.
+            # If we got no visible text, retry via the Responses API to ensure we get output text.
+            if not response_str.strip():
+                raise RuntimeError("empty chat content")
         except Exception as e:
-            if "max_completion_tokens" in str(e):
-                # Model requires max_completion_tokens, retry with correct parameter
+            msg = str(e).lower()
+            if "max_completion_tokens" in msg:
+                # Retry with max_completion_tokens (some models use this)
                 stream = _make_chat_request(client, config, run_config, use_max_tokens=False)
+                for chunk in stream:
+                    if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+                        current_time = time.time()
+                        content = chunk.choices[0].delta.content
+                        if not first_token_received:
+                            time_to_first_token = current_time - time_0
+                            first_token_received = True
+                        else:
+                            if previous_token_time is not None:
+                                times_between_tokens.append(current_time - previous_token_time)
+                        previous_token_time = current_time
+                        response_str += content
+                if not response_str.strip():
+                    raise RuntimeError("empty chat content")
+            elif any(h in msg for h in _RESPONSES_ONLY_HINTS):
+                # Fall back to Responses API for non-chat / responses-only models.
+                resp = _make_responses_request(client, config, run_config)
+                response_str = _response_output_text(resp)
+                # Best-effort timing; Responses API stream doesn't expose per-token timestamps here.
+                time_to_first_token = 0
+                times_between_tokens = []
             else:
-                # Different error, re-raise
                 raise e
-        
-        for chunk in stream:
-            if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
-                current_time = time.time()
-                content = chunk.choices[0].delta.content
-                
-                if not first_token_received:
-                    time_to_first_token = current_time - time_0
-                    first_token_received = True
-                else:
-                    if previous_token_time is not None:
-                        times_between_tokens.append(current_time - previous_token_time)
-                
-                previous_token_time = current_time
-                response_str += content
 
     time_1 = time.time()
     generate_time = time_1 - time_0
