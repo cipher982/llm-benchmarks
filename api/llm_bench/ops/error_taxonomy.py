@@ -23,78 +23,6 @@ _RE_HTTP_STATUS = re.compile(r"\b(?:http\s*status|status(?:\s*code)?)\s*[:=]\s*(
 _RE_REQUEST_ID = re.compile(r"\b(request[_ -]?id|activityid)\b\s*[:=]\s*['\"]?[a-z0-9-]{8,}['\"]?", re.IGNORECASE)
 
 
-_HARD_CAPABILITY_HINTS = (
-    "only supported in v1/responses",
-    "only supported in the responses api",
-    "not supported in the v1/chat/completions",
-    "not a chat model",
-    "max_output_tokens",
-    # Audio/image-only models (not text chat models)
-    "modality contain audio",
-    "requires audio",
-    "audio input",
-    "audio output",
-    "image generation",
-    "not supported for this model",
-    # Parameter compatibility (code needs updating for these models)
-    "unsupported parameter",
-    "max_completion_tokens",
-    "use 'max_completion_tokens' instead",
-)
-
-_HARD_MODEL_HINTS = (
-    "model_not_found",
-    "does not exist",
-    "no endpoints found",
-    "not found",
-    "unknown model",
-    "unsupported model",
-    "unsupported model_name",
-    "identifier",
-)
-
-_AUTH_HINTS = (
-    "unauthorized",
-    "forbidden",
-    "invalid api key",
-    "authentication",
-    "credentials",
-    "api key",
-    # AWS/cloud credential issues
-    "profilenotfound",
-    "config profile",  # AWS profile errors: "config profile ... could not be found"
-    "nosuchprofile",
-    "access denied",
-    "security token",
-    "expired token",
-)
-
-_BILLING_HINTS = (
-    "insufficient credits",
-    "overdue invoices",
-    "billing",
-    "payment required",
-    "inference prohibited",
-)
-
-_RATE_HINTS = (
-    "rate limit",
-    "quota",
-    "too many requests",
-    "throttl",
-)
-
-_NETWORK_HINTS = (
-    "timed out",
-    "timeout",
-    "connection error",
-    "connection reset",
-    "dns",
-    "name or service not known",
-    "temporarily unavailable",
-)
-
-
 @dataclass(frozen=True, slots=True)
 class ClassifiedError:
     kind: ErrorKind
@@ -125,12 +53,17 @@ def normalize_error_message(message: str) -> str:
 
 
 def classify_error(*, message: str, exc_type: str = "") -> ClassifiedError:
+    """
+    Initial error classification based ONLY on HTTP status codes.
+
+    Returns UNKNOWN for all errors without clear HTTP status signals.
+    LLM-based classification happens later via llm_error_classifier.py.
+    """
     raw = message or ""
     http_status = _extract_http_status(raw)
     normalized = normalize_error_message(raw)
-    exc_type_norm = (exc_type or "").lower()
 
-    # Prefer explicit status codes when present.
+    # Only use explicit HTTP status codes for classification
     if http_status in (401, 403):
         return ClassifiedError(kind=ErrorKind.AUTH, normalized_message=normalized, http_status=http_status)
     if http_status == 402:
@@ -140,26 +73,8 @@ def classify_error(*, message: str, exc_type: str = "") -> ClassifiedError:
     if http_status and 500 <= http_status <= 599:
         return ClassifiedError(kind=ErrorKind.TRANSIENT_PROVIDER, normalized_message=normalized, http_status=http_status)
     if http_status == 404:
-        # 404 can be model missing or aggregator routing. If it looks like capability mismatch, classify that instead.
-        if any(h in normalized for h in _HARD_CAPABILITY_HINTS):
-            return ClassifiedError(kind=ErrorKind.HARD_CAPABILITY, normalized_message=normalized, http_status=http_status)
         return ClassifiedError(kind=ErrorKind.HARD_MODEL, normalized_message=normalized, http_status=http_status)
 
-    # Keyword-based fallback.
-    if any(h in normalized for h in _HARD_CAPABILITY_HINTS):
-        return ClassifiedError(kind=ErrorKind.HARD_CAPABILITY, normalized_message=normalized, http_status=http_status)
-    if any(h in normalized for h in _BILLING_HINTS):
-        return ClassifiedError(kind=ErrorKind.BILLING, normalized_message=normalized, http_status=http_status)
-    if any(h in normalized for h in _AUTH_HINTS):
-        return ClassifiedError(kind=ErrorKind.AUTH, normalized_message=normalized, http_status=http_status)
-    if any(h in normalized for h in _RATE_HINTS):
-        return ClassifiedError(kind=ErrorKind.RATE_LIMIT, normalized_message=normalized, http_status=http_status)
-    if any(h in normalized for h in _NETWORK_HINTS) or "apiconnectionerror" in exc_type_norm:
-        return ClassifiedError(kind=ErrorKind.NETWORK, normalized_message=normalized, http_status=http_status)
-
-    # Hard-model-ish hints without an explicit 404.
-    if any(h in normalized for h in _HARD_MODEL_HINTS):
-        return ClassifiedError(kind=ErrorKind.HARD_MODEL, normalized_message=normalized, http_status=http_status)
-
+    # Everything else is UNKNOWN - LLM will classify later
     return ClassifiedError(kind=ErrorKind.UNKNOWN, normalized_message=normalized, http_status=http_status)
 

@@ -18,6 +18,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import subprocess
@@ -475,12 +476,33 @@ def send_email(subject: str, body: str, dry_run: bool = False) -> bool:
 
 # --- Main ---
 
+async def classify_errors_async():
+    """Run LLM error classification on unclassified rollups."""
+    # Import here to avoid circular dependencies
+    try:
+        # Add parent directory to path to import from api module
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        from api.llm_bench.ops.llm_error_classifier import classify_unclassified_rollups
+
+        print("Classifying unclassified errors...")
+        results = await classify_unclassified_rollups(batch_size=50, max_rollups=200)
+        if results.get("updated", 0) > 0:
+            print(f"  Classified {results['updated']} new error patterns")
+        else:
+            print("  No new errors to classify")
+        return results
+    except Exception as e:
+        print(f"Warning: Error classification failed: {e}", file=sys.stderr)
+        return None
+
+
 def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="Daily LLM benchmark health check")
     parser.add_argument("--days", type=float, default=1, help="Look back this many days (default: 1)")
     parser.add_argument("--dry-run", action="store_true", help="Print report but don't email")
+    parser.add_argument("--skip-classification", action="store_true", help="Skip LLM error classification step")
     args = parser.parse_args()
 
     hours = max(1, int(args.days * 24))  # Minimum 1 hour to avoid empty queries
@@ -490,7 +512,11 @@ def main():
         print("ERROR: MONGODB_URI not set", file=sys.stderr)
         sys.exit(1)
 
-    # Collect data
+    # Step 1: Classify unclassified errors (unless skipped)
+    if not args.skip_classification:
+        asyncio.run(classify_errors_async())
+
+    # Step 2: Collect data
     print(f"Collecting health data for last {hours} hours...")
     client = MongoClient(MONGODB_URI)
     try:
