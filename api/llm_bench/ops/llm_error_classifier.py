@@ -83,46 +83,33 @@ def build_classification_prompt(errors: list[dict]) -> str:
     return "\n".join(lines)
 
 
-async def call_anthropic_classifier(prompt: str, system_prompt: str) -> list[dict]:
-    """Call Claude Haiku for classification."""
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise ValueError("ANTHROPIC_API_KEY not set")
+@dataclass
+class LLMUsage:
+    """Track LLM API usage for cost monitoring."""
+    model: str
+    input_tokens: int
+    output_tokens: int
+    reasoning_tokens: int = 0
+    total_tokens: int = 0
+    api_calls: int = 1
 
-    request_body = {
-        "model": "claude-3-5-haiku-20241022",
-        "max_tokens": 4096,
-        "temperature": 0,
-        "system": system_prompt,
-        "messages": [
-            {"role": "user", "content": prompt}
-        ]
-    }
-
-    async with httpx.AsyncClient(timeout=120) as client:
-        response = await client.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json"
-            },
-            json=request_body
-        )
-        response.raise_for_status()
-        result = response.json()
-
-        # Extract text from content blocks
-        text = ""
-        for content in result.get("content", []):
-            if content.get("type") == "text":
-                text += content.get("text", "")
-
-        return parse_classification_response(text)
+    def cost_estimate_usd(self) -> float:
+        """Estimate cost based on model pricing."""
+        # Pricing as of Dec 2024 (per 1M tokens)
+        pricing = {
+            "gpt-4o-mini": {"input": 0.15, "output": 0.60},
+            "o1-mini": {"input": 3.0, "output": 12.0, "reasoning": 3.0},
+            "o1": {"input": 15.0, "output": 60.0, "reasoning": 15.0},
+        }
+        rates = pricing.get(self.model, {"input": 0.15, "output": 0.60, "reasoning": 0.0})
+        cost = (self.input_tokens * rates["input"] + self.output_tokens * rates["output"]) / 1_000_000
+        if self.reasoning_tokens > 0:
+            cost += (self.reasoning_tokens * rates.get("reasoning", 0.0)) / 1_000_000
+        return cost
 
 
-async def call_openai_classifier(prompt: str, system_prompt: str) -> list[dict]:
-    """Call GPT-4o-mini for classification."""
+async def call_openai_classifier(prompt: str, system_prompt: str) -> tuple[list[dict], LLMUsage]:
+    """Call GPT-4o-mini for classification. Returns (classifications, usage)."""
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise ValueError("OPENAI_API_KEY not set")
@@ -150,7 +137,20 @@ async def call_openai_classifier(prompt: str, system_prompt: str) -> list[dict]:
         result = response.json()
 
         text = result["choices"][0]["message"]["content"]
-        return parse_classification_response(text)
+
+        # Extract usage (includes reasoning_tokens for o1/o3 models)
+        usage_data = result.get("usage", {})
+        reasoning_tokens = usage_data.get("completion_tokens_details", {}).get("reasoning_tokens", 0)
+
+        usage = LLMUsage(
+            model=result.get("model", "gpt-4o-mini"),
+            input_tokens=usage_data.get("prompt_tokens", 0),
+            output_tokens=usage_data.get("completion_tokens", 0),
+            reasoning_tokens=reasoning_tokens,
+            total_tokens=usage_data.get("total_tokens", 0),
+        )
+
+        return parse_classification_response(text), usage
 
 
 def parse_classification_response(text: str) -> list[dict]:
@@ -179,27 +179,19 @@ def parse_classification_response(text: str) -> list[dict]:
 
 async def classify_batch(
     rollups: list[dict],
-    prefer_anthropic: bool = True
-) -> list[dict]:
-    """Classify a batch of error rollups using LLM."""
+    prefer_anthropic: bool = False  # Always use OpenAI
+) -> tuple[list[dict], Optional[LLMUsage]]:
+    """Classify a batch of error rollups using LLM. Returns (classifications, usage)."""
     if not rollups:
-        return []
+        return [], None
 
     prompt = build_classification_prompt(rollups)
 
-    # Try Anthropic first if preferred and key is available
-    if prefer_anthropic and os.getenv("ANTHROPIC_API_KEY"):
-        try:
-            return await call_anthropic_classifier(prompt, CLASSIFICATION_SYSTEM_PROMPT)
-        except Exception as e:
-            print(f"Anthropic classification failed: {e}")
-            # Fall through to OpenAI if available
-
-    # Try OpenAI as fallback
+    # Always use OpenAI
     if os.getenv("OPENAI_API_KEY"):
         return await call_openai_classifier(prompt, CLASSIFICATION_SYSTEM_PROMPT)
 
-    raise ValueError("No API key available (need ANTHROPIC_API_KEY or OPENAI_API_KEY)")
+    raise ValueError("OPENAI_API_KEY not set")
 
 
 def update_rollups_with_classifications(
@@ -314,13 +306,21 @@ async def classify_unclassified_rollups(
 
         # Process in batches
         total_stats = {"updated": 0, "skipped": 0, "errors": 0}
+        total_usage = {
+            "model": None,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "api_calls": 0,
+            "cost_estimate_usd": 0.0,
+        }
 
         for i in range(0, len(unclassified), batch_size):
             batch = unclassified[i:i + batch_size]
             print(f"Processing batch {i // batch_size + 1} ({len(batch)} rollups)...")
 
             try:
-                classifications = await classify_batch(batch, prefer_anthropic)
+                classifications, usage = await classify_batch(batch, prefer_anthropic)
                 stats = update_rollups_with_classifications(
                     client, db_name, rollups_collection, batch, classifications
                 )
@@ -329,7 +329,18 @@ async def classify_unclassified_rollups(
                 total_stats["skipped"] += stats["skipped"]
                 total_stats["errors"] += stats["errors"]
 
+                # Aggregate usage
+                if usage:
+                    total_usage["model"] = usage.model
+                    total_usage["input_tokens"] += usage.input_tokens
+                    total_usage["output_tokens"] += usage.output_tokens
+                    total_usage["total_tokens"] += usage.total_tokens
+                    total_usage["api_calls"] += 1
+                    total_usage["cost_estimate_usd"] += usage.cost_estimate_usd()
+
                 print(f"  Updated: {stats['updated']}, Skipped: {stats['skipped']}, Errors: {stats['errors']}")
+                if usage:
+                    print(f"  Tokens: {usage.input_tokens} in + {usage.output_tokens} out = {usage.total_tokens}")
             except Exception as e:
                 print(f"Batch classification failed: {e}")
                 total_stats["errors"] += len(batch)
@@ -338,7 +349,8 @@ async def classify_unclassified_rollups(
             "status": "success",
             "total_unclassified": len(unclassified),
             "processed": len(unclassified),
-            **total_stats
+            **total_stats,
+            "llm_usage": total_usage,
         }
 
     finally:

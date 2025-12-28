@@ -373,7 +373,7 @@ def analyze_with_openai(health_summary: str) -> Optional[str]:
 
 # --- Email ---
 
-def format_email_body(health_data: HealthData, ai_analysis: Optional[dict]) -> str:
+def format_email_body(health_data: HealthData, ai_analysis: Optional[dict], llm_usage: Optional[dict] = None) -> str:
     """Format the full email body."""
     lines = []
 
@@ -437,6 +437,26 @@ def format_email_body(health_data: HealthData, ai_analysis: Optional[dict]) -> s
         lines.append("Models with ONLY Errors:")
         for m in health_data.models_with_only_errors[:5]:
             lines.append(f"  {m['provider']}:{m['model']} ({m['error_kind']})")
+
+    # LLM Usage section
+    if llm_usage and llm_usage.get("api_calls", 0) > 0:
+        lines.append("")
+        lines.append("─" * 50)
+        lines.append("LLM CLASSIFICATION USAGE")
+        lines.append("─" * 50)
+        lines.append(f"Model: {llm_usage.get('model', 'N/A')}")
+        lines.append(f"API Calls: {llm_usage.get('api_calls', 0)}")
+        lines.append(f"Input Tokens: {llm_usage.get('input_tokens', 0):,}")
+        lines.append(f"Output Tokens: {llm_usage.get('output_tokens', 0):,}")
+        reasoning = llm_usage.get('reasoning_tokens', 0)
+        if reasoning > 0:
+            lines.append(f"Reasoning Tokens: {reasoning:,}")
+        lines.append(f"Total Tokens: {llm_usage.get('total_tokens', 0):,}")
+        cost = llm_usage.get('cost_estimate_usd', 0)
+        lines.append(f"Est. Cost: ${cost:.4f}")
+        rollups_classified = llm_usage.get('rollups_classified', 0)
+        if rollups_classified:
+            lines.append(f"Rollups Classified: {rollups_classified}")
 
     return "\n".join(lines)
 
@@ -513,8 +533,9 @@ def main():
         sys.exit(1)
 
     # Step 1: Classify unclassified errors (unless skipped)
+    classification_results = None
     if not args.skip_classification:
-        asyncio.run(classify_errors_async())
+        classification_results = asyncio.run(classify_errors_async())
 
     # Step 2: Collect data
     print(f"Collecting health data for last {hours} hours...")
@@ -561,7 +582,15 @@ def main():
 
     # Format and send email
     subject = f"{tag} LLM Benchmarks Daily Health - {datetime.now().strftime('%Y-%m-%d')}"
-    body = format_email_body(health_data, ai_analysis)
+
+    # Extract LLM usage from classification results
+    llm_usage = None
+    if classification_results:
+        llm_usage = classification_results.get("llm_usage")
+        if llm_usage:
+            llm_usage["rollups_classified"] = classification_results.get("updated", 0)
+
+    body = format_email_body(health_data, ai_analysis, llm_usage=llm_usage)
 
     if send_email(subject, body, dry_run=args.dry_run):
         print(f"Email sent: {subject}")
