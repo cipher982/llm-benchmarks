@@ -12,10 +12,7 @@ from llm_bench.config import CloudConfig
 from llm_bench.logging import log_mongo
 from llm_bench.models_db import load_provider_models
 from llm_bench.ops.error_rollups import upsert_error_rollup
-from llm_bench.ops.error_taxonomy import ErrorKind
 from llm_bench.ops.error_taxonomy import classify_error
-from llm_bench.ops.provider_state import get_pause
-from llm_bench.ops.provider_state import pause_provider
 from llm_bench.utils import has_recent_cloud_run
 from llm_bench.utils import get_current_timestamp
 
@@ -97,33 +94,9 @@ def _error_rollups_collection_name() -> str:
     return os.getenv("MONGODB_COLLECTION_ERROR_ROLLUPS", "error_rollups")
 
 
-def _provider_state_collection_name() -> str:
-    return os.getenv("MONGODB_COLLECTION_PROVIDER_STATE", "provider_state")
-
-
 def _jobs_collection_name() -> Optional[str]:
     # Optional; default to 'jobs'. Allow empty to disable.
     return os.getenv("MONGODB_COLLECTION_JOBS", "jobs")
-
-
-def _pause_config(kind: ErrorKind) -> Optional[timedelta]:
-    def _minutes(name: str, default: int) -> timedelta:
-        try:
-            return timedelta(minutes=int(os.getenv(name, str(default))))
-        except ValueError:
-            return timedelta(minutes=default)
-
-    if kind == ErrorKind.AUTH:
-        return _minutes("PROVIDER_PAUSE_AUTH_MINUTES", 360)
-    if kind == ErrorKind.BILLING:
-        return _minutes("PROVIDER_PAUSE_BILLING_MINUTES", 360)
-    if kind == ErrorKind.RATE_LIMIT:
-        return _minutes("PROVIDER_PAUSE_RATE_MINUTES", 30)
-    if kind == ErrorKind.NETWORK:
-        return _minutes("PROVIDER_PAUSE_NETWORK_MINUTES", 30)
-    if kind == ErrorKind.TRANSIENT_PROVIDER:
-        return _minutes("PROVIDER_PAUSE_5XX_MINUTES", 30)
-    return None
 
 
 def _log_error_mongo(
@@ -182,35 +155,6 @@ def _log_error_mongo(
     except Exception:
         # As a last resort, print to console; no file logging in headless path
         print(f"❌ Error {provider}:{model} - {stage} - {message}")
-
-
-def _maybe_pause_provider(
-    *,
-    client: Optional[MongoClient],
-    db_name: Optional[str],
-    provider: str,
-    kind: ErrorKind,
-    normalized_message: str,
-) -> Optional[datetime]:
-    if client is None or db_name is None:
-        return None
-
-    duration = _pause_config(kind)
-    if duration is None:
-        return None
-
-    coll = client[db_name][_provider_state_collection_name()]
-    pause = pause_provider(collection=coll, provider=provider, reason=kind.value, duration=duration, note=normalized_message)
-    return pause.paused_until
-
-
-def _is_provider_paused(*, client: Optional[MongoClient], db_name: Optional[str], provider: str) -> Optional[str]:
-    if client is None or db_name is None:
-        return None
-    pause = get_pause(client[db_name][_provider_state_collection_name()], provider)
-    if pause is None:
-        return None
-    return f"{pause.pause_reason} until {pause.paused_until.isoformat()}"
 
 
 def _log_success_mongo(config: CloudConfig, metrics: Dict) -> None:
@@ -335,11 +279,6 @@ def _run_single_model(
     client: Optional[MongoClient] = None,
     db_name: Optional[str] = None,
 ) -> Dict[str, Optional[str]]:
-    paused = _is_provider_paused(client=client, db_name=db_name, provider=provider)
-    if paused:
-        print(f"⏸️  Skipped {provider}:{model} (provider paused: {paused})")
-        return {"status": "skipped", "reason": "provider_paused"}
-
     # Build configs
     run_ts = get_current_timestamp()
     model_config = CloudConfig(
@@ -370,8 +309,6 @@ def _run_single_model(
         metrics = generate(model_config, run_config)
     except Exception as e:
         reason = f"{type(e).__name__}: {str(e)}"
-        classified = classify_error(message=reason, exc_type=type(e).__name__)
-
         _log_error_mongo(
             provider,
             model,
@@ -382,17 +319,6 @@ def _run_single_model(
             client=client,
             db_name=db_name,
         )
-
-        paused_until = _maybe_pause_provider(
-            client=client,
-            db_name=db_name,
-            provider=provider,
-            kind=classified.kind,
-            normalized_message=classified.normalized_message,
-        )
-        if paused_until is not None:
-            print(f"⏸️  Pausing provider {provider} until {paused_until.isoformat()} ({classified.kind.value})")
-
         print(f"❌ Error {provider}:{model} - {reason}")
         return {"status": "error", "reason": reason}
 
