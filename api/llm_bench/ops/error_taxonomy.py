@@ -36,6 +36,10 @@ _HARD_CAPABILITY_HINTS = (
     "audio output",
     "image generation",
     "not supported for this model",
+    # Parameter compatibility (code needs updating for these models)
+    "unsupported parameter",
+    "max_completion_tokens",
+    "use 'max_completion_tokens' instead",
 )
 
 _HARD_MODEL_HINTS = (
