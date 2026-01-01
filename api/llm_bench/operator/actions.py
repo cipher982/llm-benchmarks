@@ -39,12 +39,24 @@ def should_auto_execute(decision: OperatorDecision) -> bool:
     if decision.action != "disable":
         return False
 
-    # High confidence threshold
+    # High confidence threshold - but must also have 404/401 for 48+ hours
     if decision.confidence >= 0.95:
-        return True
+        # Check if reasoning indicates 404/401 errors for 48+ hours
+        reasoning_lower = decision.reasoning.lower()
 
-    # Additional rules based on reasoning could go here
-    # (e.g., check if reasoning mentions "404 for 48+ hours")
+        # Look for indicators of 404/401 errors
+        has_404_401 = any(x in reasoning_lower for x in ["404", "401", "not found", "unauthorized"])
+
+        # Look for indicators of 48+ hours duration
+        has_duration = any(x in reasoning_lower for x in [
+            "48 hours", "48+ hours", "2 days", "two days",
+            "48h", "48hr", "48 hrs",
+            "over 48", "more than 48", "exceeds 48"
+        ])
+
+        # Only auto-execute if both conditions are met
+        if has_404_401 and has_duration:
+            return True
 
     return False
 
