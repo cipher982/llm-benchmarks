@@ -429,7 +429,8 @@ def format_email_body(health_data: HealthData, ai_analysis: Optional[dict], oper
                     lines.append("   Approve with:")
                     # Escape single quotes in reasoning for shell safety
                     escaped_reasoning = decision.reasoning[:80].replace("'", "'\\''")
-                    lines.append(f'   mongosh "$MONGODB_URI" --eval \'db.models.updateOne({{provider: "{decision.provider}", model_id: "{decision.model_id}"}}, {{$set: {{enabled: false, disabled_reason: "Operator: {escaped_reasoning}", disabled_at: new Date()}}}})')
+                    lines.append(f'   mongosh "$MONGODB_URI" --eval \'db.models.updateOne({{provider: "{decision.provider}", model_id: "{decision.model_id}"}}, {{$set: {{enabled: false, disabled_reason: "Operator: {escaped_reasoning}", disabled_at: new Date()}}}})\'')
+
                     lines.append("")
 
             # Show monitor suggestions
