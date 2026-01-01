@@ -273,17 +273,26 @@ def execute(
         )
         decisions.append(decision)
 
-    # Filter to auto-executable decisions
-    from .actions import should_auto_execute
-    auto_executable = [d for d in decisions if should_auto_execute(d)]
+    # Load snapshots for signal-based auto-exec checks
+    typer.echo("Loading snapshots for signal verification...")
+    snapshots = load_snapshots(provider_filter=None)
 
-    if not auto_executable:
+    # Execute decisions (with signal-based filtering)
+    typer.echo("Checking auto-execution eligibility...")
+    stats = execute_decisions(
+        decisions,
+        snapshots=snapshots,
+        auto_execute=True,
+        dry_run=True  # First do a dry run to see what would execute
+    )
+
+    auto_executable_count = stats["executed"]
+    if auto_executable_count == 0:
         typer.echo(f"Found {len(decisions)} pending decisions, but none are auto-executable")
-        typer.echo("(Only disable actions with confidence ≥0.95 are auto-executed)")
+        typer.echo("(Requires: hard errors 48+ hrs, no recent success, high confidence)")
         raise typer.Exit(0)
 
-    typer.echo(f"\n=== {len(auto_executable)} Auto-Executable Decisions ===\n")
-    print_decision_table(auto_executable)
+    typer.echo(f"\n{auto_executable_count} decisions eligible for auto-execution")
 
     if not dry_run and not yes:
         confirm = typer.confirm("\nExecute these decisions?")
@@ -291,9 +300,14 @@ def execute(
             typer.echo("Cancelled")
             raise typer.Exit(0)
 
-    # Execute decisions
+    # Execute decisions for real
     typer.echo("\nExecuting decisions...")
-    stats = execute_decisions(auto_executable, auto_execute=True, dry_run=dry_run)
+    stats = execute_decisions(
+        decisions,
+        snapshots=snapshots,
+        auto_execute=True,
+        dry_run=dry_run
+    )
 
     typer.echo(f"\nExecution complete:")
     typer.echo(f"  Executed: {stats['executed']}")

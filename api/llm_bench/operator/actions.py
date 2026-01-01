@@ -15,22 +15,29 @@ from typing import List, Optional
 from pymongo import MongoClient
 
 from .engine import OperatorDecision
+from ..model_lifecycle.collector import LifecycleSnapshot
 
 
 logger = logging.getLogger(__name__)
 
 
-def should_auto_execute(decision: OperatorDecision) -> bool:
+def should_auto_execute(
+    decision: OperatorDecision,
+    snapshot: LifecycleSnapshot
+) -> bool:
     """
     Determine if a decision should be auto-executed without human approval.
 
+    NEW (Phase 5): Uses actual signals, not prose parsing.
+
     Auto-execution rules (from spec):
-    1. 404 errors for 48+ hours with high confidence
-    2. 401 errors for 48+ hours with high confidence
-    3. LLM confidence ≥ 0.95 for disable action
+    - Hard model errors (404, "not found", etc.) for 48+ hours
+    - No recent success (7+ days)
+    - High confidence (≥ 0.90)
 
     Args:
         decision: Operator decision to evaluate
+        snapshot: Lifecycle snapshot with actual signal data
 
     Returns:
         True if should auto-execute, False otherwise
@@ -39,26 +46,26 @@ def should_auto_execute(decision: OperatorDecision) -> bool:
     if decision.action != "disable":
         return False
 
-    # High confidence threshold - but must also have 404/401 for 48+ hours
-    if decision.confidence >= 0.95:
-        # Check if reasoning indicates 404/401 errors for 48+ hours
-        reasoning_lower = decision.reasoning.lower()
+    # Must meet confidence threshold
+    if decision.confidence < 0.90:
+        return False
 
-        # Look for indicators of 404/401 errors
-        has_404_401 = any(x in reasoning_lower for x in ["404", "401", "not found", "unauthorized"])
+    # Check for hard failures (404, "not found", etc.)
+    if snapshot.errors.hard_failures_7d == 0:
+        return False
 
-        # Look for indicators of 48+ hours duration
-        has_duration = any(x in reasoning_lower for x in [
-            "48 hours", "48+ hours", "2 days", "two days",
-            "48h", "48hr", "48 hrs",
-            "over 48", "more than 48", "exceeds 48"
-        ])
+    # Check error age (must be 48+ hours old)
+    error_age_days = snapshot.errors.age_days(datetime.now(timezone.utc))
+    if error_age_days is None or error_age_days < 2.0:  # 2 days = 48 hours
+        return False
 
-        # Only auto-execute if both conditions are met
-        if has_404_401 and has_duration:
-            return True
+    # Check for recent success (no success in last 7 days)
+    success_age_days = snapshot.successes.age_days(datetime.now(timezone.utc))
+    if success_age_days is not None and success_age_days <= 7.0:
+        return False
 
-    return False
+    # All conditions met: hard failure, 48+ hours, no recent success, high confidence
+    return True
 
 
 def execute_disable(
@@ -198,6 +205,7 @@ def mark_decision_executed(
 
 def execute_decisions(
     decisions: List[OperatorDecision],
+    snapshots: Optional[List[LifecycleSnapshot]] = None,
     *,
     auto_execute: bool = True,
     dry_run: bool = False,
@@ -208,6 +216,7 @@ def execute_decisions(
 
     Args:
         decisions: List of decisions to execute
+        snapshots: Optional list of snapshots (for signal-based auto-exec checks)
         auto_execute: If True, auto-execute high-confidence decisions
         dry_run: If True, log what would happen but don't modify DB
         client: Optional MongoDB client
@@ -221,13 +230,32 @@ def execute_decisions(
         "failed": 0
     }
 
+    # Build snapshot lookup if provided
+    snapshot_map = {}
+    if snapshots:
+        snapshot_map = {
+            (s.provider, s.model_id): s
+            for s in snapshots
+        }
+
     for decision in decisions:
         # Check if should auto-execute
-        if not auto_execute or not should_auto_execute(decision):
+        snapshot = snapshot_map.get((decision.provider, decision.model_id))
+
+        # If no snapshot available, skip auto-execution (be conservative)
+        if not auto_execute or not snapshot or not should_auto_execute(decision, snapshot):
             stats["skipped"] += 1
+
+            skip_reason = ""
+            if not auto_execute:
+                skip_reason = "auto_execute=False"
+            elif not snapshot:
+                skip_reason = "no snapshot data"
+            else:
+                skip_reason = f"action={decision.action}, confidence={decision.confidence:.2f}"
+
             logger.info(
-                f"Skipping {decision.provider}/{decision.model_id} "
-                f"(action={decision.action}, confidence={decision.confidence:.2f})"
+                f"Skipping {decision.provider}/{decision.model_id} ({skip_reason})"
             )
             continue
 
