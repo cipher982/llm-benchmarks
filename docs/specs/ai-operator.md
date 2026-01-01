@@ -261,7 +261,7 @@ db.models.updateMany(
 mongosh "mongodb://..." --eval '
 [
   { provider: "groq", model_id: "llama-3.1-70b-specdec" },
-  { provider: "cerebras", model_id: "llama-4-maverick-17b-128e" },
+  { provider: "cerebras", model_id: "llama-4-maverick-17b-128e-instruct" },
   { provider: "vertex", model_id: "gemini-1.5-flash-002" },
   { provider: "openai", model_id: "gpt-4.5-preview" }
 ].forEach(m => {
@@ -285,13 +285,13 @@ mongosh "mongodb://..." --eval '
 mongosh "mongodb://..." --quiet --eval '
 db.models.countDocuments({provider: "openrouter", enabled: false})
 '
-# Expected: 171
+# Expected: 175
 
 # Check remaining enabled model count
 mongosh "mongodb://..." --quiet --eval '
 db.models.countDocuments({enabled: true})
 '
-# Expected: ~200 (down from ~370)
+# Expected: ~222 (down from ~397)
 
 # Wait 3+ hours, check dashboard has no OpenRouter data
 curl -s "https://llm-benchmarks.com/api/processed?days=1" | jq '.table[] | select(.providerCanonical=="openrouter")'
@@ -579,7 +579,7 @@ db.openrouter_catalog.countDocuments()
 
 ```bash
 # Count disabled OpenRouter models
-mongosh "mongodb://writer:***REMOVED***@5.161.97.53/llm-bench?authSource=llm-bench" --quiet --eval '
+mongosh "mongodb://writer:***@5.161.97.53/llm-bench?authSource=llm-bench" --quiet --eval '
 db.models.countDocuments({provider: "openrouter", enabled: false})
 '
 
