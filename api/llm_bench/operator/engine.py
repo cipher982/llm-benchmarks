@@ -370,6 +370,117 @@ Respond with JSON only (no markdown):
         return json.loads(text)
 
 
+async def call_llm_for_batch_decisions(situations: List[Situation]) -> dict[str, dict]:
+    """
+    Make a SINGLE LLM call for all situations.
+
+    Returns:
+        Dict mapping situation_id → {action, confidence, reasoning}
+    """
+    if not OPENAI_API_KEY:
+        raise ValueError("OPENAI_API_KEY not set")
+
+    if not situations:
+        return {}
+
+    # Build prompt with all situations
+    situation_summaries = []
+    for sit in situations:
+        # Calculate error age
+        error_age_str = "Unknown"
+        if sit.oldest_error and sit.newest_error:
+            oldest_days = (datetime.now(timezone.utc) - sit.oldest_error).days
+            newest_days = (datetime.now(timezone.utc) - sit.newest_error).days
+            if oldest_days == newest_days:
+                error_age_str = f"{oldest_days} days"
+            else:
+                error_age_str = f"{newest_days}-{oldest_days} days"
+
+        # Format sample messages
+        sample_msgs_str = "\n".join(f"  - {msg}" for msg in sit.sample_messages[:3])
+
+        situation_summaries.append(f"""
+[situation_id: {sit.situation_id}]
+Provider: {sit.provider}
+Error type: {sit.error_kind}
+Models affected: {sit.model_count}
+Error age: {error_age_str}
+Sample errors:
+{sample_msgs_str}
+""")
+
+    prompt = f"""You're analyzing LLM model health. Here are situations requiring decisions:
+
+{''.join(situation_summaries)}
+
+For each situation, determine action (disable/monitor/ignore).
+
+Decision criteria:
+- disable: Model permanently broken (404 "not found" 48+ hours, deprecated, auth permanently fails)
+- monitor: Concerning but not conclusive (high error rate might recover, intermittent failures)
+- ignore: Healthy or temporary issue (recent successes, rate limits, transient errors)
+
+Return JSON array ONLY (no markdown):
+[{{"situation_id": "...", "action": "disable|monitor|ignore", "confidence": 0.0-1.0, "reasoning": "1-2 sentence explanation"}}]
+"""
+
+    request_body = {
+        "model": OPENAI_MODEL,
+        "temperature": 0,
+        "max_completion_tokens": 2000,
+        "messages": [
+            {"role": "system", "content": DECISION_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt}
+        ]
+    }
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENAI_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json=request_body
+        )
+        response.raise_for_status()
+        result = response.json()
+
+        text = result["choices"][0]["message"]["content"]
+
+        # Parse JSON response (handle markdown code fences)
+        text = text.strip()
+        if text.startswith("```json"):
+            text = text[7:]
+        if text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+
+        decisions_list = json.loads(text)
+
+        # Convert to dict keyed by situation_id
+        decisions_dict = {}
+        for decision in decisions_list:
+            situation_id = decision["situation_id"]
+            decisions_dict[situation_id] = {
+                "action": decision["action"],
+                "confidence": float(decision["confidence"]),
+                "reasoning": decision["reasoning"]
+            }
+
+        # Log token usage
+        usage = result.get("usage", {})
+        logger.info(
+            f"Batch LLM call: {len(situations)} situations, "
+            f"{usage.get('prompt_tokens', 0)} prompt + {usage.get('completion_tokens', 0)} completion = "
+            f"{usage.get('total_tokens', 0)} total tokens"
+        )
+
+        return decisions_dict
+
+
 def convert_classifier_to_operator_decision(
     snapshot: LifecycleSnapshot,
     now: datetime,
