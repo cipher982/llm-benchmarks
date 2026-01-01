@@ -450,14 +450,16 @@ DISABLE  0.95  groq      llama-3.1-70b-specdec          Never succeeded...
 
 ### Phase 3: Integration with Daily Health Check
 
+**Status:** ✅ COMPLETED (2026-01-01)
+
 **Goal:** Operator runs automatically, sends suggestions in daily email
 
 **Acceptance Criteria:**
-- [ ] `ops/daily-health-check.py` calls operator engine
-- [ ] Email includes "AI Operator Suggestions" section
-- [ ] Auto-executes high-confidence disables (404/401 >48h)
-- [ ] Provides copy-paste commands for human-approved actions
-- [ ] Tracks executed actions in `model_status.operator_decision.executed_at`
+- [x] `ops/daily-health-check.py` calls operator engine
+- [x] Email includes "AI Operator Suggestions" section
+- [x] Auto-executes high-confidence disables (404/401 >48h)
+- [x] Provides copy-paste commands for human-approved actions
+- [x] Tracks executed actions in `model_status.operator_decision.executed_at`
 
 **Email Format:**
 ```
@@ -495,11 +497,38 @@ Disabled 2 models (404 errors >48h):
 [...]
 ```
 
+**Implementation:**
+
+1. **Added `run_operator_async()` function** to `ops/daily-health-check.py`:
+   - Loads lifecycle snapshots from MongoDB
+   - Generates decisions using LLM reasoning
+   - Stores all decisions in `model_status` collection
+   - Auto-executes high-confidence (≥0.95) disable actions
+   - Returns results for email formatting
+
+2. **Email formatting** in `format_email_body()`:
+   - AUTO-EXECUTED ACTIONS section lists models disabled automatically
+   - SUGGESTIONS FOR REVIEW section lists models needing manual review
+   - Disable candidates include copy-paste `mongosh` commands
+   - Monitor candidates show reasoning and confidence
+
+3. **Subject line** updated to show `[OPERATED]` tag when actions are taken:
+   - Format: `[OPERATED] {count} auto-actions, {count} suggestions - [INFO/URGENT/CRITICAL]`
+
+4. **Testing flags** added:
+   - `--skip-operator`: Skip operator analysis entirely
+   - `--operator-provider`: Filter to specific providers (repeatable)
+
 **Test Commands:**
 ```bash
-# Run health check (triggers operator)
-cd /Users/davidrose/git/llmbench/llm-benchmarks
-uv run env PYTHONPATH=. python ops/daily-health-check.py
+# Full health check with operator (production mode)
+uv run python ops/daily-health-check.py
+
+# Test with specific provider
+uv run python ops/daily-health-check.py --operator-provider groq --dry-run
+
+# Skip operator (for faster testing of other features)
+uv run python ops/daily-health-check.py --skip-operator --dry-run
 
 # Check for auto-executed actions
 mongosh "mongodb://..." --quiet --eval '
@@ -513,7 +542,26 @@ db.model_status.find({
 # Verify email sent (check logs or inbox)
 ```
 
-**Duration:** 1-2 days (integration, email formatting, testing)
+**Execution Results (2026-01-01 test with groq provider):**
+```
+Running AI operator analysis...
+  Analyzing 25 models...
+  Stored 25 decisions in model_status
+  Auto-executable: 13
+  Manual review: 0
+  Executing 13 high-confidence decisions...
+    Executed: 13, Failed: 0
+
+Subject: [OPERATED] 13 auto-actions, 0 suggestions - [INFO] LLM Benchmarks Daily Health - 2026-01-01
+
+AUTO-EXECUTED ACTIONS:
+- groq/deepseek-r1-distill-llama-70b (confidence: 0.95)
+- groq/gemma-7b-it (confidence: 0.95)
+- groq/llama-3.1-70b-specdec (confidence: 0.95)
+[... 10 more models ...]
+```
+
+**Duration:** ~2 hours (actual implementation time, 2026-01-01)
 
 ---
 
