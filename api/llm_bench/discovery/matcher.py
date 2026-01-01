@@ -97,7 +97,8 @@ async def call_llm_for_match(openrouter_model: Dict[str, Any]) -> dict:
     if not OPENAI_API_KEY:
         raise ValueError("OPENAI_API_KEY not set")
 
-    openrouter_id = openrouter_model.get("id", "")
+    # Handle both DB format (openrouter_id) and API format (id)
+    openrouter_id = openrouter_model.get("openrouter_id") or openrouter_model.get("id", "")
     openrouter_name = openrouter_model.get("name", "")
     context_length = openrouter_model.get("context_length", 0)
 
@@ -157,13 +158,14 @@ async def match_single_model(
     Match a single OpenRouter model to a direct provider.
 
     Args:
-        openrouter_model: Model dict from OpenRouter catalog
+        openrouter_model: Model dict from OpenRouter catalog (from DB, has openrouter_id field)
         our_models: List of models we already have in our DB
 
     Returns:
         ModelMatch if this is a new model (not in our DB), None if we already have it
     """
-    openrouter_id = openrouter_model.get("id", "")
+    # Handle both DB format (openrouter_id) and API format (id)
+    openrouter_id = openrouter_model.get("openrouter_id") or openrouter_model.get("id", "")
     openrouter_name = openrouter_model.get("name", "")
 
     # Check if we already benchmark this model
