@@ -481,6 +481,58 @@ Return JSON array ONLY (no markdown):
         return decisions_dict
 
 
+def expand_situation_decisions(
+    situations: List[Situation],
+    situation_decisions: dict[str, dict],
+    now: datetime
+) -> List[OperatorDecision]:
+    """
+    Expand situation-level decisions to per-model decisions.
+
+    Applies deterministic overrides:
+    - If model had recent success (7d), downgrade disable → monitor
+    """
+    decisions = []
+
+    for situation in situations:
+        # Get the situation-level decision
+        sit_decision = situation_decisions.get(situation.situation_id)
+        if not sit_decision:
+            logger.warning(f"No decision for situation {situation.situation_id}, using fallback")
+            # Fallback to monitor
+            sit_decision = {
+                "action": "monitor",
+                "confidence": 0.50,
+                "reasoning": "LLM did not provide decision for this situation"
+            }
+
+        # Apply to each model in the situation
+        for snapshot in situation.snapshots:
+            action = sit_decision["action"]
+            confidence = sit_decision["confidence"]
+            reasoning = sit_decision["reasoning"]
+
+            # Deterministic override: recent success downgrades disable → monitor
+            if action == "disable":
+                success_age = snapshot.successes.age_days(now)
+                if success_age is not None and success_age <= 7.0:
+                    action = "monitor"
+                    confidence = max(0.70, confidence - 0.15)  # Lower confidence
+                    reasoning = f"{reasoning} [Override: Recent success within 7d, monitoring instead]"
+
+            decisions.append(OperatorDecision(
+                provider=snapshot.provider,
+                model_id=snapshot.model_id,
+                action=action,
+                confidence=confidence,
+                reasoning=reasoning,
+                suggested_at=now,
+                suggested_by=f"ai-operator-batch-{OPENAI_MODEL}",
+            ))
+
+    return decisions
+
+
 def convert_classifier_to_operator_decision(
     snapshot: LifecycleSnapshot,
     now: datetime,
