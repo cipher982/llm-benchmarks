@@ -625,6 +625,27 @@ async def run_operator_async(provider_filter=None):
             execution_stats = execute_decisions(auto_exec, auto_execute=True, dry_run=False)
             print(f"    Executed: {execution_stats['executed']}, Failed: {execution_stats['failed']}")
 
+            # Update in-memory decisions with executed_at timestamps from DB
+            # This ensures the email shows correct execution times
+            from pymongo import MongoClient
+            uri = os.getenv("MONGODB_URI")
+            if uri:
+                client = MongoClient(uri)
+                try:
+                    db_name = os.getenv("MONGODB_DB", "llm-bench")
+                    collection = client[db_name]["model_status"]
+
+                    for decision in auto_exec:
+                        # Read back executed_at from DB
+                        doc = collection.find_one(
+                            {"provider": decision.provider, "model_id": decision.model_id},
+                            {"operator_decision.executed_at": 1}
+                        )
+                        if doc and doc.get("operator_decision", {}).get("executed_at"):
+                            decision.executed_at = doc["operator_decision"]["executed_at"]
+                finally:
+                    client.close()
+
         return {
             "total_analyzed": len(snapshots),
             "total_decisions": len(decisions),
