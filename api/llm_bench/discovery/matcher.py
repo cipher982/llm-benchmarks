@@ -21,7 +21,7 @@ from pymongo import MongoClient
 logger = logging.getLogger(__name__)
 
 # Configuration
-OPENAI_MODEL = os.getenv("DISCOVERY_LLM_MODEL", "gpt-4o-mini")
+OPENAI_MODEL = os.getenv("DISCOVERY_LLM_MODEL", "gpt-5.2")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Supported direct providers (from spec)

@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 # Configuration
-OPENAI_MODEL = os.getenv("OPERATOR_LLM_MODEL", "gpt-4o-mini")
+OPENAI_MODEL = os.getenv("OPERATOR_LLM_MODEL", "gpt-5.2")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 
