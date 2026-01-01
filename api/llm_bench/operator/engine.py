@@ -42,6 +42,20 @@ class OperatorDecision:
     executed_at: Optional[datetime] = None
 
 
+@dataclass(slots=True)
+class Situation:
+    """Grouped models sharing similar error patterns."""
+    situation_id: str
+    provider: str
+    error_kind: str  # hard, auth, rate, other
+    model_count: int
+    model_ids: List[str]
+    snapshots: List[LifecycleSnapshot]
+    oldest_error: Optional[datetime]
+    newest_error: Optional[datetime]
+    sample_messages: List[str]
+
+
 def format_snapshot_context(snapshot: LifecycleSnapshot) -> str:
     """Format snapshot data for LLM context."""
     lines = [
@@ -213,6 +227,93 @@ def fast_pass(
         needs_analysis.append(snapshot)
 
     return passthrough, needs_analysis
+
+
+def _normalize_message(message: str) -> str:
+    """Normalize error message for grouping."""
+    # Take first 100 chars, lowercase, strip special chars
+    normalized = message[:100].lower()
+    # Keep only alphanumeric and spaces
+    normalized = ''.join(c if c.isalnum() or c.isspace() else ' ' for c in normalized)
+    # Collapse whitespace
+    normalized = ' '.join(normalized.split())
+    return normalized
+
+
+def build_situations(
+    snapshots: List[LifecycleSnapshot],
+    now: datetime
+) -> List[Situation]:
+    """
+    Group models by provider + error pattern.
+
+    Grouping key: {provider}|{error_kind}|{normalized_msg_prefix}
+
+    Returns:
+        List of Situation objects
+    """
+    from collections import defaultdict
+
+    # Group snapshots by situation
+    situations_map: dict[str, List[LifecycleSnapshot]] = defaultdict(list)
+
+    for snapshot in snapshots:
+        # Determine error kind from most recent error
+        error_kind = "other"
+        if snapshot.errors.recent_messages:
+            error_kind = snapshot.errors.recent_messages[0].kind
+
+        # Normalize first error message for grouping
+        msg_prefix = ""
+        if snapshot.errors.recent_messages:
+            msg_prefix = _normalize_message(snapshot.errors.recent_messages[0].message)
+
+        # Create situation key
+        situation_id = f"{snapshot.provider}|{error_kind}|{msg_prefix}"
+        situations_map[situation_id].append(snapshot)
+
+    # Convert to Situation objects
+    situations = []
+    for situation_id, group_snapshots in situations_map.items():
+        provider, error_kind, _ = situation_id.split('|', 2)
+
+        # Find oldest and newest errors
+        oldest_error = None
+        newest_error = None
+        for snapshot in group_snapshots:
+            if snapshot.errors.last_error:
+                if oldest_error is None or snapshot.errors.last_error < oldest_error:
+                    oldest_error = snapshot.errors.last_error
+                if newest_error is None or snapshot.errors.last_error > newest_error:
+                    newest_error = snapshot.errors.last_error
+
+        # Collect sample messages (2-3 representative, truncated)
+        sample_messages = []
+        seen_messages = set()
+        for snapshot in group_snapshots:
+            for msg in snapshot.errors.recent_messages[:3]:
+                truncated = msg.message[:200]
+                if truncated not in seen_messages:
+                    sample_messages.append(truncated)
+                    seen_messages.add(truncated)
+                if len(sample_messages) >= 3:
+                    break
+            if len(sample_messages) >= 3:
+                break
+
+        situations.append(Situation(
+            situation_id=situation_id,
+            provider=provider,
+            error_kind=error_kind,
+            model_count=len(group_snapshots),
+            model_ids=[s.model_id for s in group_snapshots],
+            snapshots=group_snapshots,
+            oldest_error=oldest_error,
+            newest_error=newest_error,
+            sample_messages=sample_messages,
+        ))
+
+    return situations
 
 
 async def call_llm_for_decision(context: str) -> dict:
