@@ -316,9 +316,11 @@ def build_situations(
     return situations
 
 
-async def call_llm_for_decision(context: str) -> dict:
+async def _call_llm_for_single_decision(context: str) -> dict:
     """
-    Call OpenAI LLM to reason about model health.
+    Call OpenAI LLM to reason about model health (single model fallback).
+
+    NOTE: This is the old per-model approach. Prefer call_llm_for_batch_decisions().
 
     Returns parsed JSON dict with action, confidence, reasoning.
     Raises exception on API failure.
@@ -578,12 +580,16 @@ async def generate_decision_for_snapshot(
     now: datetime
 ) -> OperatorDecision:
     """
-    Generate a single decision using LLM reasoning.
+    Generate a single decision using LLM reasoning (fallback only).
+
+    NOTE: This is kept for fallback when batch processing fails.
+    Normal flow uses generate_decisions() with batching.
+
     Falls back to classifier.py on failure.
     """
     try:
         context = format_snapshot_context(snapshot)
-        result = await call_llm_for_decision(context)
+        result = await _call_llm_for_single_decision(context)
 
         return OperatorDecision(
             provider=snapshot.provider,
