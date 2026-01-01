@@ -582,7 +582,7 @@ async def classify_errors_async():
         return None
 
 
-async def run_operator_async(provider_filter=None):
+async def run_operator_async(provider_filter=None, dry_run=False):
     """Run AI operator analysis and return decisions."""
     try:
         # Add parent directory to path to import from api module
@@ -618,30 +618,37 @@ async def run_operator_async(provider_filter=None):
         # Execute auto-executable decisions
         execution_stats = None
         if auto_exec:
-            print(f"  Executing {len(auto_exec)} high-confidence decisions...")
-            execution_stats = execute_decisions(auto_exec, auto_execute=True, dry_run=False)
-            print(f"    Executed: {execution_stats['executed']}, Failed: {execution_stats['failed']}")
+            if dry_run:
+                print(f"  [DRY-RUN] Would execute {len(auto_exec)} high-confidence decisions...")
+            else:
+                print(f"  Executing {len(auto_exec)} high-confidence decisions...")
+            execution_stats = execute_decisions(auto_exec, auto_execute=True, dry_run=dry_run)
+            if dry_run:
+                print(f"    [DRY-RUN] Would have executed: {execution_stats['executed']}, Failed: {execution_stats['failed']}")
+            else:
+                print(f"    Executed: {execution_stats['executed']}, Failed: {execution_stats['failed']}")
 
             # Update in-memory decisions with executed_at timestamps from DB
-            # This ensures the email shows correct execution times
-            from pymongo import MongoClient
-            uri = os.getenv("MONGODB_URI")
-            if uri:
-                client = MongoClient(uri)
-                try:
-                    db_name = os.getenv("MONGODB_DB", "llm-bench")
-                    collection = client[db_name]["model_status"]
+            # This ensures the email shows correct execution times (skip in dry-run)
+            if not dry_run:
+                from pymongo import MongoClient
+                uri = os.getenv("MONGODB_URI")
+                if uri:
+                    client = MongoClient(uri)
+                    try:
+                        db_name = os.getenv("MONGODB_DB", "llm-bench")
+                        collection = client[db_name]["model_status"]
 
-                    for decision in auto_exec:
-                        # Read back executed_at from DB
-                        doc = collection.find_one(
-                            {"provider": decision.provider, "model_id": decision.model_id},
-                            {"operator_decision.executed_at": 1}
-                        )
-                        if doc and doc.get("operator_decision", {}).get("executed_at"):
-                            decision.executed_at = doc["operator_decision"]["executed_at"]
-                finally:
-                    client.close()
+                        for decision in auto_exec:
+                            # Read back executed_at from DB
+                            doc = collection.find_one(
+                                {"provider": decision.provider, "model_id": decision.model_id},
+                                {"operator_decision.executed_at": 1}
+                            )
+                            if doc and doc.get("operator_decision", {}).get("executed_at"):
+                                decision.executed_at = doc["operator_decision"]["executed_at"]
+                    finally:
+                        client.close()
 
         return {
             "total_analyzed": len(snapshots),
@@ -684,7 +691,7 @@ def main():
     # Step 2: Run AI operator analysis (unless skipped)
     operator_results = None
     if not args.skip_operator:
-        operator_results = asyncio.run(run_operator_async(provider_filter=args.operator_provider))
+        operator_results = asyncio.run(run_operator_async(provider_filter=args.operator_provider, dry_run=args.dry_run))
 
     # Step 3: Collect data
     print(f"Collecting health data for last {hours} hours...")
