@@ -136,6 +136,85 @@ Return ONLY valid JSON (no markdown, no extra text):
 """
 
 
+def fast_pass(
+    snapshots: List[LifecycleSnapshot],
+    now: datetime
+) -> tuple[List[OperatorDecision], List[LifecycleSnapshot]]:
+    """
+    Deterministic fast-pass: handle obvious cases without LLM.
+
+    Rules:
+    - Already disabled → ignore
+    - Marked deprecated in metadata → disable (confidence 0.95)
+    - Recent success (last 24h) + no hard failures 7d → ignore
+    - No signals (never succeeded, no errors) → monitor
+
+    Returns:
+        (passthrough_decisions, needs_analysis)
+    """
+    passthrough = []
+    needs_analysis = []
+
+    for snapshot in snapshots:
+        # Already disabled
+        if not snapshot.metadata.enabled:
+            passthrough.append(OperatorDecision(
+                provider=snapshot.provider,
+                model_id=snapshot.model_id,
+                action="ignore",
+                confidence=1.0,
+                reasoning="Already disabled in database",
+                suggested_at=now,
+                suggested_by="fast-pass",
+            ))
+            continue
+
+        # Marked deprecated in metadata
+        if snapshot.metadata.deprecated:
+            passthrough.append(OperatorDecision(
+                provider=snapshot.provider,
+                model_id=snapshot.model_id,
+                action="disable",
+                confidence=0.95,
+                reasoning=f"Marked deprecated in metadata{f': {snapshot.metadata.deprecation_reason}' if snapshot.metadata.deprecation_reason else ''}",
+                suggested_at=now,
+                suggested_by="fast-pass",
+            ))
+            continue
+
+        # Recent success (last 24h) + no hard failures
+        success_age = snapshot.successes.age_days(now)
+        if success_age is not None and success_age < 1.0 and snapshot.errors.hard_failures_7d == 0:
+            passthrough.append(OperatorDecision(
+                provider=snapshot.provider,
+                model_id=snapshot.model_id,
+                action="ignore",
+                confidence=0.90,
+                reasoning="Recent success (last 24h) with no hard failures",
+                suggested_at=now,
+                suggested_by="fast-pass",
+            ))
+            continue
+
+        # No signals at all
+        if snapshot.successes.last_success is None and snapshot.errors.last_error is None:
+            passthrough.append(OperatorDecision(
+                provider=snapshot.provider,
+                model_id=snapshot.model_id,
+                action="monitor",
+                confidence=0.80,
+                reasoning="No signals - never succeeded or failed",
+                suggested_at=now,
+                suggested_by="fast-pass",
+            ))
+            continue
+
+        # Needs LLM analysis
+        needs_analysis.append(snapshot)
+
+    return passthrough, needs_analysis
+
+
 async def call_llm_for_decision(context: str) -> dict:
     """
     Call OpenAI LLM to reason about model health.
