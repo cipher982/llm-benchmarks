@@ -116,7 +116,7 @@ Respond with JSON only (no markdown):
     request_body = {
         "model": OPENAI_MODEL,
         "temperature": 0,
-        "max_tokens": 300,
+        "max_completion_tokens": 300,
         "messages": [
             {"role": "system", "content": MATCHING_SYSTEM_PROMPT},
             {"role": "user", "content": prompt}
