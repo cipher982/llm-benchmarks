@@ -297,7 +297,7 @@ def analyze_with_openai(health_summary: str) -> Optional[str]:
         return None
 
     request_body = {
-        "model": "gpt-4o-mini",  # Fast and cheap for daily summaries
+        "model": "gpt-5.2",  # Latest model for analysis
         "max_output_tokens": 2000,  # Cap response size
         "input": [
             {"role": "system", "content": SYSTEM_PROMPT},
