@@ -220,14 +220,27 @@ api/llm_bench/
 
 ### Phase 1: OpenRouter Cleanup + Broken Models (Immediate)
 
+**Status:** ✅ COMPLETED (2026-01-01)
+
 **Goal:** Remove noise and get clean baseline
 
 **Acceptance Criteria:**
-- [ ] All 171 OpenRouter models disabled in `models` collection
-- [ ] OpenRouter credentials kept (for future discovery API)
-- [ ] Known broken models disabled (groq llama-3.1-70b-specdec, etc.)
-- [ ] Dashboard shows only direct provider data
-- [ ] Daily health email no longer shows OpenRouter errors
+- [x] All OpenRouter models disabled in `models` collection (175 models disabled)
+- [x] OpenRouter credentials kept (for future discovery API)
+- [x] Known broken models disabled:
+  - groq/llama-3.1-70b-specdec ✅
+  - cerebras/llama-4-maverick-17b-128e-instruct ✅ (corrected model ID)
+  - vertex/gemini-1.5-flash-002 ✅
+  - openai/gpt-4.5-preview ✅
+- [ ] Dashboard shows only direct provider data (pending next benchmark run, ~3hrs)
+- [ ] Daily health email no longer shows OpenRouter errors (pending next email)
+
+**Execution Results:**
+- OpenRouter models disabled: 175 (spec estimated 171, actual was 175)
+- Broken models disabled: 4 (cerebras model ID corrected to `-instruct` variant)
+- Total enabled models: 222 (down from ~397)
+- Total disabled models: 301
+- Total models in collection: 523
 
 **Manual Execution (MongoDB):**
 ```bash
