@@ -27,8 +27,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+import dotenv
 import httpx
 from pymongo import MongoClient
+
+# Load environment variables
+dotenv.load_dotenv()
 
 
 # --- Configuration ---
@@ -581,7 +585,7 @@ async def classify_errors_async():
         return None
 
 
-async def run_operator_async():
+async def run_operator_async(provider_filter=None):
     """Run AI operator analysis and return decisions."""
     try:
         # Add parent directory to path to import from api module
@@ -593,7 +597,7 @@ async def run_operator_async():
         print("Running AI operator analysis...")
 
         # Load lifecycle snapshots
-        snapshots = load_snapshots()
+        snapshots = load_snapshots(provider_filter=provider_filter)
         if not snapshots:
             print("  No models found for operator analysis")
             return None
@@ -643,6 +647,8 @@ def main():
     parser.add_argument("--days", type=float, default=1, help="Look back this many days (default: 1)")
     parser.add_argument("--dry-run", action="store_true", help="Print report but don't email")
     parser.add_argument("--skip-classification", action="store_true", help="Skip LLM error classification step")
+    parser.add_argument("--skip-operator", action="store_true", help="Skip AI operator analysis step")
+    parser.add_argument("--operator-provider", type=str, action="append", help="Filter operator to specific providers (can repeat)")
     args = parser.parse_args()
 
     hours = max(1, int(args.days * 24))  # Minimum 1 hour to avoid empty queries
@@ -657,8 +663,10 @@ def main():
     if not args.skip_classification:
         classification_results = asyncio.run(classify_errors_async())
 
-    # Step 2: Run AI operator analysis
-    operator_results = asyncio.run(run_operator_async())
+    # Step 2: Run AI operator analysis (unless skipped)
+    operator_results = None
+    if not args.skip_operator:
+        operator_results = asyncio.run(run_operator_async(provider_filter=args.operator_provider))
 
     # Step 3: Collect data
     print(f"Collecting health data for last {hours} hours...")

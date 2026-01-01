@@ -15,6 +15,7 @@ from llm_bench.config import MongoConfig
 from llm_bench.logging import log_metrics
 from llm_bench.utils import check_and_clean_space
 from llm_bench.utils import has_existing_run
+from llm_bench.utils import get_current_timestamp
 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 LOG_DIR = os.environ.get("LOG_DIR", "/var/log")
@@ -108,7 +109,6 @@ def call_huggingface() -> Union[Response, Tuple[Response, int]]:
             from llm_bench.local.hf.transformers import generate
         elif framework == "hf-tgi":
             from llm_bench.local.hf.tgi import generate
-from llm_bench.utils import get_current_timestamp
         else:
             raise ValueError(f"Unknown framework: {framework}")
 

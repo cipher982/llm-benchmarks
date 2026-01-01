@@ -336,7 +336,13 @@ def _load_error_metrics(collection, providers: Optional[Sequence[str]], now: dat
         {
             "$addFields": {
                 "_ts": {"$ifNull": ["$ts", {"$ifNull": ["$created_at", {"$ifNull": ["$timestamp", "$ts"]}]}]},
-                "_message": {"$ifNull": ["$message", {"$ifNull": ["$error", {"$ifNull": ["$traceback", ""]}]}]},
+                "_kind": {"$ifNull": ["$error_kind", ""]},
+                "_message": {
+                    "$ifNull": [
+                        "$normalized_message",
+                        {"$ifNull": ["$message", {"$ifNull": ["$error", {"$ifNull": ["$traceback", ""]}]}]},
+                    ]
+                },
             }
         },
         {"$match": {"_ts": {"$ne": None}}},
@@ -346,6 +352,7 @@ def _load_error_metrics(collection, providers: Optional[Sequence[str]], now: dat
                 "model_name": 1,
                 "_ts": 1,
                 "_message": 1,
+                "_kind": 1,
                 "error_7d": {"$cond": [{"$gte": ["$_ts", seven_ago]}, 1, 0]},
                 "error_30d": {"$cond": [{"$gte": ["$_ts", thirty_ago]}, 1, 0]},
             }
@@ -357,7 +364,7 @@ def _load_error_metrics(collection, providers: Optional[Sequence[str]], now: dat
                 "last_error": {"$max": "$_ts"},
                 "errors_7d": {"$sum": "$error_7d"},
                 "errors_30d": {"$sum": "$error_30d"},
-                "messages": {"$push": {"ts": "$_ts", "message": "$_message"}},
+                "messages": {"$push": {"ts": "$_ts", "message": "$_message", "kind": "$_kind"}},
             }
         },
         {
@@ -394,17 +401,27 @@ def _load_error_metrics(collection, providers: Optional[Sequence[str]], now: dat
         for idx, entry in enumerate(doc.get("messages", [])):
             ts = _ensure_utc(entry.get("ts")) if isinstance(entry, dict) else None
             message_raw = ""
+            message_kind = ""
             if isinstance(entry, dict):
                 message_raw = entry.get("message") or ""
+                message_kind = entry.get("kind") or ""
             elif isinstance(entry, str):
                 message_raw = entry
             else:
                 message_raw = ""
 
-            kind = _categorize_message(message_raw)
-            if _within(timedelta(days=7), now, ts) and kind == "hard":
+            # Prefer structured error_kind from the runner; fall back to keyword categorization.
+            normalized_kind = str(message_kind).strip().lower()
+            if normalized_kind:
+                kind = normalized_kind
+            else:
+                kind = _categorize_message(message_raw)
+
+            # Per v2 spec: only hard_model is treated as "hard failure" for deprecation signals.
+            is_hard_model = kind in ("hard_model", "hard")  # "hard" is legacy fallback
+            if _within(timedelta(days=7), now, ts) and is_hard_model:
                 hard_failures_7d += 1
-            if _within(timedelta(days=30), now, ts) and kind == "hard":
+            if _within(timedelta(days=30), now, ts) and is_hard_model:
                 hard_failures_30d += 1
 
             if idx < 10:
