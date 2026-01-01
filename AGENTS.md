@@ -82,7 +82,7 @@ AWS Bedrock requires specific model ID formats. Getting this wrong causes silent
 ### Adding a New Model
 
 ```bash
-mongosh "mongodb://writer:***REMOVED***@5.161.97.53/llm-bench?authSource=llm-bench" --eval '
+mongosh "$MONGODB_URI" --eval '
 db.models.insertOne({
   provider: "bedrock",
   model_id: "us.anthropic.claude-NEW-MODEL-v1:0",  // Use correct prefix!
@@ -96,7 +96,7 @@ db.models.insertOne({
 ### Disabling a Model (preferred over deleting)
 
 ```bash
-mongosh "mongodb://writer:***REMOVED***@5.161.97.53/llm-bench?authSource=llm-bench" --eval '
+mongosh "$MONGODB_URI" --eval '
 db.models.updateOne(
   { provider: "bedrock", model_id: "the-model-id" },
   { $set: { enabled: false, disabled_reason: "Reason here", disabled_at: new Date() } }
@@ -108,12 +108,12 @@ db.models.updateOne(
 
 ```bash
 # List enabled models for a provider
-mongosh "mongodb://writer:***REMOVED***@5.161.97.53/llm-bench?authSource=llm-bench" --quiet --eval '
+mongosh "$MONGODB_URI" --quiet --eval '
 db.models.find({provider: "bedrock", enabled: true}).forEach(d => print(d.model_id))
 '
 
 # Check disabled models with reasons
-mongosh "mongodb://writer:***REMOVED***@5.161.97.53/llm-bench?authSource=llm-bench" --quiet --eval '
+mongosh "$MONGODB_URI" --quiet --eval '
 db.models.find({provider: "bedrock", enabled: false, disabled_reason: {$exists: true}}).forEach(d => {
   print(d.model_id + " → " + d.disabled_reason)
 })

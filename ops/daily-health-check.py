@@ -609,9 +609,17 @@ async def run_operator_async(provider_filter=None, dry_run=False):
         stored_count = store_decisions(decisions)
         print(f"  Stored {stored_count} decisions in model_status")
 
+        snapshot_map = {(s.provider, s.model_id): s for s in snapshots}
+
         # Separate auto-executable from manual review
-        auto_exec = [d for d in decisions if should_auto_execute(d)]
-        manual_review = [d for d in decisions if not should_auto_execute(d) and d.action != "ignore"]
+        def is_auto_executable(decision):
+            snapshot = snapshot_map.get((decision.provider, decision.model_id))
+            if not snapshot:
+                return False
+            return should_auto_execute(decision, snapshot)
+
+        auto_exec = [d for d in decisions if is_auto_executable(d)]
+        manual_review = [d for d in decisions if not is_auto_executable(d) and d.action != "ignore"]
 
         print(f"  Auto-executable: {len(auto_exec)}")
         print(f"  Manual review: {len(manual_review)}")
@@ -623,7 +631,12 @@ async def run_operator_async(provider_filter=None, dry_run=False):
                 print(f"  [DRY-RUN] Would execute {len(auto_exec)} high-confidence decisions...")
             else:
                 print(f"  Executing {len(auto_exec)} high-confidence decisions...")
-            execution_stats = execute_decisions(auto_exec, auto_execute=True, dry_run=dry_run)
+            execution_stats = execute_decisions(
+                auto_exec,
+                snapshots=snapshots,
+                auto_execute=True,
+                dry_run=dry_run,
+            )
             if dry_run:
                 print(f"    [DRY-RUN] Would have executed: {execution_stats['executed']}, Failed: {execution_stats['failed']}")
             else:

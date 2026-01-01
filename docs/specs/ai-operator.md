@@ -247,7 +247,7 @@ api/llm_bench/
 **Manual Execution (MongoDB):**
 ```bash
 # Disable all OpenRouter models
-mongosh "mongodb://writer:...@5.161.97.53/llm-bench?authSource=llm-bench" --eval '
+mongosh "$MONGODB_URI" --eval '
 db.models.updateMany(
   { provider: "openrouter" },
   {
@@ -260,7 +260,7 @@ db.models.updateMany(
 )'
 
 # Disable known broken models
-mongosh "mongodb://..." --eval '
+mongosh "$MONGODB_URI" --eval '
 [
   { provider: "groq", model_id: "llama-3.1-70b-specdec" },
   { provider: "cerebras", model_id: "llama-4-maverick-17b-128e-instruct" },
@@ -284,13 +284,13 @@ mongosh "mongodb://..." --eval '
 **Test Commands:**
 ```bash
 # Verify OpenRouter models disabled
-mongosh "mongodb://..." --quiet --eval '
+mongosh "$MONGODB_URI" --quiet --eval '
 db.models.countDocuments({provider: "openrouter", enabled: false})
 '
 # Expected: 175
 
 # Check remaining enabled model count
-mongosh "mongodb://..." --quiet --eval '
+mongosh "$MONGODB_URI" --quiet --eval '
 db.models.countDocuments({enabled: true})
 '
 # Expected: ~222 (down from ~397)
@@ -407,7 +407,7 @@ uv run python -m api.llm_bench.operator.cli analyze --provider groq --json
 uv run python -m api.llm_bench.operator.cli analyze --no-dry-run --write
 
 # Verify operator_decision field added
-mongosh "mongodb://..." --quiet --eval '
+mongosh "$MONGODB_URI" --quiet --eval '
 db.model_status.findOne({
   provider: "groq",
   model_id: "llama-3.1-70b-specdec"
@@ -491,7 +491,7 @@ Disabled 2 models (404 errors >48h):
    Confidence: 0.85
 
    Approve with:
-   mongosh "mongodb://..." --eval 'db.models.updateOne(
+   mongosh "$MONGODB_URI" --eval 'db.models.updateOne(
      {provider: "fireworks", model_id: "deepseek-v3"},
      {$set: {model_id: "deepseek-v3-0324"}}
    )'
@@ -533,7 +533,7 @@ uv run python ops/daily-health-check.py --operator-provider groq --dry-run
 uv run python ops/daily-health-check.py --skip-operator --dry-run
 
 # Check for auto-executed actions
-mongosh "mongodb://..." --quiet --eval '
+mongosh "$MONGODB_URI" --quiet --eval '
 db.model_status.find({
   "operator_decision.status": "auto_executed"
 }).forEach(doc => {
@@ -637,7 +637,7 @@ uv run env PYTHONPATH=. python -m api.llm_bench.discovery.cli stats
 uv run env PYTHONPATH=. python -m api.llm_bench.discovery.cli report --max-matches 20
 
 # Check openrouter_catalog collection
-mongosh "mongodb://..." --quiet --eval '
+mongosh "$MONGODB_URI" --quiet --eval '
 db.openrouter_catalog.countDocuments()
 '
 # Expected: ~353 models
@@ -722,12 +722,12 @@ $ uv run env PYTHONPATH=. python -m api.llm_bench.discovery.cli report --max-mat
 
 ```bash
 # Count disabled OpenRouter models
-mongosh "mongodb://writer:***@5.161.97.53/llm-bench?authSource=llm-bench" --quiet --eval '
+mongosh "$MONGODB_URI" --quiet --eval '
 db.models.countDocuments({provider: "openrouter", enabled: false})
 '
 
 # Count total enabled models (should drop ~170)
-mongosh "mongodb://..." --quiet --eval '
+mongosh "$MONGODB_URI" --quiet --eval '
 db.models.countDocuments({enabled: true})
 '
 
@@ -745,12 +745,12 @@ cd /Users/davidrose/git/llmbench/llm-benchmarks
 uv run env PYTHONPATH=. python -m api.llm_bench.operator.cli analyze --dry-run
 
 # Check operator decisions written to DB
-mongosh "mongodb://..." --quiet --eval '
+mongosh "$MONGODB_URI" --quiet --eval '
 db.model_status.countDocuments({"operator_decision": {$exists: true}})
 '
 
 # View a specific decision
-mongosh "mongodb://..." --quiet --eval '
+mongosh "$MONGODB_URI" --quiet --eval '
 db.model_status.findOne(
   {provider: "groq", model_id: "llama-3.1-70b-specdec"},
   {operator_decision: 1, lifecycle_status: 1}
@@ -765,12 +765,12 @@ db.model_status.findOne(
 uv run env PYTHONPATH=. python ops/daily-health-check.py
 
 # Check for auto-executed actions
-mongosh "mongodb://..." --quiet --eval '
+mongosh "$MONGODB_URI" --quiet --eval '
 db.model_status.find({"operator_decision.status": "auto_executed"}).count()
 '
 
 # View auto-executed actions
-mongosh "mongodb://..." --quiet --eval '
+mongosh "$MONGODB_URI" --quiet --eval '
 db.model_status.find(
   {"operator_decision.status": "auto_executed"},
   {provider: 1, model_id: 1, "operator_decision.reasoning": 1}
@@ -785,7 +785,7 @@ db.model_status.find(
 uv run env PYTHONPATH=. python -m api.llm_bench.discovery.cli fetch
 
 # Count OpenRouter models
-mongosh "mongodb://..." --quiet --eval '
+mongosh "$MONGODB_URI" --quiet --eval '
 db.openrouter_catalog.countDocuments()
 '
 
@@ -793,7 +793,7 @@ db.openrouter_catalog.countDocuments()
 uv run env PYTHONPATH=. python -m api.llm_bench.discovery.cli report
 
 # Check for new model suggestions
-mongosh "mongodb://..." --quiet --eval '
+mongosh "$MONGODB_URI" --quiet --eval '
 db.openrouter_catalog.find({matched_provider: {$exists: true}}).limit(5)
 '
 ```
