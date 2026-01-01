@@ -240,6 +240,13 @@ def _normalize_message(message: str) -> str:
     return normalized
 
 
+def _hash_message(message: str) -> str:
+    """Create short hash of normalized message for situation_id."""
+    import hashlib
+    normalized = _normalize_message(message)
+    return hashlib.md5(normalized.encode()).hexdigest()[:8]
+
+
 def build_situations(
     snapshots: List[LifecycleSnapshot],
     now: datetime
@@ -263,13 +270,13 @@ def build_situations(
         if snapshot.errors.recent_messages:
             error_kind = snapshot.errors.recent_messages[0].kind
 
-        # Normalize first error message for grouping
-        msg_prefix = ""
+        # Hash first error message for grouping (spec: normalized_message_hash)
+        msg_hash = ""
         if snapshot.errors.recent_messages:
-            msg_prefix = _normalize_message(snapshot.errors.recent_messages[0].message)
+            msg_hash = _hash_message(snapshot.errors.recent_messages[0].message)
 
         # Create situation key
-        situation_id = f"{snapshot.provider}|{error_kind}|{msg_prefix}"
+        situation_id = f"{snapshot.provider}|{error_kind}|{msg_hash}"
         situations_map[situation_id].append(snapshot)
 
     # Convert to Situation objects
@@ -372,9 +379,16 @@ Respond with JSON only (no markdown):
         return json.loads(text)
 
 
-async def call_llm_for_batch_decisions(situations: List[Situation]) -> dict[str, dict]:
+async def call_llm_for_batch_decisions(
+    situations: List[Situation],
+    now: datetime
+) -> dict[str, dict]:
     """
     Make a SINGLE LLM call for all situations.
+
+    Args:
+        situations: List of situations to analyze
+        now: Reference time for age calculations (for determinism)
 
     Returns:
         Dict mapping situation_id → {action, confidence, reasoning}
@@ -388,11 +402,11 @@ async def call_llm_for_batch_decisions(situations: List[Situation]) -> dict[str,
     # Build prompt with all situations
     situation_summaries = []
     for sit in situations:
-        # Calculate error age
+        # Calculate error age using passed `now` for determinism
         error_age_str = "Unknown"
         if sit.oldest_error and sit.newest_error:
-            oldest_days = (datetime.now(timezone.utc) - sit.oldest_error).days
-            newest_days = (datetime.now(timezone.utc) - sit.newest_error).days
+            oldest_days = (now - sit.oldest_error).days
+            newest_days = (now - sit.newest_error).days
             if oldest_days == newest_days:
                 error_age_str = f"{oldest_days} days"
             else:
@@ -653,7 +667,7 @@ async def generate_decisions(
 
     try:
         # 2. Single LLM call
-        situation_decisions = await call_llm_for_batch_decisions(situations)
+        situation_decisions = await call_llm_for_batch_decisions(situations, now=now)
 
         # 3. Expand to per-model decisions
         expanded = expand_situation_decisions(situations, situation_decisions, now=now)
@@ -661,35 +675,23 @@ async def generate_decisions(
         return passthrough + expanded
 
     except Exception as e:
-        # Fallback to old per-model processing
+        # Fallback to classifier.py (no LLM calls per spec)
         logger.warning(
-            f"Batch LLM call failed ({e}), falling back to per-model processing"
+            f"Batch LLM call failed ({e}), falling back to classifier.py"
         )
 
         decisions = passthrough.copy()
-        llm_failures = 0
 
-        # Process with fallback
-        batch_size = 10
-        for i in range(0, len(needs_analysis), batch_size):
-            batch = needs_analysis[i:i + batch_size]
-
-            tasks = [generate_decision_for_snapshot(snap, now) for snap in batch]
-            batch_decisions = await asyncio.gather(*tasks, return_exceptions=True)
-
-            for decision in batch_decisions:
-                if isinstance(decision, Exception):
-                    logger.error(f"Unexpected error in fallback batch: {decision}")
-                    llm_failures += 1
-                else:
-                    decisions.append(decision)
-                    if decision.suggested_by.startswith("classifier-fallback"):
-                        llm_failures += 1
-
-        if llm_failures > 0:
-            logger.info(
-                f"Used fallback classifier for {llm_failures}/{len(needs_analysis)} models "
-                f"({llm_failures/len(needs_analysis)*100:.1f}%)"
+        # Use deterministic classifier for all remaining models
+        for snapshot in needs_analysis:
+            classifier_decision = convert_classifier_to_operator_decision(
+                snapshot, now=now, suggested_by="classifier-fallback-batch"
             )
+            decisions.append(classifier_decision)
+
+        logger.info(
+            f"Used classifier fallback for {len(needs_analysis)} models "
+            f"due to batch LLM failure"
+        )
 
         return decisions
