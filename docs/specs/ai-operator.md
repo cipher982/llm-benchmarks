@@ -950,7 +950,117 @@ All phases completed as of 2026-01-01. The AI Operator is now:
 - ✅ Discovering new models via OpenRouter (Phase 4)
 
 **Next Steps:**
-1. Schedule `discovery.cli fetch` to run daily (cron)
-2. Review discovery reports weekly to add new models
-3. Monitor operator decisions in daily health emails
-4. Refine LLM prompts based on decision quality
+1. ✅ Phase 5: Refactor engine for batching (current)
+2. Schedule `discovery.cli fetch` to run daily (cron)
+3. Review discovery reports weekly to add new models
+4. Monitor operator decisions in daily health emails
+5. Refine LLM prompts based on decision quality
+
+---
+
+## Phase 5: Engine Batching Refactor
+
+**Status:** 🚧 IN PROGRESS
+
+**Goal:** Reduce 523 LLM calls → 1 batched call (~100x cost reduction)
+
+**Problem:**
+- Current: One LLM call per model = ~260K tokens, $1-2/run, 2.5 minutes
+- Target: One LLM call with aggregated situations = ~5K tokens, $0.01/run, <30s
+
+### Design Principle
+
+Let the LLM do what it's good at (judgment, fuzzy reasoning across mixed signals). Keep the code doing what it's good at (cheap aggregation + deterministic application of decisions).
+
+### Batching Strategy
+
+**1. Deterministic Fast-Pass (no LLM):**
+- Already disabled → `ignore`
+- Marked deprecated in metadata → `disable` (high confidence)
+- Recent success (last 24h) + no hard failures → `ignore`
+- No signals at all → `monitor`
+
+**2. Group Remainder into "Situations":**
+- Key: `{provider}|{error_kind}|{normalized_message_hash}`
+- Each situation includes:
+  - Count of affected models
+  - Recency (oldest/newest error)
+  - 1-2 representative error messages
+  - Model IDs (for expansion)
+
+**3. Single LLM Call:**
+- Prompt asks for decisions **per situation**, not per model
+- Returns compact JSON keyed by `situation_id`
+
+**4. Expand to Per-Model Decisions:**
+- Apply situation decision to all models in that situation
+- Deterministic overrides for outliers (e.g., recent success)
+
+### New Engine Structure
+
+```python
+async def generate_decisions(snapshots):
+    now = utcnow()
+
+    # 0. Deterministic fast-pass (cheap wins)
+    passthrough, needs_analysis = fast_pass(snapshots, now=now)
+
+    # 1. Group remaining snapshots into "situations"
+    situations = build_situations(needs_analysis, now=now)
+
+    # 2. One LLM call: decide per situation
+    situation_decisions = await call_llm_for_batch_decisions(situations)
+
+    # 3. Expand to per-model decisions (+ deterministic overrides)
+    expanded = expand_situation_decisions(
+        situations,
+        situation_decisions,
+        now=now,
+    )
+
+    return passthrough + expanded
+```
+
+### LLM Output Contract
+
+Return JSON only (no markdown). Minimal schema:
+```json
+[
+  {
+    "situation_id": "vertex|auth|401_unauthorized",
+    "action": "monitor",
+    "confidence": 0.82,
+    "reasoning": "Provider-wide auth failures; likely configuration or outage. Monitor 48h."
+  }
+]
+```
+
+### Auto-Execution Safety
+
+Refactor auto-exec to use **snapshot signals + thresholds**, not LLM prose:
+- Auto-disable: `hard_model` error + age > 48h + enabled + no recent success
+- Everything else: manual review
+
+### Acceptance Criteria
+
+- [ ] `fast_pass()` handles obvious cases without LLM
+- [ ] `build_situations()` groups models by provider/error pattern
+- [ ] `call_llm_for_batch_decisions()` makes single API call
+- [ ] `expand_situation_decisions()` maps back to per-model
+- [ ] Total LLM calls = 1 (or 0 if all fast-pass)
+- [ ] Cost per full run < $0.05
+- [ ] Existing CLI commands work unchanged
+- [ ] Auto-exec logic uses signal thresholds, not prose parsing
+
+### Test Commands
+
+```bash
+# Run refactored operator
+uv run python -m api.llm_bench.operator.cli analyze --dry-run
+
+# Verify single LLM call (check logs)
+uv run python -m api.llm_bench.operator.cli analyze --provider groq 2>&1 | grep "LLM call"
+
+# Cost verification (should show ~5K tokens, not 260K)
+uv run python -m api.llm_bench.operator.cli analyze --dry-run 2>&1 | grep "tokens"
+```
