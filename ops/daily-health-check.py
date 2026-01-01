@@ -373,9 +373,74 @@ def analyze_with_openai(health_summary: str) -> Optional[str]:
 
 # --- Email ---
 
-def format_email_body(health_data: HealthData, ai_analysis: Optional[dict], llm_usage: Optional[dict] = None) -> str:
+def format_email_body(health_data: HealthData, ai_analysis: Optional[dict], operator_results: Optional[dict] = None, llm_usage: Optional[dict] = None) -> str:
     """Format the full email body."""
     lines = []
+
+    # Operator section (if available) - goes FIRST
+    if operator_results:
+        auto_executed = operator_results.get("auto_executed", [])
+        manual_review = operator_results.get("manual_review", [])
+
+        # Auto-executed actions
+        if auto_executed:
+            lines.append("=" * 60)
+            lines.append("AUTO-EXECUTED ACTIONS")
+            lines.append("=" * 60)
+            lines.append("")
+            lines.append(f"Disabled {len(auto_executed)} models (high confidence ≥0.95):")
+            lines.append("")
+
+            for i, decision in enumerate(auto_executed, 1):
+                lines.append(f"{i}. {decision.provider}/{decision.model_id}")
+                lines.append(f"   Reason: {decision.reasoning}")
+                lines.append(f"   Confidence: {decision.confidence:.2f}")
+                if decision.executed_at:
+                    lines.append(f"   Executed: {decision.executed_at.strftime('%Y-%m-%d %H:%M UTC')}")
+                lines.append("")
+
+        # Manual review suggestions
+        if manual_review:
+            lines.append("=" * 60)
+            lines.append("SUGGESTIONS FOR REVIEW")
+            lines.append("=" * 60)
+            lines.append("")
+            lines.append(f"{len(manual_review)} models flagged for monitoring:")
+            lines.append("")
+
+            # Group by action
+            by_action = {"disable": [], "monitor": []}
+            for d in manual_review:
+                by_action.get(d.action, []).append(d)
+
+            # Show disable suggestions first (sorted by confidence)
+            if by_action["disable"]:
+                lines.append("DISABLE CANDIDATES:")
+                for i, decision in enumerate(sorted(by_action["disable"], key=lambda d: d.confidence, reverse=True)[:10], 1):
+                    lines.append(f"{i}. {decision.provider}/{decision.model_id}")
+                    lines.append(f"   Action: Disable model")
+                    lines.append(f"   Reason: {decision.reasoning}")
+                    lines.append(f"   Confidence: {decision.confidence:.2f}")
+                    lines.append("")
+                    lines.append("   Approve with:")
+                    lines.append(f'   mongosh "$MONGODB_URI" --eval \'')
+                    lines.append(f'   db.models.updateOne(')
+                    lines.append(f'     {{provider: "{decision.provider}", model_id: "{decision.model_id}"}},')
+                    lines.append(f'     {{$set: {{enabled: false, disabled_reason: "Operator: {decision.reasoning[:80]}"}},')
+                    lines.append(f'      disabled_at: new Date()}}')
+                    lines.append(f'   )\'')
+                    lines.append("")
+
+            # Show monitor suggestions
+            if by_action["monitor"]:
+                lines.append("MONITOR CANDIDATES:")
+                for i, decision in enumerate(sorted(by_action["monitor"], key=lambda d: d.confidence, reverse=True)[:5], 1):
+                    lines.append(f"{i}. {decision.provider}/{decision.model_id}")
+                    lines.append(f"   Reason: {decision.reasoning}")
+                    lines.append(f"   Confidence: {decision.confidence:.2f}")
+                    lines.append("")
+
+        lines.append("")
 
     # AI analysis section (if available)
     if ai_analysis:
@@ -516,6 +581,61 @@ async def classify_errors_async():
         return None
 
 
+async def run_operator_async():
+    """Run AI operator analysis and return decisions."""
+    try:
+        # Add parent directory to path to import from api module
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+        from api.llm_bench.operator.engine import generate_decisions
+        from api.llm_bench.operator.io import load_snapshots, store_decisions
+        from api.llm_bench.operator.actions import execute_decisions, should_auto_execute
+
+        print("Running AI operator analysis...")
+
+        # Load lifecycle snapshots
+        snapshots = load_snapshots()
+        if not snapshots:
+            print("  No models found for operator analysis")
+            return None
+
+        print(f"  Analyzing {len(snapshots)} models...")
+
+        # Generate decisions
+        decisions = await generate_decisions(snapshots)
+
+        # Store all decisions in model_status
+        stored_count = store_decisions(decisions)
+        print(f"  Stored {stored_count} decisions in model_status")
+
+        # Separate auto-executable from manual review
+        auto_exec = [d for d in decisions if should_auto_execute(d)]
+        manual_review = [d for d in decisions if not should_auto_execute(d) and d.action != "ignore"]
+
+        print(f"  Auto-executable: {len(auto_exec)}")
+        print(f"  Manual review: {len(manual_review)}")
+
+        # Execute auto-executable decisions
+        execution_stats = None
+        if auto_exec:
+            print(f"  Executing {len(auto_exec)} high-confidence decisions...")
+            execution_stats = execute_decisions(auto_exec, auto_execute=True, dry_run=False)
+            print(f"    Executed: {execution_stats['executed']}, Failed: {execution_stats['failed']}")
+
+        return {
+            "total_analyzed": len(snapshots),
+            "total_decisions": len(decisions),
+            "auto_executed": auto_exec,
+            "manual_review": manual_review,
+            "execution_stats": execution_stats
+        }
+
+    except Exception as e:
+        print(f"Warning: Operator analysis failed: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return None
+
+
 def main():
     import argparse
 
@@ -537,7 +657,10 @@ def main():
     if not args.skip_classification:
         classification_results = asyncio.run(classify_errors_async())
 
-    # Step 2: Collect data
+    # Step 2: Run AI operator analysis
+    operator_results = asyncio.run(run_operator_async())
+
+    # Step 3: Collect data
     print(f"Collecting health data for last {hours} hours...")
     client = MongoClient(MONGODB_URI)
     try:
@@ -565,6 +688,13 @@ def main():
         print("OPENAI_API_KEY not set - skipping AI analysis")
 
     # Determine email subject tag
+    operator_tag = ""
+    if operator_results:
+        auto_exec_count = len(operator_results.get("auto_executed", []))
+        manual_count = len(operator_results.get("manual_review", []))
+        if auto_exec_count > 0:
+            operator_tag = f"[OPERATED] {auto_exec_count} auto-actions, {manual_count} suggestions - "
+
     if ai_analysis:
         status = ai_analysis.get("overall_status", "unknown")
         if status == "critical":
@@ -581,7 +711,7 @@ def main():
             tag = "[INFO]"
 
     # Format and send email
-    subject = f"{tag} LLM Benchmarks Daily Health - {datetime.now().strftime('%Y-%m-%d')}"
+    subject = f"{operator_tag}{tag} LLM Benchmarks Daily Health - {datetime.now().strftime('%Y-%m-%d')}"
 
     # Extract LLM usage from classification results
     llm_usage = None
@@ -590,7 +720,7 @@ def main():
         if llm_usage:
             llm_usage["rollups_classified"] = classification_results.get("updated", 0)
 
-    body = format_email_body(health_data, ai_analysis, llm_usage=llm_usage)
+    body = format_email_body(health_data, ai_analysis, operator_results=operator_results, llm_usage=llm_usage)
 
     if send_email(subject, body, dry_run=args.dry_run):
         print(f"Email sent: {subject}")
