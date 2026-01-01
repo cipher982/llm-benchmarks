@@ -45,7 +45,7 @@ def format_mongosh_add_command(match: ModelMatch) -> str:
     if match.provider == "bedrock":
         comment = f"# Bedrock model - verify ID format is correct!\n# OpenRouter: {match.openrouter_id}"
         return f"""{comment}
-mongosh "mongodb://writer:***REMOVED***@5.161.97.53/llm-bench?authSource=llm-bench" --eval '
+mongosh "$MONGODB_URI" --eval '
 db.models.insertOne({{
   provider: "{match.provider}",
   model_id: "{match.model_id}",
@@ -54,7 +54,7 @@ db.models.insertOne({{
   created_at: new Date()
 }})'"""
     else:
-        return f"""mongosh "mongodb://writer:***REMOVED***@5.161.97.53/llm-bench?authSource=llm-bench" --eval '
+        return f"""mongosh "$MONGODB_URI" --eval '
 db.models.insertOne({{
   provider: "{match.provider}",
   model_id: "{match.model_id}",
