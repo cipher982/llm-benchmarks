@@ -610,6 +610,14 @@ async def generate_decisions(
     """
     Use LLM to reason about model health signals and suggest actions.
 
+    NEW (Phase 5): Batching strategy reduces 523 LLM calls → 1.
+
+    Pipeline:
+    1. Fast-pass: Handle obvious cases without LLM
+    2. Build situations: Group remaining models by error pattern
+    3. Single LLM call: Decide per situation
+    4. Expand: Map situation decisions back to per-model
+
     Falls back to classifier.py if LLM unavailable or fails.
 
     Args:
@@ -621,32 +629,61 @@ async def generate_decisions(
     """
     now = now or datetime.now(timezone.utc)
 
-    # Process all snapshots concurrently (with reasonable limit)
-    decisions = []
-    llm_failures = 0
+    logger.info(f"Generating decisions for {len(snapshots)} snapshots")
 
-    # Batch processing to avoid overwhelming the API
-    batch_size = 10
-    for i in range(0, len(snapshots), batch_size):
-        batch = snapshots[i:i + batch_size]
+    # 0. Fast-pass (no LLM needed)
+    passthrough, needs_analysis = fast_pass(snapshots, now=now)
+    logger.info(
+        f"Fast-pass: {len(passthrough)} handled, {len(needs_analysis)} need analysis"
+    )
 
-        # Process batch concurrently
-        tasks = [generate_decision_for_snapshot(snap, now) for snap in batch]
-        batch_decisions = await asyncio.gather(*tasks, return_exceptions=True)
+    if not needs_analysis:
+        logger.info("All snapshots handled by fast-pass, no LLM calls needed")
+        return passthrough
 
-        for decision in batch_decisions:
-            if isinstance(decision, Exception):
-                logger.error(f"Unexpected error in batch: {decision}")
-                llm_failures += 1
-            else:
-                decisions.append(decision)
-                if decision.suggested_by.startswith("classifier-fallback"):
-                    llm_failures += 1
+    # 1. Build situations
+    situations = build_situations(needs_analysis, now=now)
+    logger.info(f"Grouped {len(needs_analysis)} models into {len(situations)} situations")
 
-    if llm_failures > 0:
-        logger.info(
-            f"Used fallback classifier for {llm_failures}/{len(snapshots)} models "
-            f"({llm_failures/len(snapshots)*100:.1f}%)"
+    try:
+        # 2. Single LLM call
+        situation_decisions = await call_llm_for_batch_decisions(situations)
+
+        # 3. Expand to per-model decisions
+        expanded = expand_situation_decisions(situations, situation_decisions, now=now)
+
+        return passthrough + expanded
+
+    except Exception as e:
+        # Fallback to old per-model processing
+        logger.warning(
+            f"Batch LLM call failed ({e}), falling back to per-model processing"
         )
 
-    return decisions
+        decisions = passthrough.copy()
+        llm_failures = 0
+
+        # Process with fallback
+        batch_size = 10
+        for i in range(0, len(needs_analysis), batch_size):
+            batch = needs_analysis[i:i + batch_size]
+
+            tasks = [generate_decision_for_snapshot(snap, now) for snap in batch]
+            batch_decisions = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for decision in batch_decisions:
+                if isinstance(decision, Exception):
+                    logger.error(f"Unexpected error in fallback batch: {decision}")
+                    llm_failures += 1
+                else:
+                    decisions.append(decision)
+                    if decision.suggested_by.startswith("classifier-fallback"):
+                        llm_failures += 1
+
+        if llm_failures > 0:
+            logger.info(
+                f"Used fallback classifier for {llm_failures}/{len(needs_analysis)} models "
+                f"({llm_failures/len(needs_analysis)*100:.1f}%)"
+            )
+
+        return decisions
