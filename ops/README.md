@@ -91,6 +91,55 @@ cat /opt/llm-benchmarks/.env
 echo 'OPENAI_API_KEY=sk-...' | sudo tee -a /opt/llm-benchmarks/.env
 ```
 
+## Model Discovery
+
+Daily fetching of OpenRouter catalog to discover new models.
+
+### What it does
+
+1. Fetches OpenRouter's `/api/v1/models` API (free, no auth)
+2. Stores catalog in MongoDB `openrouter_catalog` collection
+3. Tracks `first_seen_at` and `last_seen_at` timestamps
+4. Use `discovery.cli report` to see new models to add
+
+### Local testing
+
+```bash
+# Fetch OpenRouter catalog
+uv run python -m api.llm_bench.discovery.cli fetch
+
+# View discovery report (copy-paste commands to add models)
+uv run python -m api.llm_bench.discovery.cli report --max-matches 20
+
+# Stats about catalog
+uv run python -m api.llm_bench.discovery.cli stats
+```
+
+### Deploy to clifford
+
+```bash
+# SSH to server
+ssh clifford
+
+# Copy systemd units
+sudo cp /opt/llm-benchmarks/ops/llm-discovery.service /etc/systemd/system/
+sudo cp /opt/llm-benchmarks/ops/llm-discovery.timer /etc/systemd/system/
+
+# Reload systemd
+sudo systemctl daemon-reload
+
+# Enable and start timer
+sudo systemctl enable llm-discovery.timer
+sudo systemctl start llm-discovery.timer
+
+# Verify timer is active
+systemctl list-timers | grep llm-discovery
+
+# Test the service manually
+sudo systemctl start llm-discovery.service
+journalctl -u llm-discovery.service -f
+```
+
 ## Files
 
 | File | Purpose |
@@ -99,3 +148,5 @@ echo 'OPENAI_API_KEY=sk-...' | sudo tee -a /opt/llm-benchmarks/.env
 | `llm-health-check.service` | systemd service unit |
 | `llm-health-check.timer` | systemd timer (daily at 08:00 UTC) |
 | `llm-health-check-failure@.service` | Crash notification service |
+| `llm-discovery.service` | systemd service for model discovery |
+| `llm-discovery.timer` | systemd timer (daily at 07:00 UTC, 1hr before health check) |

@@ -1,0 +1,13 @@
+[Unit]
+Description=Daily LLM Model Discovery Timer
+
+[Timer]
+# Run daily at 07:00 UTC (1 hour before health check at 08:00)
+OnCalendar=*-*-* 07:00:00
+# Catch up if missed (e.g., server was down)
+Persistent=true
+# Add some randomization to avoid thundering herd
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
