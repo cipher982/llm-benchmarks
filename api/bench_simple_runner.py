@@ -12,6 +12,7 @@ import os
 import sys
 import time
 import traceback
+from datetime import datetime
 from typing import Any
 from typing import Dict
 from typing import List
@@ -19,7 +20,12 @@ from typing import List
 import dotenv
 from llm_bench.config import CloudConfig
 from llm_bench.http_output import log_http
-from llm_bench.utils import get_current_timestamp
+
+
+def get_current_timestamp() -> str:
+    """Return current timestamp in standard format (no heavy deps)."""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 
 # Load environment
 dotenv.load_dotenv(".env")
