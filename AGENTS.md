@@ -15,50 +15,47 @@ Always `cd` into the specific subdirectory before git operations.
 ## Deployment
 
 **Two deployment instances:**
-- **clifford** (all providers) - `ssh clifford`
-- **aws-poc** (Bedrock only) - SSH blocked, use AWS SSM (see below)
+- **clifford** (all providers except Bedrock) - `ssh clifford`
+- **ml-tuner-demo-server** (Bedrock only) - Access via AWS SSM (see below)
 
-Both write to the same MongoDB on clifford. For specs and details, see `~/git/mytech/infrastructure/vps.md`.
+### Architecture: HTTP Ingest
 
-### Accessing aws-poc (Bedrock EC2)
+Due to MongoDB being restricted to Tailscale/local access, Bedrock runners on AWS use an **HTTP Ingest Bridge**:
 
-SSH port 22 is blocked by security policy. Use AWS SSM instead:
+1. **bench-ingest API**: Deployed on `clifford` at `https://bench-ingest.drose.io`. It receives benchmark results via HTTPS and writes them to MongoDB.
+2. **bench_simple_runner.py**: A lightweight runner deployed on EC2 that reuses the library's provider logic but POSTs results to the ingest API instead of connecting to MongoDB directly.
+
+### Accessing Bedrock EC2 (ml-tuner)
+
+SSH is disabled. Use AWS SSM:
 
 ```bash
 # 1. Login to AWS SSO
-aws sso login --profile zh-poc-aiengineer
+aws sso login --profile zh-ml-mlengineer
 
 # 2. Connect via SSM
-aws ssm start-session --target i-01c51e77c6c477c66 --region us-east-1 --profile zh-poc-aiengineer
-
-# 3. Run commands (need sudo for docker)
-aws ssm start-session --target i-01c51e77c6c477c66 --region us-east-1 --profile zh-poc-aiengineer \
-  --document-name AWS-StartInteractiveCommand --parameters command='sudo docker ps'
+aws ssm start-session --target i-0b43e0b5f1ee7c5e9 --region us-east-1 --profile zh-ml-mlengineer
 ```
 
 **Instance Details:**
-- Instance ID: `i-01c51e77c6c477c66`
-- Account: zh-poc (108532782468)
-- Type: t3a.nano (~$3/month)
-- Private IP: 10.170.45.221
-- IAM Role: zh-poc-ec2-instance-role (SSM access only)
+- Instance ID: `i-0b43e0b5f1ee7c5e9`
+- Account: zh-ml (766806801073)
+- IAM Role: `MLTuner` (includes `BedrockFullAccess`)
+- OS: Ubuntu with Docker and Python 3.12 (uv)
 
-**⚠️ Bedrock Credentials:** The instance role only has SSM permissions, not Bedrock.
-For Bedrock access, you need to configure credentials manually (see below).
+### Running the Bedrock Benchmarks
 
-### Configuring Bedrock Credentials
+The runner is typically deployed as a Docker container or managed via `uv`:
 
-The instance role doesn't include Bedrock permissions. Options:
+```bash
+# Start the daemon (every 30 minutes)
+uv run python api/bench_simple_runner.py --provider bedrock --daemon --interval 30
+```
 
-1. **Request IT** to add `AmazonBedrockFullAccess` to `zh-poc-ec2-instance-role` (cleanest)
-2. **Export temporary credentials** from your SSO session and configure in `.env`:
-   ```bash
-   # On your laptop, get credentials
-   aws configure export-credentials --profile zh-poc-aiengineer --format env
-
-   # Copy AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN to the instance
-   # Note: These expire after ~12 hours and need refreshing
-   ```
+Required environment variables:
+- `INGEST_API_URL=https://bench-ingest.drose.io/ingest`
+- `INGEST_API_KEY=xxx`
+- `BENCHMARK_MODELS=us.anthropic.claude-3-5-sonnet-20241022-v2:0,...`
 
 ---
 
