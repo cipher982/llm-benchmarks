@@ -26,17 +26,39 @@ SSH port 22 is blocked by security policy. Use AWS SSM instead:
 
 ```bash
 # 1. Login to AWS SSO
-aws sso login --profile zh-marketing-preprod-engineer
+aws sso login --profile zh-poc-aiengineer
 
 # 2. Connect via SSM
-aws ssm start-session --target i-056bc81c58a387657 --region us-east-1 --profile zh-marketing-preprod-engineer
+aws ssm start-session --target i-01c51e77c6c477c66 --region us-east-1 --profile zh-poc-aiengineer
 
 # 3. Run commands (need sudo for docker)
-aws ssm start-session --target i-056bc81c58a387657 --region us-east-1 --profile zh-marketing-preprod-engineer \
+aws ssm start-session --target i-01c51e77c6c477c66 --region us-east-1 --profile zh-poc-aiengineer \
   --document-name AWS-StartInteractiveCommand --parameters command='sudo docker ps'
 ```
 
-Instance ID: `i-056bc81c58a387657`
+**Instance Details:**
+- Instance ID: `i-01c51e77c6c477c66`
+- Account: zh-poc (108532782468)
+- Type: t3a.nano (~$3/month)
+- Private IP: 10.170.45.221
+- IAM Role: zh-poc-ec2-instance-role (SSM access only)
+
+**⚠️ Bedrock Credentials:** The instance role only has SSM permissions, not Bedrock.
+For Bedrock access, you need to configure credentials manually (see below).
+
+### Configuring Bedrock Credentials
+
+The instance role doesn't include Bedrock permissions. Options:
+
+1. **Request IT** to add `AmazonBedrockFullAccess` to `zh-poc-ec2-instance-role` (cleanest)
+2. **Export temporary credentials** from your SSO session and configure in `.env`:
+   ```bash
+   # On your laptop, get credentials
+   aws configure export-credentials --profile zh-poc-aiengineer --format env
+
+   # Copy AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN to the instance
+   # Note: These expire after ~12 hours and need refreshing
+   ```
 
 ---
 
