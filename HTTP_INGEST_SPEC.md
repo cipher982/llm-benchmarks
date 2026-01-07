@@ -1,6 +1,6 @@
 # HTTP Ingest for Remote Benchmark Runners
 
-**Status:** Phase 2 - Complete
+**Status:** Phase 4 - Deploy & Test
 **Goal:** Bedrock benchmarks running on EC2 get metrics into MongoDB
 
 ## Problem
@@ -87,8 +87,14 @@ Already mostly done. May need:
 - Error endpoint if we want error logging
 
 **Acceptance:**
-- [ ] `/ingest` accepts results from simple runner
-- [ ] Data appears in MongoDB
+- [x] `/ingest` accepts results from simple runner
+- [x] Data appears in MongoDB
+
+**Implementation Notes:**
+- API already complete at `/Users/davidrose/git/llmbench/bench-ingest/`
+- Has `/ingest` (single), `/ingest/batch` (multiple), `/health` endpoints
+- Error endpoint deferred - simple runner logs errors locally and continues
+- Ready for deployment to clifford
 
 ### Phase 4: Deploy & test
 - Deploy `bench-ingest` to clifford via Coolify
