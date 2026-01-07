@@ -1,6 +1,6 @@
 # HTTP Ingest for Remote Benchmark Runners
 
-**Status:** Phase 0 - Spec
+**Status:** Phase 1 - Complete
 **Goal:** Bedrock benchmarks running on EC2 get metrics into MongoDB
 
 ## Problem
@@ -42,9 +42,18 @@ Add `log_http()` function that POSTs to ingest API. Keep it simple:
 - Returns True/False
 
 **Acceptance:**
-- [ ] `log_http()` exists and can POST a benchmark result
-- [ ] Uses `httpx` (already in deps)
-- [ ] Reads URL/key from env vars
+- [x] `log_http()` exists and can POST a benchmark result
+- [x] Uses `httpx` (already in deps)
+- [x] Reads URL/key from env vars
+
+**Implementation Notes:**
+- Created `api/llm_bench/http_output.py` with `log_http()` function
+- Takes CloudConfig instance and metrics dict
+- Combines config.to_dict() and metrics into single payload
+- POSTs to INGEST_API_URL with X-API-Key header
+- Returns True on success, False on any failure
+- Includes proper error logging for debugging
+- Tested with verification script (scratch/test_http_output.py)
 
 ### Phase 2: Create simple runner
 **Files:** `api/bench_simple_runner.py` (new)
