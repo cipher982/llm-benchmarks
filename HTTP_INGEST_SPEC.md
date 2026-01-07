@@ -1,6 +1,6 @@
 # HTTP Ingest for Remote Benchmark Runners
 
-**Status:** Phase 1 - Complete
+**Status:** Phase 2 - Complete
 **Goal:** Bedrock benchmarks running on EC2 get metrics into MongoDB
 
 ## Problem
@@ -56,7 +56,7 @@ Add `log_http()` function that POSTs to ingest API. Keep it simple:
 - Tested with verification script (scratch/test_http_output.py)
 
 ### Phase 2: Create simple runner
-**Files:** `api/bench_simple_runner.py` (new)
+**Files:** `api/bench_simple_runner.py` (new), `api/test_simple_runner.py` (new)
 
 Minimal benchmark runner:
 - Takes provider + models as args
@@ -65,9 +65,20 @@ Minimal benchmark runner:
 - Loops on interval (daemon mode) or runs once
 
 **Acceptance:**
-- [ ] Can run: `python api/bench_simple_runner.py --provider bedrock --models "model1,model2"`
-- [ ] Calls actual Bedrock API
-- [ ] POSTs results to ingest API
+- [x] Can run: `python api/bench_simple_runner.py --provider bedrock --models "model1,model2"`
+- [x] Calls actual provider generate() function
+- [x] POSTs results to ingest API via log_http()
+- [x] Has --daemon mode for continuous running
+
+**Implementation Notes:**
+- Created `api/bench_simple_runner.py` with argparse CLI
+- Supports `--provider`, `--models`, `--daemon`, `--interval`, `--debug` flags
+- Reads models from CLI args or BENCHMARK_MODELS env var
+- Uses same PROVIDER_MODULES mapping and caching as bench_headless.py
+- Validates metrics (output_tokens, generate_time, tokens_per_second)
+- Single-run mode (default) or daemon mode with configurable interval
+- No MongoDB dependencies - only uses http_output.log_http()
+- Comprehensive unit tests with mocking (4 tests, all passing)
 
 ### Phase 3: Update ingest API
 **Files:** `bench-ingest/main.py`
