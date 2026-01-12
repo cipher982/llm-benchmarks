@@ -1,7 +1,20 @@
+"""
+DEPRECATED: Lambda Labs Inference API
+
+Lambda Labs sunset their Inference API on September 25, 2025.
+The service no longer exists. See:
+https://deeptalk.lambda.ai/t/sunsetting-chat-sunsetting-inference/4744
+
+All Lambda models have been disabled in the database.
+This file is kept for historical reference only.
+
+If Lambda brings back an inference API in the future, this code
+may serve as a starting point, but will likely need updates.
+"""
+
 import logging
 import os
 import time
-from datetime import datetime
 from typing import Any
 from typing import Dict
 from typing import Tuple
@@ -11,6 +24,8 @@ from llm_bench.utils import get_current_timestamp
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
+
+# DEPRECATED: Lambda Inference API sunset September 25, 2025
 
 
 def process_stream_response(stream, start_time: float, max_tokens: int) -> Tuple[str, Dict[str, Any]]:

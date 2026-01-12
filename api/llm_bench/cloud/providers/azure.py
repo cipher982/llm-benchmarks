@@ -1,13 +1,30 @@
+"""
+DEPRECATED: Azure AI Provider
+
+Azure requires deploying separate serverless endpoints for each model,
+similar to RunPod. Each model needs:
+- A deployed endpoint in Azure AI Foundry
+- Separate API key and URL environment variables
+- Manual management of deployments
+
+This doesn't fit the benchmarking model of "call API with model name".
+While Azure has a newer "Model Inference API" with a single endpoint,
+it still requires pre-created deployments that route by deployment name.
+
+All Azure models have been disabled in the database.
+"""
+
 import logging
 import os
 import time
-from datetime import datetime
 
 from llm_bench.config import CloudConfig
 from llm_bench.utils import get_current_timestamp
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
+
+# DEPRECATED: Azure requires per-model deployed endpoints
 
 # Azure-specific model mappings to OpenAI parameters
 MODEL_NAME_MAPPING = {

@@ -9,8 +9,8 @@ from llm_bench.config import MongoConfig
 from llm_bench.logging import log_metrics
 from llm_bench.types import BenchmarkRequest
 from llm_bench.types import BenchmarkResponse
-from llm_bench.utils import has_existing_run
 from llm_bench.utils import get_current_timestamp
+from llm_bench.utils import has_existing_run
 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 LOG_DIR = os.environ.get("LOG_DIR", "/var/log")
@@ -40,13 +40,13 @@ PROVIDER_MODULES = {
     "anyscale": "llm_bench.cloud.providers.anyscale",
     "together": "llm_bench.cloud.providers.together",
     "openrouter": "llm_bench.cloud.providers.openrouter",
-    "azure": "llm_bench.cloud.providers.azure",
-    "runpod": "llm_bench.cloud.providers.runpod",
+    "azure": "llm_bench.cloud.providers.azure",  # DEPRECATED: requires per-model endpoints
+    "runpod": "llm_bench.cloud.providers.runpod",  # DEPRECATED: requires per-model endpoints
     "fireworks": "llm_bench.cloud.providers.fireworks",
     "deepinfra": "llm_bench.cloud.providers.deepinfra",
     "groq": "llm_bench.cloud.providers.groq",
     "databricks": "llm_bench.cloud.providers.databricks",
-    "lambda": "llm_bench.cloud.providers.lambda",
+    "lambda": "llm_bench.cloud.providers.lambda",  # DEPRECATED: API sunset Sept 2025
     "cerebras": "llm_bench.cloud.providers.cerebras",
 }
 

@@ -1,14 +1,33 @@
+"""
+DEPRECATED: RunPod Serverless Provider
+
+RunPod is a "deploy your own inference" platform, not a standard API.
+Each model requires deploying a separate serverless endpoint, which:
+- Requires managing your own GPU deployments
+- Has per-endpoint cold start costs
+- Isn't comparable to OpenAI/Anthropic-style "call model by name" APIs
+
+This provider has been disabled as it doesn't fit the benchmarking model
+of "call API with model name, get results".
+
+If you want to benchmark RunPod, you'd need to:
+1. Deploy a serverless endpoint for each model
+2. Store endpoint IDs in the database as model_id
+3. Pay for each endpoint's resources
+"""
+
 import json
 import logging
 import os
 import time
-from datetime import datetime
 
 import requests
 from llm_bench.config import CloudConfig
 from llm_bench.utils import get_current_timestamp
 
 logger = logging.getLogger(__name__)
+
+# DEPRECATED: RunPod requires per-model serverless endpoints
 
 
 def process_model(config, run_config):
