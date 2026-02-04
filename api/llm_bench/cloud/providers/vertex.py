@@ -1,7 +1,6 @@
 import logging
 import os
 import time
-from datetime import datetime
 
 import openai
 import vertexai
@@ -14,6 +13,12 @@ from vertexai.generative_models import GenerationConfig
 from vertexai.generative_models import GenerativeModel
 
 logger = logging.getLogger(__name__)
+
+# Gemini 2.5 "thinking" models that use internal reasoning
+# gemini-2.5-flash: can disable thinking with thinking_budget=0
+# gemini-2.5-pro: thinking CANNOT be disabled - skip benchmarking
+THINKING_MODELS_DISABLE = ("gemini-2.5-flash",)
+THINKING_MODELS_SKIP = ("gemini-2.5-pro",)  # These can't have thinking disabled
 
 PROJECT_ID = "llm-bench"
 REGION = "us-central1"
@@ -56,11 +61,28 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         generate_time = time.time() - time_0
     elif "claude" not in config.model_name.lower():
         logger.debug("Using Vertex/GenerativeModel")
+
+        # Skip models where thinking can't be disabled (unreliable for benchmarking)
+        if any(config.model_name.startswith(m) for m in THINKING_MODELS_SKIP):
+            raise ValueError(
+                f"Model {config.model_name} uses mandatory thinking mode and cannot be benchmarked reliably. "
+                "Most output goes to internal reasoning, producing inconsistent visible token counts."
+            )
+
         model = GenerativeModel(config.model_name)
         time_0 = time.time()
+
+        # Build generation config
+        gen_config_params = {"max_output_tokens": run_config["max_tokens"]}
+
+        # Disable thinking for models that support it (gemini-2.5-flash)
+        if any(config.model_name.startswith(m) for m in THINKING_MODELS_DISABLE):
+            logger.debug(f"Disabling thinking mode for {config.model_name}")
+            gen_config_params["thinking_config"] = {"thinking_budget": 0}
+
         stream = model.generate_content(
             contents=run_config["query"],
-            generation_config=GenerationConfig(max_output_tokens=run_config["max_tokens"]),
+            generation_config=GenerationConfig(**gen_config_params),
             stream=True,
         )
         ttft, tbts, n_tokens = generate_tokens(stream, time_0, False)

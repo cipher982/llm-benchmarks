@@ -15,6 +15,13 @@ NON_CHAT_MODELS = ["gpt-3.5-turbo-instruct", "gpt-3.5-turbo-instruct-0914"]
 # Reasoning models require Responses API
 REASONING_MODEL_PREFIXES = ("o1", "o3", "o4")
 
+# GPT-5.x models that are Responses API only (no Chat Completions support)
+RESPONSES_ONLY_MODELS = (
+    "gpt-5.2-pro",
+    "gpt-5.1-codex-max",
+    "gpt-5-pro",  # Future-proofing
+)
+
 _RESPONSES_ONLY_HINTS = (
     "only supported in v1/responses",
     "not supported in the v1/chat/completions",
@@ -27,6 +34,11 @@ _RESPONSES_ONLY_HINTS = (
 def _is_reasoning_model(model_name: str) -> bool:
     """Check if model is a reasoning model that requires Responses API."""
     return any(model_name.startswith(prefix) for prefix in REASONING_MODEL_PREFIXES)
+
+
+def _is_responses_only_model(model_name: str) -> bool:
+    """Check if model only supports Responses API (not Chat Completions)."""
+    return model_name in RESPONSES_ONLY_MODELS
 
 
 def _make_chat_request(client: OpenAI, config: CloudConfig, run_config: dict, use_max_tokens: bool = True):
@@ -178,8 +190,8 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     time_to_first_token = 0
     response_str = ""
 
-    # Handle reasoning models with Responses API (streaming)
-    if _is_reasoning_model(config.model_name):
+    # Handle reasoning models and responses-only models with Responses API (streaming)
+    if _is_reasoning_model(config.model_name) or _is_responses_only_model(config.model_name):
         stream = _make_responses_request(client, config, run_config, stream=True)
         response_str, time_to_first_token, times_between_tokens, response_obj = _process_responses_stream(
             stream, time_0
