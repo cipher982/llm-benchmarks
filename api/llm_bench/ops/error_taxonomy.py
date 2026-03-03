@@ -20,6 +20,11 @@ class ErrorKind(str, Enum):
 
 _RE_ERR_CODE = re.compile(r"error code:\s*(\d{3})", re.IGNORECASE)
 _RE_HTTP_STATUS = re.compile(r"\b(?:http\s*status|status(?:\s*code)?)\s*[:=]\s*(\d{3})\b", re.IGNORECASE)
+# gRPC status names followed by HTTP-equivalent code (e.g. "NotFound: 404", "PermissionDenied: 403")
+_RE_GRPC_STATUS = re.compile(
+    r"\b(?:NotFound|PermissionDenied|Unauthenticated|ResourceExhausted|Internal|Unavailable|DeadlineExceeded)\s*:\s*(\d{3})\b",
+    re.IGNORECASE,
+)
 _RE_REQUEST_ID = re.compile(r"\b(request[_ -]?id|activityid)\b\s*[:=]\s*['\"]?[a-z0-9-]{8,}['\"]?", re.IGNORECASE)
 
 
@@ -36,7 +41,7 @@ class ClassifiedError:
 
 
 def _extract_http_status(message: str) -> Optional[int]:
-    m = _RE_ERR_CODE.search(message) or _RE_HTTP_STATUS.search(message)
+    m = _RE_ERR_CODE.search(message) or _RE_HTTP_STATUS.search(message) or _RE_GRPC_STATUS.search(message)
     if not m:
         return None
     try:
@@ -71,10 +76,15 @@ def classify_error(*, message: str, exc_type: str = "") -> ClassifiedError:
     if http_status == 429:
         return ClassifiedError(kind=ErrorKind.RATE_LIMIT, normalized_message=normalized, http_status=http_status)
     if http_status and 500 <= http_status <= 599:
-        return ClassifiedError(kind=ErrorKind.TRANSIENT_PROVIDER, normalized_message=normalized, http_status=http_status)
+        return ClassifiedError(
+            kind=ErrorKind.TRANSIENT_PROVIDER, normalized_message=normalized, http_status=http_status
+        )
     if http_status == 404:
+        return ClassifiedError(kind=ErrorKind.HARD_MODEL, normalized_message=normalized, http_status=http_status)
+
+    # Together "model not available as serverless" — provider removed serverless access
+    if "'code': 'model_not_available'" in raw or '"code": "model_not_available"' in raw:
         return ClassifiedError(kind=ErrorKind.HARD_MODEL, normalized_message=normalized, http_status=http_status)
 
     # Everything else is UNKNOWN - LLM will classify later
     return ClassifiedError(kind=ErrorKind.UNKNOWN, normalized_message=normalized, http_status=http_status)
-
