@@ -12,8 +12,10 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
+from typing import Dict
+from typing import List
+from typing import Optional
 
 import httpx
 from pymongo import MongoClient
@@ -37,10 +39,30 @@ SUPPORTED_PROVIDERS = [
     "cerebras",
 ]
 
+# OpenAI ships a wide mix of modality/tool-specific SKUs that do not belong in
+# the plain text throughput benchmark catalog.
+UNWANTED_OPENAI_MODEL_IDS = {
+    "gpt-5.3-chat",
+    "gpt-5.3-chat-latest",
+}
+
+UNWANTED_OPENAI_MODEL_SUBSTRINGS = (
+    "audio",
+    "computer-use",
+    "deep-research",
+    "image",
+    "realtime",
+    "search",
+    "transcribe",
+    "tts",
+    "chatgpt-",
+)
+
 
 @dataclass
 class ModelMatch:
     """Result of matching an OpenRouter model to a direct provider."""
+
     openrouter_id: str
     openrouter_name: str
     provider: str
@@ -117,20 +139,14 @@ Respond with JSON only (no markdown):
         "model": OPENAI_MODEL,
         "temperature": 0,
         "max_completion_tokens": 300,
-        "messages": [
-            {"role": "system", "content": MATCHING_SYSTEM_PROMPT},
-            {"role": "user", "content": prompt}
-        ]
+        "messages": [{"role": "system", "content": MATCHING_SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
     }
 
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(
             "https://api.openai.com/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {OPENAI_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json=request_body
+            headers={"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"},
+            json=request_body,
         )
         response.raise_for_status()
         result = response.json()
@@ -167,6 +183,10 @@ async def match_single_model(
     # Handle both DB format (openrouter_id) and API format (id)
     openrouter_id = openrouter_model.get("openrouter_id") or openrouter_model.get("id", "")
     openrouter_name = openrouter_model.get("name", "")
+
+    if _should_skip_openrouter_model(openrouter_id):
+        logger.debug(f"Skipping non-benchmark catalog model: {openrouter_id}")
+        return None
 
     # Check if we already benchmark this model
     # Simple heuristic: Check if the model_id appears in our DB
@@ -212,6 +232,18 @@ async def match_single_model(
         return None
 
 
+def _should_skip_openrouter_model(openrouter_id: str) -> bool:
+    """Skip modality/tool-specific OpenAI SKUs that are outside our benchmark surface."""
+    if not openrouter_id.startswith("openai/"):
+        return False
+
+    model_id = openrouter_id.split("/", 1)[1].lower()
+    if model_id in UNWANTED_OPENAI_MODEL_IDS:
+        return True
+
+    return any(part in model_id for part in UNWANTED_OPENAI_MODEL_SUBSTRINGS)
+
+
 async def match_to_direct_providers(
     openrouter_models: List[Dict[str, Any]],
     our_models: List[Dict[str, Any]],
@@ -237,7 +269,7 @@ async def match_to_direct_providers(
 
     # Process in batches to avoid overwhelming the API
     for i in range(0, len(openrouter_models), batch_size):
-        batch = openrouter_models[i:i + batch_size]
+        batch = openrouter_models[i : i + batch_size]
 
         tasks = [match_single_model(model, our_models) for model in batch]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -301,7 +333,7 @@ def store_matches_in_db(
                         "match_confidence": match.confidence,
                         "match_reasoning": match.reasoning,
                     }
-                }
+                },
             )
 
             if result.modified_count > 0:
