@@ -15,11 +15,29 @@ NON_CHAT_MODELS = ["gpt-3.5-turbo-instruct", "gpt-3.5-turbo-instruct-0914"]
 # Reasoning models require Responses API
 REASONING_MODEL_PREFIXES = ("o1", "o3", "o4")
 
-# GPT-5.x models that are Responses API only (no Chat Completions support)
-RESPONSES_ONLY_MODELS = (
-    "gpt-5.2-pro",
+# GPT-5.x models that are Responses API only (no Chat Completions support).
+# Keep this list explicit so newly-added benchmark models don't rely on brittle
+# chat error string fallback before switching endpoints.
+RESPONSES_ONLY_MODELS = {
+    "gpt-5.1-codex",
+    "gpt-5.1-codex-mini",
     "gpt-5.1-codex-max",
-    "gpt-5-pro",  # Future-proofing
+    "gpt-5.2-codex",
+    "gpt-5.2-pro",
+    "gpt-5.3-codex",
+    "gpt-5-codex",
+    "gpt-5-pro",
+    "gpt-5.4-pro",
+}
+
+RESPONSES_ONLY_MODEL_PREFIXES = (
+    "gpt-5.1-codex-",
+    "gpt-5.2-codex-",
+    "gpt-5.2-pro-",
+    "gpt-5.3-codex-",
+    "gpt-5-codex-",
+    "gpt-5-pro-",
+    "gpt-5.4-pro-",
 )
 
 _RESPONSES_ONLY_HINTS = (
@@ -38,7 +56,7 @@ def _is_reasoning_model(model_name: str) -> bool:
 
 def _is_responses_only_model(model_name: str) -> bool:
     """Check if model only supports Responses API (not Chat Completions)."""
-    return model_name in RESPONSES_ONLY_MODELS
+    return model_name in RESPONSES_ONLY_MODELS or model_name.startswith(RESPONSES_ONLY_MODEL_PREFIXES)
 
 
 def _make_chat_request(client: OpenAI, config: CloudConfig, run_config: dict, use_max_tokens: bool = True):
