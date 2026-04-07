@@ -19,6 +19,9 @@ REASONING_MODEL_PREFIXES = ("o1", "o3", "o4")
 # Keep this list explicit so newly-added benchmark models don't rely on brittle
 # chat error string fallback before switching endpoints.
 RESPONSES_ONLY_MODELS = {
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-5-nano",
     "gpt-5.1-codex",
     "gpt-5.1-codex-mini",
     "gpt-5.1-codex-max",
@@ -59,6 +62,11 @@ def _is_responses_only_model(model_name: str) -> bool:
     return model_name in RESPONSES_ONLY_MODELS or model_name.startswith(RESPONSES_ONLY_MODEL_PREFIXES)
 
 
+def _needs_gpt5_alias_tuning(model_name: str) -> bool:
+    """Return True for canonical GPT-5 aliases that need a larger response budget."""
+    return model_name in {"gpt-5", "gpt-5-mini", "gpt-5-nano"}
+
+
 def _make_chat_request(client: OpenAI, config: CloudConfig, run_config: dict, use_max_tokens: bool = True):
     """Make chat completions request with appropriate token parameter."""
     request_params = {
@@ -86,8 +94,11 @@ def _make_responses_request(client: OpenAI, config: CloudConfig, run_config: dic
     # internal reasoning and emit no output text unless given a larger budget.
     max_out = int(run_config["max_tokens"])
     is_codex_max = "codex-max" in config.model_name.lower()
+    needs_gpt5_alias_tuning = _needs_gpt5_alias_tuning(config.model_name)
     if is_codex_max:
         max_out = max(max_out, 256)
+    elif needs_gpt5_alias_tuning:
+        max_out = max(max_out, 128)
 
     base_params = {
         "model": config.model_name,
@@ -97,6 +108,10 @@ def _make_responses_request(client: OpenAI, config: CloudConfig, run_config: dic
         "stream": stream,
     }
     if is_codex_max:
+        base_params["reasoning"] = {"effort": "low"}
+    elif needs_gpt5_alias_tuning:
+        # Canonical GPT-5 aliases can spend small token budgets on reasoning and
+        # emit no visible text unless we request a slightly larger output budget.
         base_params["reasoning"] = {"effort": "low"}
 
     # Some models reject parameters like temperature/reasoning; retry by removing unsupported ones.
