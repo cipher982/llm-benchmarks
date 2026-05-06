@@ -2,8 +2,8 @@ import logging
 import time
 
 import tiktoken
+from llm_bench.cloud.metrics import build_cloud_metrics
 from llm_bench.config import CloudConfig
-from llm_bench.utils import get_current_timestamp
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
@@ -112,17 +112,56 @@ def _process_responses_stream(stream, time_0: float) -> tuple[str, float, list[f
     return response_text, time_to_first_token, times_between_tokens, response_obj
 
 
-def _responses_usage_tokens(response_obj, response_text: str, model_name: str) -> int:
-    usage = getattr(response_obj, "usage", None) if response_obj else None
-    if usage and getattr(usage, "output_tokens", None) is not None:
-        return int(usage.output_tokens)
+def _attr(obj, name: str, default=None):
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(name, default)
+    return getattr(obj, name, default)
 
+
+def _text_token_count(response_text: str, model_name: str) -> int:
     try:
         encoder = tiktoken.encoding_for_model(model_name)
         return len(encoder.encode(response_text))
     except KeyError:
         logger.warning("No usage data or tiktoken encoder for %s, using word count", model_name)
         return int(len(response_text.split()) * 1.3)
+
+
+def _responses_usage(response_obj, response_text: str, model_name: str) -> dict:
+    usage = getattr(response_obj, "usage", None) if response_obj else None
+    if usage and getattr(usage, "output_tokens", None) is not None:
+        output_tokens = int(usage.output_tokens)
+        output_details = _attr(usage, "output_tokens_details")
+        reasoning_tokens = _attr(output_details, "reasoning_tokens")
+        if reasoning_tokens is not None:
+            reasoning_tokens = int(reasoning_tokens)
+            visible_tokens = max(output_tokens - reasoning_tokens, 0)
+        else:
+            visible_tokens = _text_token_count(response_text, model_name) if response_text else 0
+
+        input_details = _attr(usage, "input_tokens_details")
+        return {
+            "generated_output_tokens": output_tokens,
+            "visible_output_tokens": visible_tokens,
+            "reasoning_tokens": reasoning_tokens,
+            "input_tokens": _attr(usage, "input_tokens"),
+            "total_tokens": _attr(usage, "total_tokens"),
+            "cached_input_tokens": _attr(input_details, "cached_tokens"),
+            "token_source": "provider_usage_output_tokens",
+        }
+
+    visible_tokens = _text_token_count(response_text, model_name)
+    return {
+        "generated_output_tokens": visible_tokens,
+        "visible_output_tokens": visible_tokens,
+        "reasoning_tokens": None,
+        "input_tokens": None,
+        "total_tokens": None,
+        "cached_input_tokens": None,
+        "token_source": "approximate_tiktoken_or_words",
+    }
 
 
 def _run_responses_model(client: OpenAI, config: CloudConfig, run_config: dict) -> dict:
@@ -152,17 +191,27 @@ def _run_responses_model(client: OpenAI, config: CloudConfig, run_config: dict) 
                 raise
 
             generate_time = time.time() - time_0
-            output_tokens = _responses_usage_tokens(response_obj, response_str, config.model_name)
-            tokens_per_second = output_tokens / generate_time if generate_time > 0 else 0
-            last_metrics = {
-                "gen_ts": get_current_timestamp(),
-                "requested_tokens": run_config["max_tokens"],
-                "output_tokens": output_tokens,
-                "generate_time": generate_time,
-                "tokens_per_second": tokens_per_second,
-                "time_to_first_token": time_to_first_token,
-                "times_between_tokens": times_between_tokens,
-            }
+            usage_metrics = _responses_usage(response_obj, response_str, config.model_name)
+            last_metrics = build_cloud_metrics(
+                requested_tokens=run_config["max_tokens"],
+                generated_output_tokens=usage_metrics["generated_output_tokens"],
+                visible_output_tokens=usage_metrics["visible_output_tokens"],
+                reasoning_tokens=usage_metrics["reasoning_tokens"],
+                cached_input_tokens=usage_metrics["cached_input_tokens"],
+                input_tokens=usage_metrics["input_tokens"],
+                total_tokens=usage_metrics["total_tokens"],
+                generate_time=generate_time,
+                time_to_first_token=time_to_first_token if time_to_first_token > 0 else None,
+                times_between_tokens=times_between_tokens,
+                token_source=usage_metrics["token_source"],
+                request_mode="openai_responses_stream",
+                response_id=_attr(response_obj, "id"),
+                response_status=_attr(response_obj, "status"),
+                finish_reason=_attr(_attr(response_obj, "incomplete_details"), "reason"),
+                max_output_tokens_attempted=max_output_tokens,
+                reasoning_effort=reasoning_effort,
+                visible_text_empty=not bool(response_str.strip()),
+            )
 
             if response_str.strip():
                 return last_metrics
@@ -218,15 +267,19 @@ def _run_legacy_completion(client: OpenAI, config: CloudConfig, run_config: dict
         logger.warning("No tiktoken encoder for %s, using word count approximation", config.model_name)
         output_tokens = int(len(response_str.split()) * 1.3)
 
-    return {
-        "gen_ts": get_current_timestamp(),
-        "requested_tokens": run_config["max_tokens"],
-        "output_tokens": output_tokens,
-        "generate_time": generate_time,
-        "tokens_per_second": output_tokens / generate_time if generate_time > 0 else 0,
-        "time_to_first_token": time_to_first_token,
-        "times_between_tokens": times_between_tokens,
-    }
+    return build_cloud_metrics(
+        requested_tokens=run_config["max_tokens"],
+        generated_output_tokens=output_tokens,
+        visible_output_tokens=output_tokens,
+        reasoning_tokens=0,
+        generate_time=generate_time,
+        time_to_first_token=time_to_first_token if time_to_first_token > 0 else None,
+        times_between_tokens=times_between_tokens,
+        token_source="tiktoken_visible_text",
+        request_mode="openai_legacy_completions_stream",
+        max_output_tokens_attempted=run_config["max_tokens"],
+        visible_text_empty=not bool(response_str.strip()),
+    )
 
 
 def generate(config: CloudConfig, run_config: dict) -> dict:

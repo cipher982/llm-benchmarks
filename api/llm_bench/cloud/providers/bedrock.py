@@ -1,11 +1,10 @@
 import logging
 import time
-from datetime import datetime
 
 import boto3
 from botocore.exceptions import ClientError
+from llm_bench.cloud.metrics import build_cloud_metrics
 from llm_bench.config import CloudConfig
-from llm_bench.utils import get_current_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +45,11 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     time_to_first_token = None
     output_tokens = 0
     times_between_tokens = []
+    input_tokens = None
+    total_tokens = None
+    finish_reason = None
+    token_source = "stream_chunks"
+    response_id = None
 
     try:
         response = bedrock_client.converse_stream(
@@ -55,6 +59,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
             inferenceConfig=inference_config,
             additionalModelRequestFields=additional_model_fields,
         )
+        response_id = response.get("ResponseMetadata", {}).get("RequestId")
 
         stream = response.get("stream")
         if stream:
@@ -69,10 +74,16 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
                         times_between_tokens.append(current_time - previous_token_time)
                     previous_token_time = current_time
                     output_tokens += 1
+                elif "messageStop" in event:
+                    finish_reason = event["messageStop"].get("stopReason")
                 elif "metadata" in event:
                     metadata = event["metadata"]
                     if "usage" in metadata and "outputTokens" in metadata["usage"]:
-                        output_tokens = metadata["usage"]["outputTokens"]
+                        usage = metadata["usage"]
+                        output_tokens = usage["outputTokens"]
+                        input_tokens = usage.get("inputTokens")
+                        total_tokens = usage.get("totalTokens")
+                        token_source = "provider_usage_output_tokens"
 
     except ClientError as err:
         message = err.response["Error"]["Message"]
@@ -81,16 +92,22 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
 
     time_1 = time.time()
     generate_time = time_1 - time_0
-    tokens_per_second = output_tokens / generate_time if generate_time > 0 else 0
 
-    metrics = {
-        "gen_ts": get_current_timestamp(),
-        "requested_tokens": run_config["max_tokens"],
-        "output_tokens": output_tokens,
-        "generate_time": generate_time,
-        "tokens_per_second": tokens_per_second,
-        "time_to_first_token": time_to_first_token,
-        "times_between_tokens": times_between_tokens,
-    }
+    metrics = build_cloud_metrics(
+        requested_tokens=run_config["max_tokens"],
+        generated_output_tokens=output_tokens,
+        visible_output_tokens=output_tokens,
+        reasoning_tokens=None,
+        input_tokens=input_tokens,
+        total_tokens=total_tokens,
+        generate_time=generate_time,
+        time_to_first_token=time_to_first_token,
+        times_between_tokens=times_between_tokens,
+        token_source=token_source,
+        request_mode="bedrock_converse_stream",
+        finish_reason=finish_reason,
+        response_id=response_id,
+        max_output_tokens_attempted=run_config["max_tokens"],
+    )
 
     return metrics

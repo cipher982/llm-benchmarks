@@ -49,6 +49,37 @@ PROVIDER_MODULES = {
     "lambda": "llm_bench.cloud.providers.lambda",  # DEPRECATED: API sunset Sept 2025
     "cerebras": "llm_bench.cloud.providers.cerebras",
 }
+VARIABLE_OUTPUT_PROVIDERS = ("openai", "openrouter", "deepinfra", "fireworks", "together", "groq", "vertex")
+
+
+def _validation_policy(provider: str) -> str:
+    if provider in VARIABLE_OUTPUT_PROVIDERS:
+        return "visible_nonzero"
+    return "strict_pm10"
+
+
+def _validate_metrics(provider: str, metrics: dict, max_tokens: int) -> tuple[bool, str | None]:
+    if metrics["tokens_per_second"] <= 0:
+        return False, "tokens_per_second must be greater than 0"
+    if metrics.get("visible_text_empty") is True:
+        if metrics.get("response_status") == "incomplete" or metrics.get("finish_reason") in (
+            "length",
+            "max_output_tokens",
+        ):
+            return False, "visible output empty after token budget was exhausted; retry with a larger output budget"
+        return False, "visible output text is empty"
+    visible_out = metrics.get("visible_output_tokens")
+    if visible_out is not None and visible_out <= 0:
+        return False, f"visible_output_tokens {visible_out} <= 0"
+    output_tokens = metrics["output_tokens"]
+    if provider in VARIABLE_OUTPUT_PROVIDERS:
+        if output_tokens <= 0:
+            return False, f"output_tokens {output_tokens} <= 0"
+        return True, None
+    if abs(output_tokens - max_tokens) > max_tokens * 0.1:
+        return False, f"Token count not within 10% of max tokens: {output_tokens}"
+    return True, None
+
 
 app = FastAPI(
     title="LLM Benchmarking API",
@@ -143,15 +174,12 @@ async def call_cloud(request: BenchmarkRequest):
             logger.error(error_message)
             return {"status": "error", "message": error_message}
 
-        if metrics["tokens_per_second"] <= 0:
-            error_message = "tokens_per_second must be greater than 0"
+        valid, validation_error = _validate_metrics(provider, metrics, max_tokens)
+        if not valid:
+            error_message = validation_error or "invalid metrics"
             logger.error(error_message)
             return {"status": "error", "message": error_message}
-
-        if abs(metrics["output_tokens"] - max_tokens) > max_tokens * 0.1:
-            error_message = f"Token count not within 10% of max tokens: {metrics['output_tokens']}"
-            logger.error(error_message)
-            return {"status": "error", "message": error_message}
+        metrics.setdefault("validation_policy", _validation_policy(provider))
 
     except Exception as e:
         error_message = f"An error occurred during benchmark: {str(e)}"

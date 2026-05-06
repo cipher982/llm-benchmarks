@@ -7,8 +7,8 @@ import vertexai
 from anthropic import AnthropicVertex
 from google.auth import default
 from google.auth import transport
+from llm_bench.cloud.metrics import build_cloud_metrics
 from llm_bench.config import CloudConfig
-from llm_bench.utils import get_current_timestamp
 from vertexai.generative_models import GenerationConfig
 from vertexai.generative_models import GenerativeModel
 
@@ -51,8 +51,9 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
             max_tokens=run_config["max_tokens"],
             stream=True,
         )
-        ttft, tbts, n_tokens = generate_tokens(stream, time_0, False, is_openai=True)
+        ttft, tbts, token_details = generate_tokens(stream, time_0, False, is_openai=True)
         generate_time = time.time() - time_0
+        request_mode = "vertex_openai_chat_completions_stream"
     elif "claude" not in config.model_name.lower():
         logger.debug("Using Vertex/GenerativeModel")
         model = GenerativeModel(config.model_name)
@@ -62,8 +63,9 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
             generation_config=GenerationConfig(max_output_tokens=run_config["max_tokens"]),
             stream=True,
         )
-        ttft, tbts, n_tokens = generate_tokens(stream, time_0, False)
+        ttft, tbts, token_details = generate_tokens(stream, time_0, False)
         generate_time = time.time() - time_0
+        request_mode = "vertex_gemini_generate_content_stream"
     else:
         logger.debug("Using Vertex/AnthropicVertex")
         # Use global endpoint for Claude 4/4.5 models (newer models only available globally)
@@ -82,10 +84,11 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
             messages=[{"role": "user", "content": run_config["query"]}],
             model=config.model_name,
         ) as stream:
-            ttft, tbts, n_tokens = generate_tokens(stream, time_0, True)
+            ttft, tbts, token_details = generate_tokens(stream, time_0, True)
         generate_time = time.time() - time_0
+        request_mode = "vertex_anthropic_messages_stream"
 
-    return calculate_metrics(run_config, n_tokens, generate_time, ttft, tbts)
+    return calculate_metrics(run_config, token_details, generate_time, ttft, tbts, request_mode)
 
 
 def generate_tokens(stream, time_0, is_anthropic=False, is_openai=False):
@@ -93,7 +96,16 @@ def generate_tokens(stream, time_0, is_anthropic=False, is_openai=False):
     previous_token_time = None
     time_to_first_token = None
     times_between_tokens = []
-    token_count = 0
+    token_details = {
+        "generated_output_tokens": 0,
+        "visible_output_tokens": None,
+        "reasoning_tokens": None,
+        "input_tokens": None,
+        "total_tokens": None,
+        "token_source": "stream_chunks",
+        "finish_reason": None,
+        "response_id": None,
+    }
 
     stream_iter = stream if is_anthropic or is_openai else stream
 
@@ -111,31 +123,77 @@ def generate_tokens(stream, time_0, is_anthropic=False, is_openai=False):
     assert item, "No tokens received"
 
     if is_anthropic:
-        token_count = item.message.usage.output_tokens
+        usage = item.message.usage
+        token_details.update(
+            {
+                "generated_output_tokens": usage.output_tokens,
+                "visible_output_tokens": usage.output_tokens,
+                "input_tokens": usage.input_tokens,
+                "token_source": "provider_usage_output_tokens",
+                "finish_reason": item.message.stop_reason,
+                "response_id": item.message.id,
+            }
+        )
     elif is_openai:
-        token_count = item.usage.completion_tokens
+        usage = item.usage
+        token_details.update(
+            {
+                "generated_output_tokens": usage.completion_tokens,
+                "visible_output_tokens": usage.completion_tokens,
+                "input_tokens": getattr(usage, "prompt_tokens", None),
+                "total_tokens": getattr(usage, "total_tokens", None),
+                "token_source": "provider_usage_completion_tokens",
+                "response_id": getattr(item, "id", None),
+            }
+        )
+        if getattr(item, "choices", None):
+            token_details["finish_reason"] = getattr(item.choices[0], "finish_reason", None)
     else:
         # Include both visible output tokens and thinking tokens (for Gemini 2.5+ thinking models)
         usage = item._raw_response.usage_metadata
-        token_count = usage.candidates_token_count
+        visible_tokens = usage.candidates_token_count
         # Add thinking tokens if present (Gemini 2.5+ models)
         thoughts_tokens = getattr(usage, "thoughts_token_count", 0) or 0
         if thoughts_tokens:
-            logger.debug(f"Model used {thoughts_tokens} thinking tokens + {token_count} output tokens")
-            token_count += thoughts_tokens
+            logger.debug(f"Model used {thoughts_tokens} thinking tokens + {visible_tokens} output tokens")
+        token_details.update(
+            {
+                "generated_output_tokens": visible_tokens + thoughts_tokens,
+                "visible_output_tokens": visible_tokens,
+                "reasoning_tokens": thoughts_tokens,
+                "input_tokens": getattr(usage, "prompt_token_count", None),
+                "total_tokens": getattr(usage, "total_token_count", None),
+                "token_source": "provider_usage_candidates_plus_thoughts",
+            }
+        )
+        candidates = getattr(item, "candidates", None)
+        if candidates:
+            token_details["finish_reason"] = getattr(candidates[0], "finish_reason", None)
 
-    return time_to_first_token, times_between_tokens, token_count
+    return time_to_first_token, times_between_tokens, token_details
 
 
-def calculate_metrics(run_config, output_tokens, generate_time, time_to_first_token, times_between_tokens):
-    tokens_per_second = output_tokens / generate_time if generate_time > 0 else 0
-
-    return {
-        "gen_ts": get_current_timestamp(),
-        "requested_tokens": run_config["max_tokens"],
-        "output_tokens": output_tokens,
-        "generate_time": generate_time,
-        "tokens_per_second": tokens_per_second,
-        "time_to_first_token": time_to_first_token,
-        "times_between_tokens": times_between_tokens,
-    }
+def calculate_metrics(
+    run_config,
+    token_details,
+    generate_time,
+    time_to_first_token,
+    times_between_tokens,
+    request_mode,
+):
+    return build_cloud_metrics(
+        requested_tokens=run_config["max_tokens"],
+        generated_output_tokens=token_details["generated_output_tokens"],
+        visible_output_tokens=token_details["visible_output_tokens"],
+        reasoning_tokens=token_details["reasoning_tokens"],
+        input_tokens=token_details["input_tokens"],
+        total_tokens=token_details["total_tokens"],
+        generate_time=generate_time,
+        time_to_first_token=time_to_first_token,
+        times_between_tokens=times_between_tokens,
+        token_source=token_details["token_source"],
+        request_mode=request_mode,
+        finish_reason=token_details["finish_reason"],
+        response_id=token_details["response_id"],
+        max_output_tokens_attempted=run_config["max_tokens"],
+    )

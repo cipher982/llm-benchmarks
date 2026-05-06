@@ -24,4 +24,5 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         model=config.model_name,
         max_tokens=run_config["max_tokens"],
         query=run_config["query"],
+        request_mode="together_chat_completions",
     )

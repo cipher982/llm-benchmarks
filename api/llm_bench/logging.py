@@ -20,6 +20,32 @@ from llm_bench.utils import get_current_timestamp
 
 logger = logging.getLogger(__name__)
 
+OPTIONAL_METRIC_FIELDS = (
+    "metrics_schema_version",
+    "generated_output_tokens",
+    "visible_output_tokens",
+    "reasoning_tokens",
+    "cached_input_tokens",
+    "input_tokens",
+    "total_tokens",
+    "generated_tokens_per_second",
+    "visible_tokens_per_second",
+    "token_source",
+    "request_mode",
+    "ttft_available",
+    "finish_reason",
+    "response_id",
+    "response_status",
+    "max_output_tokens_attempted",
+    "reasoning_effort",
+    "validation_policy",
+    "visible_text_empty",
+)
+
+
+def _optional_metric_fields(metrics: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: metrics[key] for key in OPTIONAL_METRIC_FIELDS if key in metrics}
+
 
 def log_metrics(
     model_type: str,
@@ -72,6 +98,7 @@ def log_json(model_type: str, config: Union[ModelConfig, CloudConfig], metrics: 
         "tokens_per_second": metrics["tokens_per_second"],
         "misc": config.misc,
     }
+    log_entry.update(_optional_metric_fields(metrics))
 
     if model_type == "local":
         assert isinstance(config, ModelConfig)
@@ -169,6 +196,7 @@ def log_mongo(
             "tokens_per_second": metrics["tokens_per_second"],
             "misc": config.misc,
         }
+        data.update(_optional_metric_fields(metrics))
 
         if model_type == "local":
             assert isinstance(config, ModelConfig)

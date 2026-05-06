@@ -53,6 +53,8 @@ PROVIDER_MODULES: Dict[str, str] = {
     "cerebras": "llm_bench.cloud.providers.cerebras",
 }
 
+VARIABLE_OUTPUT_PROVIDERS = ("openai", "openrouter", "deepinfra", "fireworks", "together", "groq", "vertex")
+
 
 def _bool_env(name: str, default: bool = False) -> bool:
     val = os.getenv(name)
@@ -262,10 +264,20 @@ def _validate_metrics(provider: str, metrics: Dict, max_tokens: int) -> Tuple[bo
     out = metrics["output_tokens"]
     if not isinstance(out, int):
         return False, "output_tokens not int"
+    if metrics.get("visible_text_empty") is True:
+        if metrics.get("response_status") == "incomplete" or metrics.get("finish_reason") in (
+            "length",
+            "max_output_tokens",
+        ):
+            return False, "visible output empty after token budget was exhausted; retry with a larger output budget"
+        return False, "visible output text is empty"
+    visible_out = metrics.get("visible_output_tokens")
+    if visible_out is not None and visible_out <= 0:
+        return False, f"visible_output_tokens {visible_out} <= 0"
 
     # Some providers do not reliably produce exactly max_tokens. Keep strict defaults,
     # but allow known-variable providers to pass if they produce a reasonable amount.
-    if provider in ("openai", "openrouter", "deepinfra", "fireworks", "together"):
+    if provider in VARIABLE_OUTPUT_PROVIDERS:
         # OpenAI-compatible providers can legitimately report completion tokens
         # that differ from visible text chunks, especially for reasoning models
         # with hidden tokens. Require non-zero output only.
@@ -277,6 +289,12 @@ def _validate_metrics(provider: str, metrics: Dict, max_tokens: int) -> Tuple[bo
     if abs(out - max_tokens) > max_tokens * 0.1:
         return False, f"output_tokens {out} not within 10% of requested {max_tokens}"
     return True, None
+
+
+def _validation_policy(provider: str) -> str:
+    if provider in VARIABLE_OUTPUT_PROVIDERS:
+        return "visible_nonzero"
+    return "strict_pm10"
 
 
 def _run_single_model(
@@ -342,6 +360,7 @@ def _run_single_model(
         _log_error_mongo(provider, model, stage="validate", message=str(why), client=client, db_name=db_name)
         print(f"❌ Error {provider}:{model} - {why}")
         return {"status": "error", "reason": why}
+    metrics.setdefault("validation_policy", _validation_policy(provider))
 
     # Write success only to Mongo metrics collection
     try:
