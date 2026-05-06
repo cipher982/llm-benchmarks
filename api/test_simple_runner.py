@@ -58,7 +58,8 @@ def test_run_single_benchmark_mock():
 
             # Verify metrics passed to log_http
             http_call_args = mock_log_http.call_args
-            assert http_call_args[0][1] == mock_metrics
+            assert http_call_args[0][1]["validation_policy"] == "strict_pm10"
+            assert http_call_args[0][1]["output_tokens"] == mock_metrics["output_tokens"]
 
     print("✅ run_single_benchmark mock test passed")
 

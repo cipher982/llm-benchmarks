@@ -61,6 +61,7 @@ PROVIDER_MODULES: Dict[str, str] = {
     "lambda": "llm_bench.cloud.providers.lambda",
     "cerebras": "llm_bench.cloud.providers.cerebras",
 }
+VARIABLE_OUTPUT_PROVIDERS = ("openai", "openrouter", "deepinfra", "fireworks", "together", "groq", "vertex")
 
 # Cache for imported provider modules
 _PROVIDER_MODULES_CACHE: Dict[str, Any] = {}
@@ -83,6 +84,32 @@ def _load_provider_func(provider: str):
     # Cache for future use
     _PROVIDER_MODULES_CACHE[provider] = generate_func
     return generate_func
+
+
+def _validation_policy(provider: str) -> str:
+    if provider in VARIABLE_OUTPUT_PROVIDERS:
+        return "visible_nonzero"
+    return "strict_pm10"
+
+
+def _validate_metrics(provider: str, metrics: Dict[str, Any]) -> tuple[bool, str | None]:
+    required = ["output_tokens", "generate_time", "tokens_per_second"]
+    for key in required:
+        if key not in metrics:
+            return False, f"Missing required metric '{key}'"
+    if metrics["tokens_per_second"] <= 0:
+        return False, f"Invalid tokens_per_second ({metrics['tokens_per_second']})"
+    if metrics.get("visible_text_empty") is True:
+        if metrics.get("response_status") == "incomplete" or metrics.get("finish_reason") in (
+            "length",
+            "max_output_tokens",
+        ):
+            return False, "visible output empty after token budget was exhausted; retry with a larger output budget"
+        return False, "visible output text is empty"
+    visible_out = metrics.get("visible_output_tokens")
+    if visible_out is not None and visible_out <= 0:
+        return False, f"visible_output_tokens {visible_out} <= 0"
+    return True, None
 
 
 def run_single_benchmark(provider: str, model: str) -> bool:
@@ -129,15 +156,11 @@ def run_single_benchmark(provider: str, model: str) -> bool:
         return False
 
     # Basic validation
-    required = ["output_tokens", "generate_time", "tokens_per_second"]
-    for key in required:
-        if key not in metrics:
-            logger.error(f"Missing required metric '{key}' for {provider}:{model}")
-            return False
-
-    if metrics["tokens_per_second"] <= 0:
-        logger.error(f"Invalid tokens_per_second ({metrics['tokens_per_second']}) for {provider}:{model}")
+    valid, validation_error = _validate_metrics(provider, metrics)
+    if not valid:
+        logger.error(f"{validation_error} for {provider}:{model}")
         return False
+    metrics.setdefault("validation_policy", _validation_policy(provider))
 
     # Post to ingest API
     success = log_http(model_config, metrics)
