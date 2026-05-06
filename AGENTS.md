@@ -106,6 +106,7 @@ ssh clifford 'docker logs -f $(docker ps -qf "name=llm-bench-service")'
 **Critical rules:**
 - **Bedrock:** Use `us.anthropic.*` / `us.meta.*` prefixes (not `anthropic.*` / `meta.*`)
 - **OpenAI:** o1/o3/o4 models auto-detected as reasoning models
+- **OpenAI-compatible hosted providers:** use provider-reported usage tokens; streamed text chunks can omit hidden/reasoning tokens
 - **Avoid:** Guard models, compound models, embeddings, TTS, image models
 
 **Commands:**

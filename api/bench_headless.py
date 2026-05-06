@@ -1,20 +1,26 @@
 import os
 import time
 import traceback
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime
+from datetime import timedelta
+from datetime import timezone
+from typing import Any
+from typing import Dict
+from typing import List
+from typing import Optional
+from typing import Tuple
 
 import dotenv
 import typer
-from pymongo import MongoClient, ReturnDocument
-
 from llm_bench.config import CloudConfig
 from llm_bench.logging import log_mongo
 from llm_bench.models_db import load_provider_models
 from llm_bench.ops.error_rollups import upsert_error_rollup
 from llm_bench.ops.error_taxonomy import classify_error
-from llm_bench.utils import has_recent_cloud_run
 from llm_bench.utils import get_current_timestamp
+from llm_bench.utils import has_recent_cloud_run
+from pymongo import MongoClient
+from pymongo import ReturnDocument
 
 # Load environment for local/dev; docker-compose also provides env_file
 dotenv.load_dotenv(".env")
@@ -181,12 +187,12 @@ def _claim_next_job(client: Optional[MongoClient] = None) -> Optional[Dict]:
         uri, db_name = _mongo()
     except RuntimeError:
         return None
-    
+
     should_close = False
     if client is None:
         client = MongoClient(uri)
         should_close = True
-    
+
     try:
         jobs = client[db_name][coll_name]
         job = jobs.find_one_and_update(
@@ -205,16 +211,19 @@ def _complete_job(job_id, client: Optional[MongoClient] = None) -> None:
     coll_name = _jobs_collection_name()
     if not coll_name:
         return
-    
+
     should_close = False
     if client is None:
         uri, _ = _mongo()
         client = MongoClient(uri)
         should_close = True
-        
+
     _, db_name = _mongo()
     try:
-        client[db_name][coll_name].update_one({"_id": job_id}, {"$set": {"status": "done", "finished_at": datetime.now(timezone.utc)}})
+        client[db_name][coll_name].update_one(
+            {"_id": job_id},
+            {"$set": {"status": "done", "finished_at": datetime.now(timezone.utc)}},
+        )
     finally:
         if should_close:
             client.close()
@@ -234,8 +243,7 @@ def _fail_job(job_id, message: str, client: Optional[MongoClient] = None) -> Non
     _, db_name = _mongo()
     try:
         client[db_name][coll_name].update_one(
-            {"_id": job_id},
-            {"$set": {"status": "error", "error": message, "finished_at": datetime.now(timezone.utc)}}
+            {"_id": job_id}, {"$set": {"status": "error", "error": message, "finished_at": datetime.now(timezone.utc)}}
         )
     finally:
         if should_close:
@@ -257,9 +265,10 @@ def _validate_metrics(provider: str, metrics: Dict, max_tokens: int) -> Tuple[bo
 
     # Some providers do not reliably produce exactly max_tokens. Keep strict defaults,
     # but allow known-variable providers to pass if they produce a reasonable amount.
-    if provider in ("openai", "openrouter"):
-        # These providers can legitimately return fewer than requested tokens (provider-side caps,
-        # safety truncation, endpoint-specific behavior). Require non-zero output only.
+    if provider in ("openai", "openrouter", "deepinfra", "fireworks", "together"):
+        # OpenAI-compatible providers can legitimately report completion tokens
+        # that differ from visible text chunks, especially for reasoning models
+        # with hidden tokens. Require non-zero output only.
         if out <= 0:
             return False, f"output_tokens {out} <= 0 for {provider}"
         return True, None
@@ -353,7 +362,8 @@ def _run_single_model(
 
     # Single concise line per model
     print(
-        f"✅ Success {provider}:{model} (tps={metrics.get('tokens_per_second'):.2f}, out={metrics.get('output_tokens')})"
+        f"✅ Success {provider}:{model} "
+        f"(tps={metrics.get('tokens_per_second'):.2f}, out={metrics.get('output_tokens')})"
     )
 
     return {"status": "success"}
@@ -367,14 +377,20 @@ def main(
         help="Comma-separated list of providers, or 'all' for all available",
     ),
     limit: int = typer.Option(100, "--limit", help="Limit per-provider models"),
-    run_always: bool = typer.Option(False, "--run-always", is_flag=True, help="Ignore freshness window for periodic runs"),
-    fresh_minutes: int = typer.Option(
-        int(os.getenv("FRESH_MINUTES", "30")), 
-        "--fresh-minutes", 
-        help="Skip runs newer than this window (minutes)"
+    run_always: bool = typer.Option(
+        False, "--run-always", is_flag=True, help="Ignore freshness window for periodic runs"
     ),
-    daemon: bool = typer.Option(False, "--daemon", is_flag=True, help="Run as a daemon, checking for jobs and periodic runs"),
-    debug: bool = typer.Option(False, "--debug", is_flag=True, help="Verbose per-model output (unused; always concise)"),
+    fresh_minutes: int = typer.Option(
+        int(os.getenv("FRESH_MINUTES", "30")),
+        "--fresh-minutes",
+        help="Skip runs newer than this window (minutes)",
+    ),
+    daemon: bool = typer.Option(
+        False, "--daemon", is_flag=True, help="Run as a daemon, checking for jobs and periodic runs"
+    ),
+    debug: bool = typer.Option(
+        False, "--debug", is_flag=True, help="Verbose per-model output (unused; always concise)"
+    ),
 ) -> None:
     """Headless runner that calls provider modules directly and writes to Mongo.
 
@@ -397,16 +413,16 @@ def main(
 
     if daemon:
         print(f"🚀 Starting in DAEMON mode (cadence={fresh_minutes}m)")
-        
+
         # Calculate the next wall-clock boundary to align the schedule
         # e.g. if fresh_minutes is 30, we want to run at :00 and :30
         now = time.time()
         cadence_seconds = fresh_minutes * 60
         last_periodic_pass = now - (now % cadence_seconds)
-        
+
         while True:
             now = time.time()
-            
+
             # Create one MongoDB client for this check cycle
             client: Optional[MongoClient] = None
             db_name: Optional[str] = None
@@ -420,7 +436,7 @@ def main(
                     stale_time = datetime.now(timezone.utc) - timedelta(hours=1)
                     client[db_name][coll_name].update_many(
                         {"status": "running", "started_at": {"$lt": stale_time}},
-                        {"$set": {"status": "pending", "started_at": None}}
+                        {"$set": {"status": "pending", "started_at": None}},
                     )
 
                 # 1) Always drain ad-hoc jobs first
@@ -435,9 +451,18 @@ def main(
                     if not job_provider or not job_model:
                         _fail_job(job.get("_id"), "invalid job doc", client)
                         continue
-                    
-                    # Ad-hoc jobs use a strict freshness check to avoid double-running if a periodic pass just happened
-                    res = _run_single_model(job_provider, job_model, run_always or ignore_freshness, fresh_minutes, debug, client, db_name)
+
+                    # Ad-hoc jobs use a strict freshness check to avoid
+                    # double-running if a periodic pass just happened.
+                    res = _run_single_model(
+                        job_provider,
+                        job_model,
+                        run_always or ignore_freshness,
+                        fresh_minutes,
+                        debug,
+                        client,
+                        db_name,
+                    )
                     if res.get("status") == "success":
                         _complete_job(job.get("_id"), client)
                     else:
@@ -447,8 +472,11 @@ def main(
                 if now >= last_periodic_pass + cadence_seconds:
                     # Update to the CURRENT boundary
                     last_periodic_pass = now - (now % cadence_seconds)
-                    print(f"⏰ Starting periodic pass (aligned to {datetime.fromtimestamp(last_periodic_pass).strftime('%H:%M:%S')})")
-                    
+                    print(
+                        "⏰ Starting periodic pass "
+                        f"(aligned to {datetime.fromtimestamp(last_periodic_pass).strftime('%H:%M:%S')})"
+                    )
+
                     # Refresh provider models list
                     provider_models = load_provider_models()
                     for provider in selected:
@@ -456,10 +484,13 @@ def main(
                         for model in models:
                             # Force run every model, ignore freshness entirely
                             _run_single_model(provider, model, True, 0, debug, client, db_name)
-                    
+
                     next_run = last_periodic_pass + cadence_seconds
-                    print(f"✅ Periodic pass complete. Next run at {datetime.fromtimestamp(next_run).strftime('%H:%M:%S')}")
-                
+                    print(
+                        "✅ Periodic pass complete. "
+                        f"Next run at {datetime.fromtimestamp(next_run).strftime('%H:%M:%S')}"
+                    )
+
             except Exception as e:
                 print(f"⚠️ Daemon loop error: {e}")
                 traceback.print_exc()
@@ -487,7 +518,15 @@ def main(
                 if not job_provider or not job_model:
                     _fail_job(job.get("_id"), "invalid job doc", client)
                     continue
-                res = _run_single_model(job_provider, job_model, run_always or ignore_freshness, fresh_minutes, debug, client, db_name)
+                res = _run_single_model(
+                    job_provider,
+                    job_model,
+                    run_always or ignore_freshness,
+                    fresh_minutes,
+                    debug,
+                    client,
+                    db_name,
+                )
                 if res.get("status") == "success":
                     _complete_job(job.get("_id"), client)
                 else:
@@ -497,7 +536,15 @@ def main(
             for provider in selected:
                 models = provider_models.get(provider, [])[:limit]
                 for model in models:
-                    _run_single_model(provider, model, run_always, fresh_minutes, debug, client, db_name)
+                    _run_single_model(
+                        provider,
+                        model,
+                        run_always,
+                        fresh_minutes,
+                        debug,
+                        client,
+                        db_name,
+                    )
         finally:
             if client:
                 client.close()
