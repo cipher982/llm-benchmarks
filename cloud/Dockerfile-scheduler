@@ -31,4 +31,4 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Default CMD - can be overridden by docker-compose. Logs go to stdout.
-CMD ["python", "api/bench_headless.py", "--daemon"]
+CMD ["python", "-m", "llm_bench.scheduler.cli", "daemon"]

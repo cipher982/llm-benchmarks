@@ -17,6 +17,7 @@ from llm_bench.logging import log_mongo
 from llm_bench.models_db import load_provider_models
 from llm_bench.ops.error_rollups import upsert_error_rollup
 from llm_bench.ops.error_taxonomy import classify_error
+from llm_bench.scheduler.runner import validate_metrics as _scheduler_validate_metrics
 from llm_bench.utils import get_current_timestamp
 from llm_bench.utils import has_recent_cloud_run
 from pymongo import MongoClient
@@ -253,42 +254,7 @@ def _fail_job(job_id, message: str, client: Optional[MongoClient] = None) -> Non
 
 
 def _validate_metrics(provider: str, metrics: Dict, max_tokens: int) -> Tuple[bool, Optional[str]]:
-    if not isinstance(metrics, dict):
-        return False, "metrics not a dict"
-    required = ["output_tokens", "generate_time", "tokens_per_second"]
-    for k in required:
-        if k not in metrics:
-            return False, f"missing metric: {k}"
-    if metrics["tokens_per_second"] <= 0:
-        return False, "tokens_per_second <= 0"
-    out = metrics["output_tokens"]
-    if not isinstance(out, int):
-        return False, "output_tokens not int"
-    if metrics.get("visible_text_empty") is True:
-        if metrics.get("response_status") == "incomplete" or metrics.get("finish_reason") in (
-            "length",
-            "max_output_tokens",
-        ):
-            return False, "visible output empty after token budget was exhausted; retry with a larger output budget"
-        return False, "visible output text is empty"
-    visible_out = metrics.get("visible_output_tokens")
-    if visible_out is not None and visible_out <= 0:
-        return False, f"visible_output_tokens {visible_out} <= 0"
-
-    # Some providers do not reliably produce exactly max_tokens. Keep strict defaults,
-    # but allow known-variable providers to pass if they produce a reasonable amount.
-    if provider in VARIABLE_OUTPUT_PROVIDERS:
-        # OpenAI-compatible providers can legitimately report completion tokens
-        # that differ from visible text chunks, especially for reasoning models
-        # with hidden tokens. Require non-zero output only.
-        if out <= 0:
-            return False, f"output_tokens {out} <= 0 for {provider}"
-        return True, None
-
-    # Default: require close to requested tokens (±10%).
-    if abs(out - max_tokens) > max_tokens * 0.1:
-        return False, f"output_tokens {out} not within 10% of requested {max_tokens}"
-    return True, None
+    return _scheduler_validate_metrics(provider, metrics, max_tokens)
 
 
 def _validation_policy(provider: str) -> str:

@@ -20,4 +20,4 @@ services:
     volumes:
       - /home/drose/bench-sa-key.json:/app/gcp-key.json:ro
     # Emit logs to stdout/stderr (captured by Docker), no volume mount
-    command: python api/bench_headless.py --daemon
+    command: python -m llm_bench.scheduler.cli daemon
