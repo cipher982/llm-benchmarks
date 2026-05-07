@@ -15,6 +15,7 @@ class ErrorKind(str, Enum):
     HARD_CAPABILITY = "hard_capability"
     TRANSIENT_PROVIDER = "transient_provider"
     NETWORK = "network"
+    TIMEOUT = "timeout"
     UNKNOWN = "unknown"
 
 
@@ -81,6 +82,8 @@ def classify_error(*, message: str, exc_type: str = "") -> ClassifiedError:
         )
     if http_status == 404:
         return ClassifiedError(kind=ErrorKind.HARD_MODEL, normalized_message=normalized, http_status=http_status)
+    if exc_type == "TimeoutError" or "timed out" in normalized or "timeout" in normalized:
+        return ClassifiedError(kind=ErrorKind.TIMEOUT, normalized_message=normalized, http_status=http_status)
 
     # Together "model not available as serverless" — provider removed serverless access
     if "'code': 'model_not_available'" in raw or '"code": "model_not_available"' in raw:
