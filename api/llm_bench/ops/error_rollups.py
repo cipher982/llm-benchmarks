@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
+from datetime import timezone
 from typing import Optional
 
 from pymongo.collection import Collection
@@ -40,10 +41,6 @@ def upsert_error_rollup(
         {
             "$setOnInsert": {
                 "fingerprint": fingerprint,
-                "provider": provider,
-                "model_name": model_name,
-                "stage": stage,
-                "error_kind": error_kind,
                 "first_seen": now,
             },
             "$set": {
@@ -58,4 +55,3 @@ def upsert_error_rollup(
         },
         upsert=True,
     )
-
