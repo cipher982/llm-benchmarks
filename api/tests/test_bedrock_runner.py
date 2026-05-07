@@ -37,12 +37,13 @@ def test_bedrock_passes_additional_model_fields_and_splits_reasoning(monkeypatch
         ),
         {
             "query": "Give a short answer.",
-            "max_tokens": 256,
-            "additional_model_request_fields": {"thinking": {"type": "enabled", "budget_tokens": 128}},
+            "max_tokens": 2048,
+            "additional_model_request_fields": {"thinking": {"type": "enabled", "budget_tokens": 1024}},
         },
     )
 
-    assert captured["additionalModelRequestFields"] == {"thinking": {"type": "enabled", "budget_tokens": 128}}
+    assert captured["additionalModelRequestFields"] == {"thinking": {"type": "enabled", "budget_tokens": 1024}}
+    assert captured["inferenceConfig"] == {"maxTokens": 2048}
     assert metrics["output_tokens"] == 80
     assert metrics["visible_output_tokens"] < metrics["output_tokens"]
     assert metrics["reasoning_tokens"] > 0

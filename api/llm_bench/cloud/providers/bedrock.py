@@ -33,9 +33,6 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     # Prepare system prompts (if needed)
     system_prompts = []
 
-    # Prepare inference config
-    inference_config = {"temperature": config.temperature, "maxTokens": run_config["max_tokens"]}
-
     # Additional model fields let us exercise provider-specific features such
     # as Anthropic extended thinking while keeping the normal runner generic.
     additional_model_fields = {
@@ -46,6 +43,12 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     reasoning_effort = None
     if isinstance(thinking_config, dict):
         reasoning_effort = thinking_config.get("type")
+
+    # Prepare inference config. Anthropic extended thinking rejects modified
+    # sampling controls, so omit temperature when thinking is enabled.
+    inference_config = {"maxTokens": run_config["max_tokens"]}
+    if not reasoning_effort:
+        inference_config["temperature"] = config.temperature
 
     # Generate
     time_0 = time.time()
