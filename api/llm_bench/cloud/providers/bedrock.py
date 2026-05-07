@@ -5,6 +5,7 @@ import boto3
 from botocore.exceptions import ClientError
 from llm_bench.cloud.metrics import build_cloud_metrics
 from llm_bench.config import CloudConfig
+from tiktoken import get_encoding
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,9 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     finish_reason = None
     token_source = "stream_chunks"
     response_id = None
+    visible_text_parts = []
+    reasoning_text_parts = []
+    provider_usage_seen = False
 
     try:
         response = bedrock_client.converse_stream(
@@ -66,14 +70,27 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
             for event in stream:
                 current_time = time.time()
                 if "contentBlockDelta" in event:
-                    if not first_token_received:
-                        time_to_first_token = current_time - time_0
-                        first_token_received = True
-                    else:
-                        assert previous_token_time is not None
-                        times_between_tokens.append(current_time - previous_token_time)
-                    previous_token_time = current_time
-                    output_tokens += 1
+                    delta = event["contentBlockDelta"].get("delta", {})
+                    text_delta = delta.get("text")
+                    reasoning_delta = delta.get("reasoningContent")
+
+                    if text_delta:
+                        if not first_token_received:
+                            time_to_first_token = current_time - time_0
+                            first_token_received = True
+                        else:
+                            assert previous_token_time is not None
+                            times_between_tokens.append(current_time - previous_token_time)
+                        previous_token_time = current_time
+                        visible_text_parts.append(text_delta)
+                        output_tokens += 1
+
+                    if reasoning_delta:
+                        reasoning_text = reasoning_delta.get("text")
+                        if reasoning_text is None and isinstance(reasoning_delta.get("reasoningText"), dict):
+                            reasoning_text = reasoning_delta["reasoningText"].get("text")
+                        if reasoning_text:
+                            reasoning_text_parts.append(reasoning_text)
                 elif "messageStop" in event:
                     finish_reason = event["messageStop"].get("stopReason")
                 elif "metadata" in event:
@@ -84,6 +101,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
                         input_tokens = usage.get("inputTokens")
                         total_tokens = usage.get("totalTokens")
                         token_source = "provider_usage_output_tokens"
+                        provider_usage_seen = True
 
     except ClientError as err:
         message = err.response["Error"]["Message"]
@@ -92,12 +110,27 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
 
     time_1 = time.time()
     generate_time = time_1 - time_0
+    visible_text = "".join(visible_text_parts)
+    reasoning_text = "".join(reasoning_text_parts)
+
+    visible_tokens = output_tokens
+    reasoning_tokens = None
+    if reasoning_text:
+        encoder = get_encoding("cl100k_base")
+        visible_tokens = len(encoder.encode(visible_text))
+        if provider_usage_seen:
+            reasoning_tokens = max(output_tokens - visible_tokens, 0)
+            token_source = f"{token_source}_with_tiktoken_visible_split"
+        else:
+            reasoning_tokens = len(encoder.encode(reasoning_text))
+            output_tokens = visible_tokens + reasoning_tokens
+            token_source = "tiktoken_visible_plus_reasoning_text"
 
     metrics = build_cloud_metrics(
         requested_tokens=run_config["max_tokens"],
         generated_output_tokens=output_tokens,
-        visible_output_tokens=output_tokens,
-        reasoning_tokens=None,
+        visible_output_tokens=visible_tokens,
+        reasoning_tokens=reasoning_tokens,
         input_tokens=input_tokens,
         total_tokens=total_tokens,
         generate_time=generate_time,
