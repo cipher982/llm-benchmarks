@@ -167,28 +167,39 @@ def refresh_all_model_docs(db: Database, *, cadence_seconds: int, now: datetime 
 
 def backfill_from_metrics(db: Database, *, cadence_seconds: int, now: datetime | None = None) -> int:
     now = now or utcnow()
-    pipeline = [
-        {"$sort": {"run_ts": -1}},
-        {
-            "$group": {
-                "_id": {"provider": "$provider", "model_id": "$model_name"},
-                "last_success_at": {"$first": "$run_ts"},
-            }
-        },
-    ]
     updated = 0
-    for row in db[metrics_collection_name()].aggregate(pipeline, allowDiskUse=True):
-        provider = row["_id"].get("provider")
-        model_id = row["_id"].get("model_id")
-        last_success_at = row.get("last_success_at")
-        if not provider or not model_id or not last_success_at:
+    model_rows = db[models_collection_name()].find(
+        {},
+        {"provider": 1, "model_id": 1, "enabled": 1, "deprecated": 1},
+    )
+    for model_row in model_rows:
+        provider = model_row.get("provider")
+        model_id = model_row.get("model_id")
+        if not provider or not model_id:
             continue
         existing = health_collection(db).find_one({"provider": provider, "model_id": model_id})
         if existing and existing.get("last_success_at"):
             continue
+        latest = db[metrics_collection_name()].find_one(
+            {"provider": provider, "model_name": model_id},
+            {"run_ts": 1},
+            sort=[("run_ts", -1)],
+        )
+        last_success_at = latest.get("run_ts") if latest else None
+        if not last_success_at:
+            refresh_model_health_doc(
+                db,
+                provider=provider,
+                model_id=model_id,
+                enabled=bool(model_row.get("enabled", False)),
+                deprecated=bool(model_row.get("deprecated", False)),
+                cadence_seconds=cadence_seconds,
+                now=now,
+            )
+            continue
         successes, failures, deadline_misses = _recent_counts(db, provider=provider, model_id=model_id, now=now)
         freshness_status, staleness_seconds = compute_freshness_status(
-            enabled=True,
+            enabled=bool(model_row.get("enabled", False)) and not bool(model_row.get("deprecated", False)),
             cadence_seconds=cadence_seconds,
             last_success_at=last_success_at,
             now=now,
@@ -207,7 +218,7 @@ def backfill_from_metrics(db: Database, *, cadence_seconds: int, now: datetime |
                     "consecutive_failures": 0,
                 },
                 "$set": {
-                    "enabled": True,
+                    "enabled": bool(model_row.get("enabled", False)) and not bool(model_row.get("deprecated", False)),
                     "cadence_seconds": cadence_seconds,
                     "last_success_at": last_success_at,
                     "successes_24h": successes,
