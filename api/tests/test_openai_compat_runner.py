@@ -54,6 +54,7 @@ def test_retries_larger_budget_until_visible_output_is_complete_enough():
 
     assert metrics["visible_text_empty"] is False
     assert metrics["max_output_tokens_attempted"] == 256
+    assert metrics["attempts_count"] == 2
     assert metrics["request_mode"] == "test_provider"
     assert metrics["reasoning_tokens"] > 0
     assert [call["max_tokens"] for call in client.chat.completions.calls] == [64, 256]
@@ -81,4 +82,5 @@ def test_falls_back_to_reasoning_disabled_for_hybrid_models():
     assert metrics["visible_text_empty"] is False
     assert metrics["request_mode"] == "together_chat_completions_reasoning_disabled"
     assert metrics["reasoning_effort"] == "disabled"
+    assert metrics["attempts_count"] == 4
     assert client.chat.completions.calls[-1]["extra_body"] == {"reasoning": {"enabled": False}}

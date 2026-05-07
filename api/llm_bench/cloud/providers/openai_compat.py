@@ -77,7 +77,7 @@ def run_chat_completion_benchmark(
             attempts.append((fallback_mode, extra_body, reasoning_effort, budget))
 
     last_metrics = None
-    for attempt_mode, extra_body, reasoning_effort, budget in attempts:
+    for attempts_count, (attempt_mode, extra_body, reasoning_effort, budget) in enumerate(attempts, start=1):
         time_0 = time.time()
         request_params = {
             "model": model,
@@ -136,6 +136,7 @@ def run_chat_completion_benchmark(
             finish_reason=finish_reason,
             response_id=_attr(response, "id"),
             max_output_tokens_attempted=budget,
+            attempts_count=attempts_count,
             reasoning_effort=reasoning_effort,
             visible_text_empty=not bool(response_str.strip()),
         )

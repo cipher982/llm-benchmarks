@@ -26,4 +26,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         max_tokens=run_config["max_tokens"],
         query=run_config["query"],
         request_mode="deepinfra_chat_completions",
+        fallback_extra_bodies=[
+            ("reasoning_disabled", {"reasoning": {"enabled": False}}, "disabled"),
+        ],
     )

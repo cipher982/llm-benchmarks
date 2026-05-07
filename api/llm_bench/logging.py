@@ -37,6 +37,7 @@ OPTIONAL_METRIC_FIELDS = (
     "response_id",
     "response_status",
     "max_output_tokens_attempted",
+    "attempts_count",
     "reasoning_effort",
     "validation_policy",
     "visible_text_empty",
