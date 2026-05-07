@@ -61,6 +61,10 @@ def compute_freshness_status(
     now: datetime | None = None,
 ) -> tuple[str, int | None]:
     now = now or utcnow()
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    if last_success_at is not None and last_success_at.tzinfo is None:
+        last_success_at = last_success_at.replace(tzinfo=timezone.utc)
     if not enabled:
         return "disabled", None
     if last_success_at is None:
