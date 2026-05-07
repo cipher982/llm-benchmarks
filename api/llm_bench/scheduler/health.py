@@ -51,6 +51,14 @@ def ensure_indexes(db: Database) -> None:
     coll.create_index([("provider", 1), ("model_id", 1)], unique=True)
     coll.create_index([("freshness_status", 1), ("updated_at", -1)])
     coll.create_index([("enabled", 1), ("provider", 1)])
+    db[metrics_collection_name()].create_index(
+        [("provider", 1), ("model_name", 1), ("run_ts", -1)],
+        background=True,
+    )
+    db[errors_collection_name()].create_index(
+        [("provider", 1), ("model_name", 1), ("ts", -1), ("error_kind", 1)],
+        background=True,
+    )
 
 
 def compute_freshness_status(
