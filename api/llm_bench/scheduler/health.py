@@ -124,8 +124,6 @@ def refresh_model_health_doc(
         {
             "$setOnInsert": {
                 "_id": scheduled_job_id(provider, model_id),
-                "provider": provider,
-                "model_id": model_id,
                 "last_success_at": None,
                 "last_attempt_at": None,
                 "last_error_at": None,
@@ -217,8 +215,6 @@ def backfill_from_metrics(db: Database, *, cadence_seconds: int, now: datetime |
             {
                 "$setOnInsert": {
                     "_id": scheduled_job_id(provider, model_id),
-                    "provider": provider,
-                    "model_id": model_id,
                     "last_attempt_at": None,
                     "last_error_at": None,
                     "last_error_kind": None,
@@ -264,8 +260,6 @@ def record_success(
         {
             "$setOnInsert": {
                 "_id": scheduled_job_id(provider, model_id),
-                "provider": provider,
-                "model_id": model_id,
             },
             "$set": {
                 "enabled": True,
@@ -313,8 +307,6 @@ def record_error(
         {
             "$setOnInsert": {
                 "_id": scheduled_job_id(provider, model_id),
-                "provider": provider,
-                "model_id": model_id,
                 "last_success_at": None,
             },
             "$set": {
