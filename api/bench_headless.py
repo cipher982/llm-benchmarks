@@ -437,7 +437,10 @@ def main(
         # e.g. if fresh_minutes is 30, we want to run at :00 and :30
         now = time.time()
         cadence_seconds = fresh_minutes * 60
-        last_periodic_pass = now - (now % cadence_seconds)
+        # Run immediately on daemon start/restart. Deploys restart the container;
+        # waiting until the next cadence boundary makes direct-provider series
+        # look stale while the separate Bedrock runner keeps writing fresh rows.
+        last_periodic_pass = now - cadence_seconds
 
         while True:
             now = time.time()
