@@ -209,16 +209,16 @@ All tests passed! ✅
 
 Each provider requires its own authentication setup (API keys, credentials, etc.).
 
-## Differences from bench_headless.py
+## Differences from the scheduler daemon
 
-| Feature | bench_headless.py | bench_simple_runner.py |
-|---------|-------------------|------------------------|
-| MongoDB | Required | Not used |
-| Jobs system | Yes | No |
-| Freshness checks | Yes | No |
+| Feature | Scheduler daemon | bench_simple_runner.py |
+|---------|------------------|------------------------|
+| MongoDB | Required | Not used directly |
+| Jobs system | `bench_jobs` | No |
+| Freshness checks | `bench_model_health` | No |
 | Model discovery | From MongoDB | CLI/env var only |
-| Error tracking | MongoDB collection | Logs only |
-| Use case | Production scheduler | Remote runners |
+| Error tracking | MongoDB collections | Logs only; ingest bridge records success health |
+| Use case | Production direct-provider scheduler | Remote runners, primarily Bedrock |
 
 ## Troubleshooting
 

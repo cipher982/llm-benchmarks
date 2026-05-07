@@ -13,8 +13,8 @@ HTTP ingest: EC2 POSTs results to an API on clifford, API writes to MongoDB.
 
 ## Decision Log
 
-### Decision: Minimal simple runner over dual-mode headless
-**Context:** `bench_headless.py` is tightly coupled to MongoDB (jobs, errors, freshness)
+### Decision: Minimal simple runner over dual-mode Mongo runner
+**Context:** The direct-provider scheduler is tightly coupled to MongoDB (jobs, errors, freshness)
 **Choice:** Create `bench_simple_runner.py` - a lightweight runner with no MongoDB deps
 **Rationale:** Simpler than making headless work in two modes. Reuses existing provider code.
 **Revisit if:** Need more sophisticated job management on EC2
@@ -74,7 +74,7 @@ Minimal benchmark runner:
 - Created `api/bench_simple_runner.py` with argparse CLI
 - Supports `--provider`, `--models`, `--daemon`, `--interval`, `--debug` flags
 - Reads models from CLI args or BENCHMARK_MODELS env var
-- Uses same PROVIDER_MODULES mapping and caching as bench_headless.py
+- Uses the same provider modules as the direct-provider scheduler
 - Validates metrics (output_tokens, generate_time, tokens_per_second)
 - Single-run mode (default) or daemon mode with configurable interval
 - No MongoDB dependencies - only uses http_output.log_http()
@@ -108,7 +108,7 @@ Already mostly done. May need:
 ---
 
 ## Out of Scope
-- Dual-mode `bench_headless.py`
+- Dual-mode direct-provider scheduler
 - `/models` endpoint (static list is fine)
 - Batch ingest (single POST per result is fine for now)
 - Complex retry/spool logic (log failure and move on)

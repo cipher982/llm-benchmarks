@@ -450,8 +450,8 @@ cd ~/git/llmbench/llm-benchmarks
 # Install dependencies
 uv sync
 
-# Run single provider
-uv run python api/bench_headless.py --providers openai --limit 1
+# Enqueue a manual scheduler job
+uv run env PYTHONPATH=api python -m llm_bench.scheduler.cli enqueue --provider openai --model gpt-4o-mini
 
 # Test reasoning models
 uv run python test_reasoning_models_e2e.py
@@ -464,7 +464,7 @@ uv run python test_openai_provider.py
 
 1. Create `api/llm_bench/cloud/providers/{name}.py`
 2. Implement `generate(config: CloudConfig, run_config: dict) -> dict`
-3. Add to `PROVIDER_MODULES` dict in `bench_headless.py`
+3. Add to `PROVIDER_MODULES` in `api/llm_bench/scheduler/runner.py`
 4. Add API key to Coolify env vars
 5. Add to `BENCHMARK_PROVIDERS`
 6. Test locally before production

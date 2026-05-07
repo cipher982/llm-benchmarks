@@ -11,9 +11,6 @@ We replaced brittle keyword matching with intelligent LLM classification. Errors
 cd /Users/davidrose/git/llmbench/llm-benchmarks
 ./ops/classify-errors.sh
 
-# Run daily health check (includes classification)
-python ops/daily-health-check.py
-
 # Test the system
 uv run env PYTHONPATH=api python -c "from llm_bench.ops.llm_error_classifier import classify_unclassified_rollups; print('OK')"
 ```
@@ -62,8 +59,8 @@ Result: Accurate, maintainable, 100-1000x fewer LLM calls
 ## Files Changed
 
 1. **api/llm_bench/ops/error_taxonomy.py** - Simplified to HTTP status only
-2. **ops/daily-health-check.py** - Added classification step
-3. **api/llm_bench/ops/llm_error_classifier.py** - NEW: LLM classifier
+2. **api/llm_bench/ops/llm_error_classifier.py** - LLM classifier
+3. **ops/classify-errors.sh** - Manual classification helper
 
 ## Cost
 
@@ -91,7 +88,7 @@ uv run env PYTHONPATH=api python -c "from llm_bench.ops.error_taxonomy import cl
 - [ ] Code deployed to servers (clifford, aws-poc)
 - [ ] API keys set in environment (ANTHROPIC_API_KEY or OPENAI_API_KEY)
 - [ ] Run initial classification: `./ops/classify-errors.sh --all`
-- [ ] Verify daily health check runs: `python ops/daily-health-check.py --dry-run`
+- [ ] Verify the Sauron `llm-bench-health` job still runs
 - [ ] Monitor email reports for quality
 
 ## Troubleshooting

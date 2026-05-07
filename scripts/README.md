@@ -1,4 +1,4 @@
-Scripts to help prepare MongoDB for the headless scheduler.
+Scripts to help prepare MongoDB for the benchmark scheduler.
 
 **Note:** For adding models to production, use `../manage-models.sh` from the parent directory. These scripts are for staging/testing or emergency operations.
 
@@ -12,25 +12,36 @@ Env vars
 - `MONGODB_COLLECTION_MODELS`: default models
 - `MONGODB_COLLECTION_CLOUD`: e.g., metrics_cloud_staging
 - `MONGODB_COLLECTION_ERRORS`: default errors_cloud
-- `MONGODB_COLLECTION_JOBS`: default jobs
+- `MONGODB_COLLECTION_BENCH_JOBS`: default bench_jobs
+- `MONGODB_COLLECTION_MODEL_HEALTH`: default bench_model_health
+- `MONGODB_COLLECTION_SCHEDULER_HEARTBEATS`: default bench_scheduler_heartbeats
 - `MONGODB_COLLECTION_MODEL_STATUS`: default model_status
 
 Create indexes
-1) One-liner (example; adjust names):
-   mongosh "$MONGODB_URI/$MONGODB_DB" --eval 'db.models.createIndex({provider:1, model_id:1, enabled:1});' --eval 'db.metrics_cloud_staging.createIndex({provider:1, model_name:1, gen_ts:-1});' --eval 'db.errors_cloud.createIndex({provider:1, model_name:1, ts:-1});' --eval 'db.jobs.createIndex({status:1, created_at:1});'
-
-2) Or with the script (uses env var names):
-   MONGODB_COLLECTION_CLOUD=metrics_cloud_staging mongosh "$MONGODB_URI/$MONGODB_DB" scripts/mongo_indexes.js
+- With the script:
+  ```bash
+  MONGODB_COLLECTION_CLOUD=metrics_cloud_staging mongosh "$MONGODB_URI/$MONGODB_DB" scripts/mongo_indexes.js
+  ```
 
 Seed a model (staging/testing only - use `../manage-models.sh` for production)
-- Example (enable an OpenAI model):
+- Example:
+  ```bash
   PROVIDER=openai MODEL_ID=gpt-4o-mini mongosh "$MONGODB_URI/$MONGODB_DB" scripts/seed_model.js
+  ```
 
-Enqueue a job
-- Example (runs regardless of freshness):
-  PROVIDER=openai MODEL=gpt-4o-mini IGNORE_FRESHNESS=true mongosh "$MONGODB_URI/$MONGODB_DB" scripts/enqueue_job.js
+Enqueue a manual scheduler job
+- Preferred CLI:
+  ```bash
+  uv run env PYTHONPATH=api python -m llm_bench.scheduler.cli enqueue --provider openai --model gpt-4o-mini
+  ```
+- `mongosh` helper:
+  ```bash
+  PROVIDER=openai MODEL=gpt-4o-mini mongosh "$MONGODB_URI/$MONGODB_DB" scripts/enqueue_job.js
+  ```
 
 Lifecycle status report (dry-run by default)
 - Example:
+  ```bash
   MONGODB_URI=... MONGODB_DB=llm-bench scripts/model_status_report.sh --provider vertex --json
+  ```
   Add `--apply --yes` to persist into the `model_status` collection once you review the output.

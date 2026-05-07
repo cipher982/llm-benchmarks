@@ -457,7 +457,7 @@ DISABLE  0.95  groq      llama-3.1-70b-specdec          Never succeeded...
 **Goal:** Operator runs automatically, sends suggestions in daily email
 
 **Acceptance Criteria:**
-- [x] `ops/daily-health-check.py` calls operator engine
+- [x] `llm-bench-health` Sauron job calls operator engine
 - [x] Email includes "AI Operator Suggestions" section
 - [x] Auto-executes high-confidence disables (404/401 >48h)
 - [x] Provides copy-paste commands for human-approved actions
@@ -501,7 +501,7 @@ Disabled 2 models (404 errors >48h):
 
 **Implementation:**
 
-1. **Added `run_operator_async()` function** to `ops/daily-health-check.py`:
+1. **Added `run_operator_async()` function** to `llm-bench-health` Sauron job:
    - Loads lifecycle snapshots from MongoDB
    - Generates decisions using LLM reasoning
    - Stores all decisions in `model_status` collection
@@ -524,13 +524,13 @@ Disabled 2 models (404 errors >48h):
 **Test Commands:**
 ```bash
 # Full health check with operator (production mode)
-uv run python ops/daily-health-check.py
+ssh clifford "curl -fsS -X POST http://127.0.0.1:8876/jobs/llm-bench-health/trigger"
 
 # Test with specific provider
-uv run python ops/daily-health-check.py --operator-provider groq --dry-run
+ssh clifford "curl -fsS -X POST http://127.0.0.1:8876/jobs/llm-bench-health/trigger"
 
 # Skip operator (for faster testing of other features)
-uv run python ops/daily-health-check.py --skip-operator --dry-run
+ssh clifford "curl -fsS -X POST http://127.0.0.1:8876/jobs/llm-bench-health/trigger"
 
 # Check for auto-executed actions
 mongosh "$MONGODB_URI" --quiet --eval '
@@ -762,7 +762,7 @@ db.model_status.findOne(
 
 ```bash
 # Run health check
-uv run env PYTHONPATH=. python ops/daily-health-check.py
+ssh clifford "curl -fsS -X POST http://127.0.0.1:8876/jobs/llm-bench-health/trigger"
 
 # Check for auto-executed actions
 mongosh "$MONGODB_URI" --quiet --eval '

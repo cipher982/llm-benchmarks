@@ -26,10 +26,6 @@ def jobs_collection_name() -> str:
     return collection_name("MONGODB_COLLECTION_BENCH_JOBS", "bench_jobs")
 
 
-def old_jobs_collection_name() -> str:
-    return collection_name("MONGODB_COLLECTION_JOBS", "jobs")
-
-
 def health_collection_name() -> str:
     return collection_name("MONGODB_COLLECTION_MODEL_HEALTH", "bench_model_health")
 

@@ -27,7 +27,7 @@ operator/
 - Stores decisions in `model_status.operator_decision` field
 
 ### Phase 3: Health Check Integration
-- Modified `ops/daily-health-check.py` to call operator
+- Modified `llm-bench-health` Sauron job to call operator
 - Email now includes AUTO-EXECUTED ACTIONS and SUGGESTIONS FOR REVIEW sections
 - Auto-executes high-confidence (≥0.95) disables for 404/401 errors >48h
 - Copy-paste MongoDB commands for manual approval
@@ -195,7 +195,7 @@ docs/specs/ai-operator.md
 
 ### Modified Files
 ```
-ops/daily-health-check.py  # Added operator integration
+llm-bench-health Sauron job  # Added operator integration
 ```
 
 ---
@@ -215,9 +215,9 @@ uv run python -m api.llm_bench.discovery.cli stats
 uv run python -m api.llm_bench.discovery.cli report --max-matches 20
 
 # Health check
-uv run python ops/daily-health-check.py --dry-run
-uv run python ops/daily-health-check.py --skip-operator --dry-run
-uv run python ops/daily-health-check.py --operator-provider groq --dry-run
+ssh clifford "curl -fsS -X POST http://127.0.0.1:8876/jobs/llm-bench-health/trigger"
+ssh clifford "curl -fsS -X POST http://127.0.0.1:8876/jobs/llm-bench-health/trigger"
+ssh clifford "curl -fsS -X POST http://127.0.0.1:8876/jobs/llm-bench-health/trigger"
 ```
 
 ---

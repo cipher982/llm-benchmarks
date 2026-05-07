@@ -62,7 +62,6 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
         provider_models = load_provider_models()
         selected = _selected_providers(providers, provider_models)
         health.refresh_all_model_docs(db, cadence_seconds=cadence_seconds, now=now)
-        migrated = queue.migrate_old_pending_jobs(db, now=now)
         for provider in selected:
             models = provider_models.get(provider, [])[:limit]
             for model_id in models:
@@ -77,11 +76,11 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
         health.heartbeat(
             db,
             component="scheduler",
-            details={"providers": selected, "enqueued": enqueued, "migrated_old_jobs": migrated},
+            details={"providers": selected, "enqueued": enqueued},
             now=now,
         )
-        if enqueued or migrated:
-            print(f"Scheduler enqueued {enqueued} stale jobs and migrated {migrated} old jobs", flush=True)
+        if enqueued:
+            print(f"Scheduler enqueued {enqueued} stale jobs", flush=True)
         return enqueued
     finally:
         client.close()
@@ -142,12 +141,10 @@ def daemon(
         health.ensure_indexes(db)
         backfilled = health.backfill_from_metrics(db, cadence_seconds=cadence_seconds)
         expired = run_reaper_pass(cadence_seconds=cadence_seconds)
-        migrated = queue.migrate_old_pending_jobs(db)
         provider_models = load_provider_models()
         selected = _worker_providers(providers, provider_models)
         print(
-            "Scheduler daemon starting "
-            f"providers={selected} backfilled={backfilled} expired={expired} migrated_old_jobs={migrated}",
+            "Scheduler daemon starting " f"providers={selected} backfilled={backfilled} expired={expired}",
             flush=True,
         )
     finally:
@@ -206,6 +203,33 @@ def smoke_hang(
         )
         status = "enqueued" if created else "already-active"
         print(f"{status} smoke hang job provider={provider} model={model} seconds={seconds}", flush=True)
+    finally:
+        client.close()
+
+
+@app.command("enqueue")
+def enqueue(
+    provider: str = typer.Option(..., "--provider"),
+    model: str = typer.Option(..., "--model"),
+    priority: float = typer.Option(10_000, "--priority"),
+    deadline_seconds: int = typer.Option(policies.DEFAULT_DEADLINE_SECONDS, "--deadline-seconds"),
+    max_attempts: int = typer.Option(policies.DEFAULT_MAX_ATTEMPTS, "--max-attempts"),
+) -> None:
+    """Enqueue a manual benchmark job in bench_jobs."""
+    _, db_name = mongo_env()
+    client = mongo_client()
+    try:
+        db = client[db_name]
+        queue.ensure_indexes(db)
+        job_id = queue.enqueue_manual_job(
+            db,
+            provider=provider,
+            model_id=model,
+            priority=priority,
+            deadline_seconds=deadline_seconds,
+            max_attempts=max_attempts,
+        )
+        print(f"enqueued manual benchmark job id={job_id} provider={provider} model={model}", flush=True)
     finally:
         client.close()
 

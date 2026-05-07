@@ -67,17 +67,12 @@ cd /Users/davidrose/git/llmbench/llm-benchmarks
 ./ops/classify-errors.sh --batch-size 100
 ```
 
-### Run from Daily Health Check
+### Scheduled Health Checks
 
-The daily health check automatically runs classification before analysis:
-
-```bash
-# Normal run (includes classification)
-python ops/daily-health-check.py
-
-# Skip classification (faster, but may have stale classifications)
-python ops/daily-health-check.py --skip-classification
-```
+Production health reports run from Sauron, not from this repository's old
+systemd timer path. Use `./ops/classify-errors.sh` for manual classification
+from this repo; update the Sauron `llm-bench-health` job for scheduled report
+behavior.
 
 ### Run Programmatically
 

@@ -10,7 +10,6 @@ from pymongo.database import Database
 
 from llm_bench.scheduler import policies
 from llm_bench.scheduler.mongo import jobs_collection_name
-from llm_bench.scheduler.mongo import old_jobs_collection_name
 
 ACTIVE_STATUSES = {"queued", "running"}
 TERMINAL_RETRYABLE_STATUSES = {"success", "failed", "timeout"}
@@ -24,8 +23,9 @@ def scheduled_job_id(provider: str, model_id: str) -> str:
     return f"{provider}:{model_id}"
 
 
-def ad_hoc_job_id(old_job_id: Any) -> str:
-    return f"ad_hoc:{old_job_id}"
+def manual_job_id(provider: str, model_id: str, now: datetime) -> str:
+    timestamp = now.strftime("%Y%m%dT%H%M%S%fZ")
+    return f"manual:{provider}:{model_id}:{timestamp}"
 
 
 def smoke_hang_job_id(provider: str, model_id: str) -> str:
@@ -138,6 +138,32 @@ def enqueue_smoke_hang_job(
         return False
     coll.replace_one({"_id": job_id}, doc, upsert=True)
     return True
+
+
+def enqueue_manual_job(
+    db: Database,
+    *,
+    provider: str,
+    model_id: str,
+    priority: float = 10_000,
+    deadline_seconds: int = policies.DEFAULT_DEADLINE_SECONDS,
+    max_attempts: int = policies.DEFAULT_MAX_ATTEMPTS,
+    now: datetime | None = None,
+) -> str:
+    now = now or utcnow()
+    job_id = manual_job_id(provider, model_id, now)
+    doc = _new_job_doc(
+        job_id=job_id,
+        provider=provider,
+        model_id=model_id,
+        priority=priority,
+        job_kind="manual",
+        now=now,
+        deadline_seconds=deadline_seconds,
+        max_attempts=max_attempts,
+    )
+    jobs_collection(db).insert_one(doc)
+    return job_id
 
 
 def claim_next_job(
@@ -257,44 +283,3 @@ def expire_orphaned_running(db: Database, *, now: datetime | None = None) -> lis
         if result.modified_count > 0:
             transitioned.append({**job, "transitioned_status": update["$set"]["status"]})
     return transitioned
-
-
-def migrate_old_pending_jobs(db: Database, *, now: datetime | None = None) -> int:
-    now = now or utcnow()
-    old_jobs = db[old_jobs_collection_name()]
-    migrated = 0
-    for old_job in old_jobs.find({"status": "pending"}):
-        provider = old_job.get("provider")
-        model_id = old_job.get("model_id") or old_job.get("model") or old_job.get("model_name")
-        if not provider or not model_id:
-            old_jobs.update_one(
-                {"_id": old_job["_id"], "status": "pending"},
-                {
-                    "$set": {
-                        "status": "error",
-                        "error": "invalid job doc during scheduler migration",
-                        "finished_at": now,
-                    }
-                },
-            )
-            continue
-        job_id = ad_hoc_job_id(old_job["_id"])
-        doc = _new_job_doc(
-            job_id=job_id,
-            provider=provider,
-            model_id=model_id,
-            priority=float(old_job.get("priority", 1000)),
-            job_kind="ad_hoc",
-            now=now,
-            extra={
-                "old_job_id": old_job["_id"],
-                "ignore_freshness": bool(old_job.get("ignore_freshness", False)),
-            },
-        )
-        jobs_collection(db).replace_one({"_id": job_id}, doc, upsert=True)
-        result = old_jobs.update_one(
-            {"_id": old_job["_id"], "status": "pending"},
-            {"$set": {"status": "migrated", "migrated_at": now, "bench_job_id": job_id}},
-        )
-        migrated += result.modified_count
-    return migrated

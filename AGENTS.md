@@ -18,9 +18,10 @@ Benchmark runner that calls LLM APIs and measures performance. Deployed as two i
 Always `cd` into the specific subdirectory before git operations.
 
 **Key files:**
-- `api/bench_headless.py` - Main runner (daemon mode)
+- `api/llm_bench/scheduler/` - Mongo-backed scheduler, queue, worker, health, and process-isolated runner
+- `api/bench_simple_runner.py` - Bedrock/remote HTTP-ingest runner
 - `api/llm_bench/cloud/providers/` - Provider implementations
-- `api/llm_bench/models_db.py` - Loads models from MongoDB
+- `api/llm_bench/models_db.py` - Loads enabled models from MongoDB
 - `REASONING_MODELS.md` - OpenAI o1/o3/o4 documentation
 - `TROUBLESHOOTING.md` - Error patterns and solutions
 
@@ -32,7 +33,7 @@ Always `cd` into the specific subdirectory before git operations.
 
 | Instance | Providers | Why Separate |
 |----------|-----------|--------------|
-| **clifford** | anthropic, cerebras, deepinfra, fireworks, groq, openai, together, vertex | Direct MongoDB access |
+| **clifford** | anthropic, cerebras, deepinfra, fireworks, groq, openai, together, vertex | Mongo-backed scheduler with isolated provider worker lanes |
 | **EC2** | bedrock | Needs AWS IAM role + MongoDB via HTTP bridge |
 
 **HTTP Ingest Bridge:** EC2 POSTs results to `https://bench-ingest.drose.io` (on clifford), which writes to MongoDB.
@@ -47,6 +48,8 @@ Always `cd` into the specific subdirectory before git operations.
 
 **Key collections:**
 - `models` - Enabled models (provider, model_id, enabled, deprecated)
+- `bench_jobs` - Scheduler queue
+- `bench_model_health` - Authoritative freshness/error state
 - `metrics_cloud_v2` - Successful runs (run_ts, tokens_per_second)
 - `errors_cloud` - Failed runs (ts, message, stage)
 - `provider_catalog` - Models discovered from provider APIs (managed by Sauron)

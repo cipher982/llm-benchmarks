@@ -38,7 +38,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Benchmark defaults (match bench_headless.py)
+# Benchmark defaults used by the scheduler runner.
 QUERY_TEXT = "Tell a long and happy story about the history of the world."
 MAX_TOKENS = 64
 TEMPERATURE = 0.1

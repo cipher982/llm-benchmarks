@@ -1,8 +1,8 @@
-from bench_headless import _validate_metrics
+from llm_bench.scheduler.runner import validate_metrics
 
 
 def test_validation_classifies_empty_visible_text_after_budget_exhaustion():
-    ok, reason = _validate_metrics(
+    ok, reason = validate_metrics(
         "openai",
         {
             "output_tokens": 128,

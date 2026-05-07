@@ -1,9 +1,9 @@
 // Cleans up staging collections (USE WITH CAUTION!)
-// Env: MONGODB_COLLECTION_CLOUD, MONGODB_COLLECTION_ERRORS, MONGODB_COLLECTION_JOBS
+// Env: MONGODB_COLLECTION_CLOUD, MONGODB_COLLECTION_ERRORS, MONGODB_COLLECTION_BENCH_JOBS
 
 const metricsColl = process.env.MONGODB_COLLECTION_CLOUD;
 const errorsColl = process.env.MONGODB_COLLECTION_ERRORS;
-const jobsColl = process.env.MONGODB_COLLECTION_JOBS;
+const jobsColl = process.env.MONGODB_COLLECTION_BENCH_JOBS;
 
 // Safety check - only cleanup collections with "staging" in name
 function isStagingCollection(name) {

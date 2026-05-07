@@ -96,7 +96,7 @@ The system uses Docker with various frameworks (vLLM, Transformers, Text-Generat
 
 #### Cloud Benchmarks
 
-There is no HTTP API required for scheduled runs. A headless scheduler runs providers in-process and writes results directly to MongoDB.
+There is no HTTP API required for scheduled direct-provider runs. The Mongo-backed scheduler enqueues stale models in `bench_jobs`, runs each benchmark in an isolated child process, and writes results directly to MongoDB.
 
 1. Start the scheduler container (from repo root):
    ```bash
@@ -104,16 +104,14 @@ There is no HTTP API required for scheduled runs. A headless scheduler runs prov
    ```
 
    - Configure frequency via env vars in `.env`:
-     - `FRESH_MINUTES` (default 30): skip models with a run newer than this window
-     - `SLEEP_SECONDS` (default 1800): sleep between cycles
+     - `FRESH_MINUTES` (default 30): global sampling cadence
+     - `SCHEDULER_TICK_SECONDS` (default 30): scheduler/reaper polling interval
 
-2. Optional: run a one-off benchmark locally without Docker:
+2. Optional: enqueue a one-off benchmark job:
    ```bash
-   python api/bench_headless.py --providers openai --limit 5 --fresh-minutes 30
-   # Or run all configured providers
-   python api/bench_headless.py --providers all
-   # Run only Cerebras once you have set CEREBRAS_API_KEY
-   python api/bench_headless.py --providers cerebras --limit 5
+   uv run env PYTHONPATH=api python -m llm_bench.scheduler.cli enqueue \
+     --provider openai \
+     --model gpt-4o-mini
    ```
 
 ## Viewing Results
