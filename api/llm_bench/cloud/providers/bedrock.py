@@ -36,8 +36,16 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     # Prepare inference config
     inference_config = {"temperature": config.temperature, "maxTokens": run_config["max_tokens"]}
 
-    # Additional model fields
-    additional_model_fields = {}
+    # Additional model fields let us exercise provider-specific features such
+    # as Anthropic extended thinking while keeping the normal runner generic.
+    additional_model_fields = {
+        **(config.misc.get("additional_model_request_fields", {}) if isinstance(config.misc, dict) else {}),
+        **run_config.get("additional_model_request_fields", {}),
+    }
+    thinking_config = additional_model_fields.get("thinking") if isinstance(additional_model_fields, dict) else None
+    reasoning_effort = None
+    if isinstance(thinking_config, dict):
+        reasoning_effort = thinking_config.get("type")
 
     # Generate
     time_0 = time.time()
@@ -138,6 +146,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         times_between_tokens=times_between_tokens,
         token_source=token_source,
         request_mode="bedrock_converse_stream",
+        reasoning_effort=reasoning_effort,
         finish_reason=finish_reason,
         response_id=response_id,
         max_output_tokens_attempted=run_config["max_tokens"],
