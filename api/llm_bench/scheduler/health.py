@@ -51,7 +51,6 @@ def ensure_indexes(db: Database) -> None:
     coll.create_index([("provider", 1), ("model_id", 1)], unique=True)
     coll.create_index([("freshness_status", 1), ("updated_at", -1)])
     coll.create_index([("enabled", 1), ("provider", 1)])
-    db[heartbeats_collection_name()].create_index([("_id", 1)], unique=True)
 
 
 def compute_freshness_status(
