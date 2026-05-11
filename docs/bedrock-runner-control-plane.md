@@ -53,6 +53,11 @@ Server behavior:
 - Query `models` for `provider == requested provider`, `enabled == true`, and
   `deprecated != true`.
 - Sort by `display_name`, then `model_id`, for stable cycles.
+- The catalog should keep one enabled row per displayed model/version. Model IDs
+  may contain provider-required dates, but `display_name` and `canonical_id`
+  must not include date or timestamp checkpoint suffixes. Do not enable both
+  regional/global aliases or dated aliases that would render as the same model
+  line.
 - Return only the minimal runner worklist and cadence.
 - Authenticate with `RUNNER_CONFIG_TOKEN`, separate from `INGEST_API_KEY`.
 - Log provider, model count, status, latency, and a stable token identity.
