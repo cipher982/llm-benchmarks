@@ -124,12 +124,14 @@ The systemd unit loads this file via `EnvironmentFile=`.
 
 Rotation procedure:
 
-1. Issue new `RUNNER_CONFIG_TOKEN` and/or `INGEST_API_KEY` on clifford.
-2. Add the new token to `bench-ingest` while the old token is still accepted.
+1. Issue new `RUNNER_CONFIG_TOKEN` and/or `INGEST_API_KEY`.
+2. Update the token in `bench-ingest` and redeploy/restart it.
 3. Update `/etc/bedrock-bench/runner.env` on RND EC2 and restart
    `bedrock-bench.service`.
 4. Verify config fetches and ingest writes with the new token.
-5. Revoke the old token from `bench-ingest`.
+5. Expect the runner to skip work between steps 2 and 3 if the config token was
+   rotated. The current implementation supports one active config token, not
+   overlap rotation.
 
 ## Success Criteria
 

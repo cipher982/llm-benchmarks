@@ -254,6 +254,10 @@ def _load_cached_runner_config(provider: str) -> CycleConfig | None:
     if payload.get("provider") != provider:
         logger.error(f"Runner config cache provider mismatch: {payload.get('provider')} != {provider}")
         return None
+    source_payload = payload.get("source_payload")
+    if isinstance(source_payload, dict) and source_payload.get("schema_version") != 1:
+        logger.error(f"Runner config cache schema mismatch: {source_payload.get('schema_version')}")
+        return None
 
     models = payload.get("models")
     if not isinstance(models, list) or not all(isinstance(model, str) for model in models):
