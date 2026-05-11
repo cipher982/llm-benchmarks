@@ -10,6 +10,12 @@ from tiktoken import get_encoding
 logger = logging.getLogger(__name__)
 
 
+def _omit_temperature(model_name: str, reasoning_effort: str | None) -> bool:
+    """Some Anthropic Bedrock modes reject sampling controls."""
+    normalized = model_name.lower()
+    return bool(reasoning_effort) or "claude-opus-4-7" in normalized
+
+
 def generate(config: CloudConfig, run_config: dict) -> dict:
     """Run BedRock inference and return metrics."""
 
@@ -47,7 +53,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     # Prepare inference config. Anthropic extended thinking rejects modified
     # sampling controls, so omit temperature when thinking is enabled.
     inference_config = {"maxTokens": run_config["max_tokens"]}
-    if not reasoning_effort:
+    if not _omit_temperature(config.model_name, reasoning_effort):
         inference_config["temperature"] = config.temperature
 
     # Generate
