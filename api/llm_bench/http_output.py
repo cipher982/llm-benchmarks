@@ -46,6 +46,18 @@ def log_http(config, metrics: Dict) -> bool:
     try:
         response = httpx.post(ingest_url, json=payload, headers=headers, timeout=10.0)
         response.raise_for_status()
+        try:
+            response_payload = response.json()
+        except ValueError:
+            response_payload = {}
+        if response_payload.get("status") == "rejected":
+            logger.warning(
+                "Ingest rejected benchmark result for %s:%s - %s",
+                config.provider,
+                config.model_name,
+                response_payload.get("reason", "no reason provided"),
+            )
+            return False
         logger.info(f"Successfully posted benchmark result for {config.provider}:{config.model_name}")
         return True
     except httpx.HTTPStatusError as e:

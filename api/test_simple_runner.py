@@ -16,6 +16,8 @@ import httpx
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
 import bench_simple_runner
+from llm_bench import http_output
+from llm_bench.config import CloudConfig
 
 
 def test_parse_models_arg():
@@ -198,6 +200,20 @@ def test_benchmark_models_override_wins(monkeypatch):
 
     assert config.source == "env-override"
     assert config.models == ["model-a", "model-b"]
+
+
+def test_log_http_treats_rejected_ingest_as_failure(monkeypatch):
+    """A semantic ingest rejection should not count as a successful benchmark."""
+    monkeypatch.setenv("INGEST_API_URL", "https://bench-ingest.test/ingest")
+    monkeypatch.setenv("INGEST_API_KEY", "ingest-token")
+
+    def fake_post(url, json, headers, timeout):
+        return httpx.Response(202, json={"status": "rejected", "reason": "model is not enabled in catalog"})
+
+    monkeypatch.setattr(http_output.httpx, "post", fake_post)
+    config = CloudConfig(provider="bedrock", model_name="disabled-model", run_ts="2026-05-11 20:00:00", temperature=0.1)
+
+    assert http_output.log_http(config, {"tokens_per_second": 1}) is False
 
 
 if __name__ == "__main__":
