@@ -10,6 +10,8 @@ import sys
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
+import httpx
+
 # Add api to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
@@ -102,6 +104,100 @@ def test_load_provider_func_caching():
         assert func1 is func2
 
     print("✅ provider caching test passed")
+
+
+def test_resolve_cycle_config_fetches_remote_config(monkeypatch, tmp_path):
+    """Dynamic config mode fetches and persists the remote worklist."""
+    cache_path = tmp_path / "last_config.json"
+    monkeypatch.setenv("RUNNER_CONFIG_URL", "https://bench-ingest.test/runner-config?provider=bedrock")
+    monkeypatch.setenv("RUNNER_CONFIG_TOKEN", "config-token")
+    monkeypatch.setenv("RUNNER_CONFIG_CACHE_PATH", str(cache_path))
+    monkeypatch.delenv("BENCHMARK_MODELS", raising=False)
+    monkeypatch.delenv("BENCHMARK_MODELS_OVERRIDE", raising=False)
+
+    def fake_get(url, headers, timeout):
+        assert url == "https://bench-ingest.test/runner-config?provider=bedrock"
+        assert headers == {"Authorization": "Bearer config-token"}
+        assert timeout == bench_simple_runner.DEFAULT_CONFIG_TIMEOUT_SECONDS
+        return httpx.Response(
+            200,
+            json={
+                "schema_version": 1,
+                "provider": "bedrock",
+                "interval_minutes": 15,
+                "models": ["anthropic.claude-opus-4-7"],
+            },
+        )
+
+    monkeypatch.setattr(bench_simple_runner.httpx, "get", fake_get)
+
+    config = bench_simple_runner.resolve_cycle_config("bedrock", None, 30)
+
+    assert config.source == "remote"
+    assert config.models == ["anthropic.claude-opus-4-7"]
+    assert config.interval_minutes == 15
+    assert cache_path.exists()
+
+
+def test_resolve_cycle_config_uses_cache_on_transient_error(monkeypatch, tmp_path):
+    """Network/server failures use the persisted cache inside the grace window."""
+    cache_path = tmp_path / "last_config.json"
+    monkeypatch.setenv("RUNNER_CONFIG_URL", "https://bench-ingest.test/runner-config?provider=bedrock")
+    monkeypatch.setenv("RUNNER_CONFIG_TOKEN", "config-token")
+    monkeypatch.setenv("RUNNER_CONFIG_CACHE_PATH", str(cache_path))
+    bench_simple_runner._persist_runner_config(
+        "bedrock",
+        ["cached-model"],
+        20,
+        {"schema_version": 1, "provider": "bedrock", "models": ["cached-model"]},
+    )
+
+    def fake_get(url, headers, timeout):
+        return httpx.Response(503, text="temporarily unavailable")
+
+    monkeypatch.setattr(bench_simple_runner.httpx, "get", fake_get)
+
+    config = bench_simple_runner.resolve_cycle_config("bedrock", None, 30)
+
+    assert config.source == "cache"
+    assert config.models == ["cached-model"]
+    assert config.interval_minutes == 20
+
+
+def test_resolve_cycle_config_does_not_use_cache_on_auth_error(monkeypatch, tmp_path):
+    """Auth failures should not run stale cached work."""
+    cache_path = tmp_path / "last_config.json"
+    monkeypatch.setenv("RUNNER_CONFIG_URL", "https://bench-ingest.test/runner-config?provider=bedrock")
+    monkeypatch.setenv("RUNNER_CONFIG_TOKEN", "config-token")
+    monkeypatch.setenv("RUNNER_CONFIG_CACHE_PATH", str(cache_path))
+    bench_simple_runner._persist_runner_config(
+        "bedrock",
+        ["cached-model"],
+        20,
+        {"schema_version": 1, "provider": "bedrock", "models": ["cached-model"]},
+    )
+
+    def fake_get(url, headers, timeout):
+        return httpx.Response(401, text="nope")
+
+    monkeypatch.setattr(bench_simple_runner.httpx, "get", fake_get)
+
+    config = bench_simple_runner.resolve_cycle_config("bedrock", None, 30)
+
+    assert config.source == "auth-error"
+    assert config.models == []
+
+
+def test_benchmark_models_override_wins(monkeypatch):
+    """Emergency override keeps static model lists available explicitly."""
+    monkeypatch.setenv("RUNNER_CONFIG_URL", "https://bench-ingest.test/runner-config?provider=bedrock")
+    monkeypatch.setenv("BENCHMARK_MODELS_OVERRIDE", "1")
+    monkeypatch.setenv("BENCHMARK_MODELS", "model-a,model-b")
+
+    config = bench_simple_runner.resolve_cycle_config("bedrock", None, 30)
+
+    assert config.source == "env-override"
+    assert config.models == ["model-a", "model-b"]
 
 
 if __name__ == "__main__":
