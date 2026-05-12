@@ -38,13 +38,13 @@ Always `cd` into the specific subdirectory before git operations.
 
 **HTTP Ingest Bridge:** EC2 POSTs results to `https://bench-ingest.drose.io` (on clifford), which writes to MongoDB. `bench-ingest` is a manual app, not a Coolify app: tracked deploy state is in `~/git/me/mytech/infrastructure/manual-apps/bench-ingest/`, runtime secrets are on clifford at `/home/drose/manual-apps/bench-ingest/.env.secrets`, and deploys use `~/git/me/mytech/bin/manual-app deploy bench-ingest --repo-dir ~/git/llmbench/bench-ingest`.
 
-**Configuration:** Set via Coolify env vars (see `~/git/me/mytech/operations/coolify-api.md`)
+**Configuration:** clifford scheduler config is set via Coolify env vars. `bench-ingest` config/secrets live in the manual-app remote `.env.secrets`. The RND Bedrock runner loads `/etc/bedrock-bench/runner.env`, but its model worklist comes from `bench-ingest` `/runner-config`, not from a static env var.
 
 ---
 
 ## MongoDB
 
-**Connection:** Via Coolify env vars or ask user for `MONGODB_URI`
+**Connection:** Use the service env on clifford/Coolify; do not ask the user for `MONGODB_URI`. The RND Bedrock runner must never receive MongoDB credentials.
 
 **Key collections:**
 - `models` - Enabled models (provider, model_id, enabled, deprecated)
@@ -72,7 +72,7 @@ mongosh "$MONGODB_URI" --eval "db.models.updateOne({provider: 'X', model_id: 'Y'
 
 | Symptom | Quick Fix |
 |---------|-----------|
-| Bedrock `ProfileNotFound: zh-ml-mlengineer` | Remove `AWS_PROFILE` from clifford env vars (Bedrock runs on EC2 only) |
+| Bedrock `ProfileNotFound: zh-ml-mlengineer` | Remove stale `AWS_PROFILE` from clifford env vars; Bedrock runs on the RND EC2 instance only |
 | Groq `output_tokens not within 10%` | Disable guard/compound models (unsuitable for benchmarking) |
 | OpenAI o3-mini `unsupported parameter: max_tokens` | Update code - needs Responses API (see REASONING_MODELS.md) |
 | Vertex `429 quota exceeded` | Increase GCP quota or reduce frequency |
@@ -91,10 +91,10 @@ ssh clifford "curl -X POST -H 'Authorization: Bearer $TOKEN' -H 'Content-Type: a
   -d '{\"uuid\": \"hg04gw08gwcc4c0400k848wc\"}' 'http://localhost:8000/api/v1/deploy'"
 ```
 
-**EC2 (via AWS SSM):**
+**RND EC2 Bedrock runner (via AWS SSM):**
 ```bash
-aws sso login --profile zh-ml-mlengineer
-aws ssm start-session --target i-0b43e0b5f1ee7c5e9 --region us-east-1 --profile zh-ml-mlengineer
+aws sso login --profile zh-marketing-preprod-engineer
+aws ssm start-session --target i-056bc81c58a387657 --region us-east-1 --profile zh-marketing-preprod-engineer
 ```
 
 **Logs:**
@@ -109,6 +109,7 @@ ssh clifford 'docker logs -f $(docker ps -qf "name=llm-bench-service")'
 **Critical rules:**
 - **Bedrock:** Use `us.anthropic.*` / `us.meta.*` prefixes (not `anthropic.*` / `meta.*`)
 - **Bedrock display/canonical names:** never include date/timestamp checkpoint suffixes; keep one enabled alias per display model (no duplicate `claude-opus-4.6` rows from regional/global/date variants).
+- **Bedrock runner config:** enable/disable models in MongoDB `models`; production does not use `BENCHMARK_MODELS` except with the explicit emergency `BENCHMARK_MODELS_OVERRIDE=1`.
 - **OpenAI:** o1/o3/o4 models auto-detected as reasoning models
 - **OpenAI-compatible hosted providers:** use provider-reported usage tokens; streamed text chunks can omit hidden/reasoning tokens
 - **Bedrock ingest bridge:** `bench-ingest.drose.io` must preserve additive metric fields; schema-v2 runner fields are lost if the bridge rejects or ignores extras.

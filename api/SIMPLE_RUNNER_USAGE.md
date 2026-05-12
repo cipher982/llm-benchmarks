@@ -1,13 +1,14 @@
 # Simple Benchmark Runner Usage
 
 `bench_simple_runner.py` is a lightweight benchmark runner designed for remote environments without MongoDB access (e.g., EC2 instances).
+Production Bedrock uses the dynamic `/runner-config` control plane; `BENCHMARK_MODELS` is only a manual/local fallback unless `BENCHMARK_MODELS_OVERRIDE=1` is set.
 
 ## Features
 
 - No MongoDB dependencies
 - Posts results to HTTP ingest API
 - Supports daemon mode for continuous running
-- Configurable via CLI arguments or environment variables
+- Configurable via the HTTPS runner-config endpoint, CLI arguments, or environment variables
 - Comprehensive validation and error handling
 
 ## Prerequisites
@@ -32,6 +33,26 @@ export AWS_REGION="us-east-1"
 
 ## Usage
 
+### Production Daemon Mode
+
+Fetch the enabled model worklist and per-model request metadata from
+`bench-ingest` each cycle:
+
+```bash
+export RUNNER_CONFIG_URL="https://bench-ingest.drose.io/runner-config?provider=bedrock"
+export RUNNER_CONFIG_TOKEN="..."
+export INGEST_API_URL="https://bench-ingest.drose.io/ingest"
+export INGEST_API_KEY="..."
+
+uv run python api/bench_simple_runner.py \
+  --provider bedrock \
+  --daemon
+```
+
+This is the normal Bedrock path. Updating MongoDB `models.enabled` or
+`models.deprecated` changes the next fetched worklist; the EC2 runner does not
+connect to MongoDB directly.
+
 ### Single Run Mode (Default)
 
 Run benchmarks once and exit:
@@ -42,7 +63,7 @@ uv run python api/bench_simple_runner.py \
   --provider bedrock \
   --models "us.anthropic.claude-opus-4-5-20251101-v1:0,amazon.nova-pro-v1:0"
 
-# Using environment variable
+# Manual/local fallback using environment variable
 export BENCHMARK_MODELS="us.anthropic.claude-opus-4-5-20251101-v1:0,amazon.nova-pro-v1:0"
 uv run python api/bench_simple_runner.py --provider bedrock
 ```
@@ -52,11 +73,8 @@ uv run python api/bench_simple_runner.py --provider bedrock
 Run continuously with a specified interval:
 
 ```bash
-# Run every 30 minutes (default)
-uv run python api/bench_simple_runner.py \
-  --provider bedrock \
-  --models "us.anthropic.claude-opus-4-5-20251101-v1:0" \
-  --daemon
+# Run every 30 minutes (default) using RUNNER_CONFIG_URL when present
+uv run python api/bench_simple_runner.py --provider bedrock --daemon
 
 # Run every 15 minutes
 uv run python api/bench_simple_runner.py \
@@ -99,7 +117,8 @@ RUN uv sync
 # Set environment variables (or use docker-compose env_file)
 ENV INGEST_API_URL="https://ingest.example.com/ingest"
 ENV INGEST_API_KEY="your-key"
-ENV BENCHMARK_MODELS="us.anthropic.claude-opus-4-5-20251101-v1:0"
+ENV RUNNER_CONFIG_URL="https://bench-ingest.drose.io/runner-config?provider=bedrock"
+ENV RUNNER_CONFIG_TOKEN="your-config-token"
 
 # Run in daemon mode
 CMD ["uv", "run", "python", "api/bench_simple_runner.py", \
@@ -118,7 +137,8 @@ services:
     environment:
       - INGEST_API_URL=https://ingest.example.com/ingest
       - INGEST_API_KEY=${INGEST_API_KEY}
-      - BENCHMARK_MODELS=us.anthropic.claude-opus-4-5-20251101-v1:0,amazon.nova-pro-v1:0
+      - RUNNER_CONFIG_URL=https://bench-ingest.drose.io/runner-config?provider=bedrock
+      - RUNNER_CONFIG_TOKEN=${RUNNER_CONFIG_TOKEN}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_REGION=us-east-1
@@ -135,7 +155,7 @@ services:
 | `--interval` | No | 30 | Interval in minutes between runs (daemon mode only) |
 | `--debug` | No | False | Enable debug logging |
 
-\* Required unless `BENCHMARK_MODELS` environment variable is set
+\* Required unless `RUNNER_CONFIG_URL` is set, or `BENCHMARK_MODELS` is set for manual/local fallback.
 
 ## Environment Variables
 
@@ -143,7 +163,10 @@ services:
 |----------|----------|-------------|
 | `INGEST_API_URL` | Yes | URL of the ingest API endpoint |
 | `INGEST_API_KEY` | Yes | API key for authentication |
-| `BENCHMARK_MODELS` | No | Comma-separated model IDs (alternative to `--models`) |
+| `RUNNER_CONFIG_URL` | Production | HTTPS control-plane endpoint returning enabled models |
+| `RUNNER_CONFIG_TOKEN` | Production | Bearer token for `RUNNER_CONFIG_URL` |
+| `BENCHMARK_MODELS` | No | Comma-separated model IDs for manual/local fallback |
+| `BENCHMARK_MODELS_OVERRIDE` | No | Set to `1` only for emergency static override |
 
 ## Output
 
@@ -216,7 +239,7 @@ Each provider requires its own authentication setup (API keys, credentials, etc.
 | MongoDB | Required | Not used directly |
 | Jobs system | `bench_jobs` | No |
 | Freshness checks | `bench_model_health` | No |
-| Model discovery | From MongoDB | CLI/env var only |
+| Model discovery | From MongoDB | From `/runner-config`; CLI/env var only as fallback |
 | Error tracking | MongoDB collections | Logs only; ingest bridge records success health |
 | Use case | Production direct-provider scheduler | Remote runners, primarily Bedrock |
 

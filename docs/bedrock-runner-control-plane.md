@@ -42,6 +42,11 @@ Response:
   "provider": "bedrock",
   "interval_minutes": 30,
   "models": ["anthropic.claude-opus-4-7"],
+  "model_metadata": {
+    "anthropic.claude-opus-4-7": {
+      "omit_temperature": true
+    }
+  },
   "generated_at": "2026-05-11T20:00:00Z"
 }
 ```
@@ -58,7 +63,9 @@ Server behavior:
   must not include date or timestamp checkpoint suffixes. Do not enable both
   regional/global aliases or dated aliases that would render as the same model
   line.
-- Return only the minimal runner worklist and cadence.
+- Return only the minimal runner worklist, cadence, and per-model request
+  metadata needed by the runner. Provider quirks such as `omit_temperature`
+  belong in MongoDB model metadata, not in model-name string checks.
 - Authenticate with `RUNNER_CONFIG_TOKEN`, separate from `INGEST_API_KEY`.
 - Log provider, model count, status, latency, and a stable token identity.
 - Rate-limit per token.
@@ -140,7 +147,7 @@ Rotation procedure:
   Bedrock worklist by the next runner cycle.
 - RND EC2 only talks to `bench-ingest` over HTTPS.
 - New Bedrock catalog entries, such as Opus 4.7, appear in `/runner-config` once
-  enabled in MongoDB.
+  enabled in MongoDB, with any required `model_metadata`.
 - Disabled, deprecated, and unknown models do not receive new metric rows.
 - Runner survives transient config endpoint failures using bounded persisted
   cache.

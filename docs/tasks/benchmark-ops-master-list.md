@@ -50,6 +50,8 @@ Result:
 
 ## Task 2: Bedrock Catalog Hygiene CLI
 
+Status: done.
+
 Problem: Bedrock model enablement is now database-driven, but alias hygiene is
 still manual and easy to misread.
 
@@ -66,6 +68,8 @@ Success criteria:
 - A fixture preserves actual versions like Opus 4.5, 4.6, and 4.7.
 
 ## Task 3: Move Bedrock Provider Quirks Into Metadata
+
+Status: done; deploy requires Mongo metadata and runner restart.
 
 Problem: provider-specific request quirks are still encoded as model-name checks
 in runner code.
@@ -84,6 +88,8 @@ Success criteria:
 
 ## Task 4: Freshness And Drift Alerts
 
+Status: done; deploy requires Sauron jobs sync.
+
 Problem: a stopped Bedrock runner looked like a chart oddity before it looked
 like an operational incident.
 
@@ -99,6 +105,8 @@ Success criteria:
 - The check output names the stale provider/model and last successful run.
 
 ## Task 5: Dashboard Chart Ordering And Visibility
+
+Status: done; deploy requires dashboard rollout.
 
 Problem: provider comparison charts can make the most important line hard to see,
 and the page ordering did not obviously match "most providers per model."
@@ -119,6 +127,8 @@ Success criteria:
 
 ## Task 6: Discovery-To-Catalog Promotion
 
+Status: done.
+
 Problem: new provider models can be discovered, but human promotion into the
 enabled catalog still needs safer guardrails.
 
@@ -134,6 +144,8 @@ Success criteria:
 - Promotion leaves a clear audit trail in Mongo fields.
 
 ## Task 7: Cleanup Pass
+
+Status: done.
 
 Problem: the restore added the right control plane, but some old docs, naming,
   and cross-repo seams are still rough.
