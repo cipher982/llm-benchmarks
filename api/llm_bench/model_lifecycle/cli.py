@@ -2,17 +2,25 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict
+from typing import List
+from typing import Optional
 
+import dotenv
 import typer
 from pymongo import MongoClient
-import dotenv
 
-from .classifier import LifecycleDecision, LifecycleStatus, classify_snapshot
-from .collector import LifecycleSnapshot, collect_lifecycle_snapshots
+from llm_bench.catalog_hygiene import analyze_catalog_rows
+from llm_bench.catalog_hygiene import issue_to_dict
 
+from .classifier import LifecycleDecision
+from .classifier import LifecycleStatus
+from .classifier import classify_snapshot
+from .collector import LifecycleSnapshot
+from .collector import collect_lifecycle_snapshots
 
 app = typer.Typer(help="Model lifecycle monitoring utilities")
 
@@ -138,7 +146,14 @@ def report(
             continue
         results.append(_serialize_decision(snapshot, decision, now))
 
-    results.sort(key=lambda doc: (_risk_weight(LifecycleStatus(doc["status"])), doc["provider"], doc["model_id"]), reverse=True)
+    results.sort(
+        key=lambda doc: (
+            _risk_weight(LifecycleStatus(doc["status"])),
+            doc["provider"],
+            doc["model_id"],
+        ),
+        reverse=True,
+    )
 
     if output or json_output:
         payload = json.dumps(results, default=str, indent=2)
@@ -202,6 +217,76 @@ def summary(
         typer.echo(json.dumps(rows, indent=2))
     else:
         _print_summary_table(rows)
+
+
+@app.command("catalog-hygiene")
+def catalog_hygiene(
+    provider: str = typer.Option("bedrock", "--provider", "-p", help="Provider to check."),
+    json_output: bool = typer.Option(False, "--json", help="Print JSON instead of a table."),
+    fail_on_issues: bool = typer.Option(False, "--fail-on-issues", help="Exit non-zero when issues are found."),
+) -> None:
+    """Check model catalog alias and display-name hygiene."""
+
+    uri = os.getenv("MONGODB_URI")
+    db_name = os.getenv("MONGODB_DB", "llm-bench")
+    coll_name = os.getenv("MONGODB_COLLECTION_MODELS", "models")
+    if not uri:
+        raise RuntimeError("MONGODB_URI must be set")
+
+    client = MongoClient(uri)
+    try:
+        rows = list(
+            client[db_name][coll_name].find(
+                {"provider": provider},
+                {
+                    "_id": 0,
+                    "provider": 1,
+                    "model_id": 1,
+                    "display_name": 1,
+                    "canonical_id": 1,
+                    "model_canonical": 1,
+                    "enabled": 1,
+                    "deprecated": 1,
+                },
+            )
+        )
+    finally:
+        client.close()
+
+    issues = analyze_catalog_rows(rows, provider=provider)
+    if json_output:
+        typer.echo(json.dumps([issue_to_dict(issue) for issue in issues], indent=2))
+    elif issues:
+        _print_catalog_hygiene_table(issues)
+    else:
+        typer.echo(f"No catalog hygiene issues found for provider {provider}.")
+
+    if fail_on_issues and issues:
+        raise typer.Exit(code=1)
+
+
+def _print_catalog_hygiene_table(issues) -> None:
+    headers = ["SEVERITY", "CODE", "PROVIDER", "MODEL", "FIELD", "IDENTITY", "MESSAGE"]
+    rows = [
+        [
+            issue.severity,
+            issue.code,
+            issue.provider,
+            issue.model_id,
+            issue.field or "",
+            issue.normalized_identity or "",
+            issue.message,
+        ]
+        for issue in issues
+    ]
+    col_widths = [len(header) for header in headers]
+    for row in rows:
+        for idx, value in enumerate(row):
+            col_widths[idx] = max(col_widths[idx], len(value))
+    typer.echo("  ".join(headers[idx].ljust(col_widths[idx]) for idx in range(len(headers))))
+    typer.echo("  ".join("-" * width for width in col_widths))
+    for row in rows:
+        typer.echo("  ".join(value.ljust(col_widths[idx]) for idx, value in enumerate(row)))
 
 
 def _print_summary_table(rows: List[Dict[str, object]]) -> None:
