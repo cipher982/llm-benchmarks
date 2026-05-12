@@ -52,7 +52,7 @@ def test_bedrock_passes_additional_model_fields_and_splits_reasoning(monkeypatch
     assert metrics["request_mode"] == "bedrock_converse_stream"
 
 
-def test_bedrock_omits_temperature_for_opus_4_7(monkeypatch):
+def test_bedrock_omits_temperature_from_model_metadata(monkeypatch):
     captured = {}
 
     class FakeBedrockClient:
@@ -83,6 +83,7 @@ def test_bedrock_omits_temperature_for_opus_4_7(monkeypatch):
             model_name="us.anthropic.claude-opus-4-7",
             run_ts="2026-05-11T00:00:00Z",
             temperature=0.1,
+            misc={"omit_temperature": True},
         ),
         {"query": "Give a short answer.", "max_tokens": 64},
     )

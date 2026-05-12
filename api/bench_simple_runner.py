@@ -91,6 +91,7 @@ class CycleConfig:
     models: List[str]
     interval_minutes: int | None
     source: str
+    model_metadata: dict[str, dict] | None = None
 
 
 def _load_provider_func(provider: str):
@@ -138,7 +139,7 @@ def _validate_metrics(provider: str, metrics: Dict[str, Any]) -> tuple[bool, str
     return True, None
 
 
-def run_single_benchmark(provider: str, model: str) -> bool:
+def run_single_benchmark(provider: str, model: str, model_metadata: dict | None = None) -> bool:
     """
     Run a single benchmark and post result to ingest API.
 
@@ -154,7 +155,7 @@ def run_single_benchmark(provider: str, model: str) -> bool:
         model_name=model,
         run_ts=run_ts,
         temperature=TEMPERATURE,
-        misc={},
+        misc=model_metadata or {},
     )
 
     run_config = {
@@ -218,7 +219,11 @@ def _config_timeout_seconds() -> float:
 
 
 def _persist_runner_config(
-    provider: str, models: List[str], interval_minutes: int | None, source_payload: dict
+    provider: str,
+    models: List[str],
+    interval_minutes: int | None,
+    source_payload: dict,
+    model_metadata: dict[str, dict] | None = None,
 ) -> None:
     path = _config_cache_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -227,6 +232,7 @@ def _persist_runner_config(
         "provider": provider,
         "models": models,
         "interval_minutes": interval_minutes,
+        "model_metadata": model_metadata or {},
         "source_payload": source_payload,
     }
     tmp_path = path.with_suffix(path.suffix + ".tmp")
@@ -265,7 +271,15 @@ def _load_cached_runner_config(provider: str) -> CycleConfig | None:
         return None
     logger.warning(f"Using cached runner config ({age_seconds:.0f}s old, models={len(models)})")
     interval_minutes = payload.get("interval_minutes")
-    return CycleConfig(models=models, interval_minutes=interval_minutes, source="cache")
+    model_metadata = payload.get("model_metadata")
+    if not isinstance(model_metadata, dict):
+        model_metadata = {}
+    return CycleConfig(
+        models=models,
+        interval_minutes=interval_minutes,
+        source="cache",
+        model_metadata=model_metadata,
+    )
 
 
 def fetch_runner_config(provider: str) -> CycleConfig:
@@ -307,9 +321,20 @@ def fetch_runner_config(provider: str) -> CycleConfig:
     if interval_minutes is not None and not isinstance(interval_minutes, int):
         raise RunnerConfigPermanentError("Runner config interval_minutes must be an integer")
 
-    _persist_runner_config(provider, models, interval_minutes, payload)
+    model_metadata = payload.get("model_metadata")
+    if model_metadata is None:
+        model_metadata = {}
+    if not isinstance(model_metadata, dict) or not all(isinstance(value, dict) for value in model_metadata.values()):
+        raise RunnerConfigPermanentError("Runner config model_metadata must be an object of objects")
+
+    _persist_runner_config(provider, models, interval_minutes, payload, model_metadata)
     logger.info(f"Fetched runner config: provider={provider}, models={len(models)}, interval={interval_minutes}")
-    return CycleConfig(models=models, interval_minutes=interval_minutes, source="remote")
+    return CycleConfig(
+        models=models,
+        interval_minutes=interval_minutes,
+        source="remote",
+        model_metadata=model_metadata,
+    )
 
 
 def resolve_cycle_config(provider: str, models_arg: str | None, default_interval_minutes: int) -> CycleConfig:
@@ -321,7 +346,7 @@ def resolve_cycle_config(provider: str, models_arg: str | None, default_interval
     if override_enabled:
         models_str = os.getenv("BENCHMARK_MODELS")
         models = parse_models_arg(models_str or "")
-        return CycleConfig(models=models, interval_minutes=None, source="env-override")
+        return CycleConfig(models=models, interval_minutes=None, source="env-override", model_metadata={})
 
     if os.getenv("RUNNER_CONFIG_URL"):
         try:
@@ -341,7 +366,7 @@ def resolve_cycle_config(provider: str, models_arg: str | None, default_interval
 
     models_str = os.getenv("BENCHMARK_MODELS")
     models = parse_models_arg(models_str or "")
-    return CycleConfig(models=models, interval_minutes=default_interval_minutes, source="env")
+    return CycleConfig(models=models, interval_minutes=default_interval_minutes, source="env", model_metadata={})
 
 
 def main():
@@ -408,7 +433,7 @@ def main():
             fail_count = 0
 
             for model in models:
-                if run_single_benchmark(args.provider, model):
+                if run_single_benchmark(args.provider, model, (cycle_config.model_metadata or {}).get(model)):
                     success_count += 1
                 else:
                     fail_count += 1
@@ -429,7 +454,7 @@ def main():
         fail_count = 0
 
         for model in models:
-            if run_single_benchmark(args.provider, model):
+            if run_single_benchmark(args.provider, model, (cycle_config.model_metadata or {}).get(model)):
                 success_count += 1
             else:
                 fail_count += 1

@@ -128,6 +128,7 @@ def test_resolve_cycle_config_fetches_remote_config(monkeypatch, tmp_path):
                 "provider": "bedrock",
                 "interval_minutes": 15,
                 "models": ["anthropic.claude-opus-4-7"],
+                "model_metadata": {"anthropic.claude-opus-4-7": {"omit_temperature": True}},
             },
         )
 
@@ -138,6 +139,7 @@ def test_resolve_cycle_config_fetches_remote_config(monkeypatch, tmp_path):
     assert config.source == "remote"
     assert config.models == ["anthropic.claude-opus-4-7"]
     assert config.interval_minutes == 15
+    assert config.model_metadata == {"anthropic.claude-opus-4-7": {"omit_temperature": True}}
     assert cache_path.exists()
 
 
@@ -151,7 +153,13 @@ def test_resolve_cycle_config_uses_cache_on_transient_error(monkeypatch, tmp_pat
         "bedrock",
         ["cached-model"],
         20,
-        {"schema_version": 1, "provider": "bedrock", "models": ["cached-model"]},
+        {
+            "schema_version": 1,
+            "provider": "bedrock",
+            "models": ["cached-model"],
+            "model_metadata": {"cached-model": {"omit_temperature": True}},
+        },
+        {"cached-model": {"omit_temperature": True}},
     )
 
     def fake_get(url, headers, timeout):
@@ -163,6 +171,7 @@ def test_resolve_cycle_config_uses_cache_on_transient_error(monkeypatch, tmp_pat
 
     assert config.source == "cache"
     assert config.models == ["cached-model"]
+    assert config.model_metadata == {"cached-model": {"omit_temperature": True}}
     assert config.interval_minutes == 20
 
 
