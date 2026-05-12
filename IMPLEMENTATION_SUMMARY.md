@@ -98,6 +98,8 @@ usage.output_tokens  # Total: visible + reasoning
 usage.output_tokens_details.reasoning_tokens  # Reasoning only
 ```
 
+Schema-v2 metrics keep `output_tokens` and `tokens_per_second` as backwards-compatible aliases for generated output work. Generated throughput includes reasoning/thinking tokens when providers report them; visible throughput is written separately as `visible_tokens_per_second` when available.
+
 ### Backward Compatible
 - All existing models continue to work unchanged
 - No breaking changes to API or metrics format
@@ -184,7 +186,7 @@ uv run python test_openai_provider.py  # Add to test_cases
 
 2. **Incomplete responses**: If `max_output_tokens` is too low, response status will be `incomplete`. Usage metrics are still captured.
 
-3. **Time to first token may be 0**: For reasoning models that don't emit text deltas, `time_to_first_token` will be 0. This is expected behavior.
+3. **Time to first token may be unavailable**: For reasoning models that don't emit text deltas, `time_to_first_token` is stored as `null` and `ttft_available` is `false`. Do not treat this as an immediate first token.
 
 ## Files Modified
 

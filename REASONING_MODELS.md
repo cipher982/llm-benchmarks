@@ -33,13 +33,29 @@ Models that match these prefixes will use the Responses API.
 | Streaming events | Delta chunks | Semantic events |
 | Reasoning tokens | Not exposed | Included in usage |
 
-### Token Counting
+### Metric Semantics
 
-Responses API provides `usage.output_tokens` which includes:
+Responses API provides `usage.output_tokens`, which includes:
 - **Visible output tokens**: Text generated for the user
 - **Reasoning tokens**: Internal reasoning (not visible)
 
-For benchmarking, we use `output_tokens` (total) to measure model performance, as reasoning is part of the generation process.
+Schema v2 keeps the legacy `output_tokens` and `tokens_per_second` fields for dashboard/API compatibility. For schema-v2 rows, those legacy fields mean generated output work when the provider reports it. That includes reasoning or thinking tokens because the provider spent generation time on them.
+
+The runner also writes explicit fields so dashboards can distinguish generated work from user-visible text:
+
+| Field | Meaning |
+|-------|---------|
+| `output_tokens` | Backwards-compatible alias for generated output tokens. |
+| `tokens_per_second` | Backwards-compatible alias for generated throughput. |
+| `generated_output_tokens` | Provider-reported generated output tokens, including reasoning/thinking tokens when available. |
+| `visible_output_tokens` | User-visible output tokens when the provider exposes enough information to separate them. |
+| `reasoning_tokens` | Hidden reasoning/thinking tokens when reported or inferable. |
+| `generated_tokens_per_second` | Generated output throughput, including reasoning/thinking tokens when available. |
+| `visible_tokens_per_second` | User-visible output throughput when available. |
+| `time_to_first_token` | Seconds until the first visible text token. If no visible token arrives, this is unavailable (`null`), not `0`. |
+| `ttft_available` | Boolean indicating whether `time_to_first_token` is available. |
+
+Dashboard views may choose different fields for different questions. Ranking tables use visible throughput when available and fall back to generated throughput for legacy rows. Generated-throughput columns, speed distributions, and time-series charts show generated output work.
 
 Example from o3-mini:
 ```
@@ -66,7 +82,7 @@ The implementation tracks timing from `response.output_text.delta` events.
 
 ### Edge Cases
 
-1. **No visible text output**: Some reasoning models (e.g., o3-mini with low token limits) may use all tokens for reasoning and emit no visible text. This is valid - `output_tokens` will be non-zero but `time_to_first_token` will be 0.
+1. **No visible text output**: Some reasoning models (e.g., o3-mini with low token limits) may use all tokens for reasoning and emit no visible text. This is valid: `output_tokens` will be non-zero, but `time_to_first_token` will be unavailable (`null`) and `ttft_available` will be `false`.
 
 2. **Incomplete responses**: If `max_output_tokens` is too low, the response will be marked `incomplete`. The usage metrics are still captured correctly.
 
