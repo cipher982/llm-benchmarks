@@ -9,59 +9,61 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-import os
-from pathlib import Path
-from typing import List, Optional
+from typing import List
+from typing import Optional
 
 import dotenv
 import typer
 
-from .matcher import ModelMatch, match_to_direct_providers, store_matches_in_db
-from .openrouter import (
-    fetch_openrouter_models,
-    get_catalog_from_db,
-    get_our_models_from_db,
-    store_catalog_in_db,
-)
-
+from .matcher import ModelMatch
+from .matcher import match_to_direct_providers
+from .matcher import store_matches_in_db
+from .openrouter import fetch_openrouter_models
+from .openrouter import get_catalog_from_db
+from .openrouter import get_our_models_from_db
+from .openrouter import store_catalog_in_db
+from .promotion import PromotionPlan
+from .promotion import build_promotion_plan
 
 # Setup
 app = typer.Typer(help="Model discovery via OpenRouter catalog")
 dotenv.load_dotenv()
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def format_mongosh_add_command(match: ModelMatch) -> str:
+def format_mongosh_add_command(match: ModelMatch, our_models: List[dict] | None = None) -> str:
     """
-    Generate a copy-paste MongoDB command to add the model.
+    Generate a copy-paste MongoDB command to stage a promotion candidate.
 
-    For Bedrock models, includes helpful comments about the ID format.
+    Discovery does not automatically enable models. The candidate row carries
+    audit fields and must be reviewed before `enabled` is flipped to true.
     """
-    if match.provider == "bedrock":
-        comment = f"# Bedrock model - verify ID format is correct!\n# OpenRouter: {match.openrouter_id}"
-        return f"""{comment}
+    plan = build_promotion_plan(match, our_models or [])
+    return format_promotion_command(plan)
+
+
+def format_promotion_command(plan: PromotionPlan) -> str:
+    comments = [
+        "# Stage as disabled promotion candidate; review before enabling.",
+        f"# Provider/model: {plan.provider}/{plan.model_id}",
+    ]
+    if plan.provider == "bedrock":
+        comments.append("# Bedrock: run catalog-hygiene before enabling this candidate.")
+    comments.extend(f"# WARNING: {warning}" for warning in plan.warnings)
+    doc = json.dumps(plan.insert_doc, indent=2)
+    return (
+        "\n".join(comments)
+        + f"""
 mongosh "$MONGODB_URI" --eval '
-db.models.insertOne({{
-  provider: "{match.provider}",
-  model_id: "{match.model_id}",
-  enabled: true,
-  deprecated: false,
-  created_at: new Date()
-}})'"""
-    else:
-        return f"""mongosh "$MONGODB_URI" --eval '
-db.models.insertOne({{
-  provider: "{match.provider}",
-  model_id: "{match.model_id}",
-  enabled: true,
-  deprecated: false,
-  created_at: new Date()
-}})'"""
+db.models.updateOne(
+  {{provider: "{plan.provider}", model_id: "{plan.model_id}"}},
+  {{$setOnInsert: {doc}, $set: {{promotion_reviewed_at: new Date()}}}},
+  {{upsert: true}}
+)'"""
+    )
 
 
 @app.command()
@@ -119,12 +121,14 @@ def report(
 
         # Match new models
         typer.echo("🔍 Matching new models to direct providers...")
-        matches = asyncio.run(match_to_direct_providers(
-            openrouter_models,
-            our_models,
-            batch_size=10,
-            max_matches=max_matches,
-        ))
+        matches = asyncio.run(
+            match_to_direct_providers(
+                openrouter_models,
+                our_models,
+                batch_size=10,
+                max_matches=max_matches,
+            )
+        )
 
         # Filter by confidence
         matches = [m for m in matches if m.confidence >= min_confidence]
@@ -165,9 +169,16 @@ def report(
                 typer.echo(f"   Confidence: {match.confidence:.2f}")
                 typer.echo(f"   Reasoning: {match.reasoning}")
                 typer.echo()
-                typer.echo("   Add with:")
+                plan = build_promotion_plan(match, our_models)
+                if plan.warnings:
+                    typer.echo("   Warnings:")
+                    for warning in plan.warnings:
+                        typer.echo(f"   - {warning}")
+                    typer.echo()
+
+                typer.echo("   Stage candidate with:")
                 typer.echo()
-                for line in format_mongosh_add_command(match).split("\n"):
+                for line in format_promotion_command(plan).split("\n"):
                     typer.echo(f"   {line}")
                 typer.echo()
                 typer.echo()
