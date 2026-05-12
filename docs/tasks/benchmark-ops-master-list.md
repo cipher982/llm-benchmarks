@@ -19,8 +19,10 @@ Keep it short, operational, and biased toward reducing silent drift.
 
 ## Task 1: Make `bench-ingest` Deployable From Tracked Source
 
-Problem: `bench-ingest` is live on clifford under `/opt/bench-ingest`, but the
-server-specific deploy state is not yet tracked in the normal manual-app source
+Status: done on 2026-05-11.
+
+Problem: `bench-ingest` was live on clifford under `/opt/bench-ingest`, but the
+server-specific deploy state was not yet tracked in the normal manual-app source
 of truth.
 
 Scope:
@@ -37,6 +39,14 @@ Success criteria:
   reproduce the service without hand-editing `/opt/bench-ingest`.
 - The public `/runner-config?provider=bedrock` endpoint still returns the
   enabled Bedrock model worklist after deploy.
+
+Result:
+- Tracked source now lives in
+  `~/git/me/mytech/infrastructure/manual-apps/bench-ingest/`.
+- Runtime secrets live on clifford at
+  `/home/drose/manual-apps/bench-ingest/.env.secrets`.
+- The service is deployed from `/home/drose/manual-apps/bench-ingest/`, with a
+  tracked Caddy route fragment for `bench-ingest.drose.io`.
 
 ## Task 2: Bedrock Catalog Hygiene CLI
 
