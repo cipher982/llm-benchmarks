@@ -18,7 +18,7 @@ class ModelConfig:
         temperature: float,
         quantization_method: Optional[str] = None,
         quantization_bits: Optional[str] = None,
-        misc: dict = {},
+        misc: dict | None = None,
     ):
         self.framework = framework
         self.model_name = model_name
@@ -27,7 +27,7 @@ class ModelConfig:
         self.temperature = temperature
         self.quantization_method = quantization_method
         self.quantization_bits = quantization_bits
-        self.misc = misc
+        self.misc = misc or {}
 
     @property
     def framework(self):
@@ -77,7 +77,7 @@ class CloudConfig:
         model_name: str,
         run_ts: str,
         temperature: float,
-        misc: dict = {},
+        misc: dict | None = None,
     ):
         """
         Configuration for a cloud model run.
@@ -86,7 +86,7 @@ class CloudConfig:
         self.model_name = model_name
         self.run_ts = run_ts
         self.temperature = temperature
-        self.misc = misc
+        self.misc = misc or {}
 
     def to_dict(self):
         return {

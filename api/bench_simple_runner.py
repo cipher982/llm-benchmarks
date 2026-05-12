@@ -340,7 +340,7 @@ def fetch_runner_config(provider: str) -> CycleConfig:
 def resolve_cycle_config(provider: str, models_arg: str | None, default_interval_minutes: int) -> CycleConfig:
     if models_arg:
         models = parse_models_arg(models_arg)
-        return CycleConfig(models=models, interval_minutes=None, source="args")
+        return CycleConfig(models=models, interval_minutes=None, source="args", model_metadata={})
 
     override_enabled = os.getenv("BENCHMARK_MODELS_OVERRIDE") == "1"
     if override_enabled:

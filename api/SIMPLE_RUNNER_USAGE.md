@@ -166,7 +166,7 @@ services:
 | `RUNNER_CONFIG_URL` | Production | HTTPS control-plane endpoint returning enabled models |
 | `RUNNER_CONFIG_TOKEN` | Production | Bearer token for `RUNNER_CONFIG_URL` |
 | `BENCHMARK_MODELS` | No | Comma-separated model IDs for manual/local fallback |
-| `BENCHMARK_MODELS_OVERRIDE` | No | Set to `1` only for emergency static override |
+| `BENCHMARK_MODELS_OVERRIDE` | No | Set to `1` only for emergency static override; bypasses `/runner-config` metadata, so models with request quirks may fail |
 
 ## Output
 

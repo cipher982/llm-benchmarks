@@ -106,6 +106,9 @@ BENCHMARK_MODELS=model-a,model-b
 When the override flag is set, `BENCHMARK_MODELS` wins over dynamic config.
 Without the override flag, static `BENCHMARK_MODELS` is only a local/manual
 fallback when `RUNNER_CONFIG_URL` is unset.
+Override mode also bypasses `/runner-config` `model_metadata`; avoid it for
+models that need request quirks such as `omit_temperature` unless you are
+accepting those failures for the emergency run.
 
 ## Ingest Guardrails
 
