@@ -20,7 +20,8 @@ print('Created index on models (enabled, provider, model_id)');
 
 // metrics
 db.getCollection(metricsColl).createIndex({ provider: 1, model_name: 1, gen_ts: -1 });
-print('Created index on metrics (provider, model_name, gen_ts)');
+db.getCollection(metricsColl).createIndex({ provider: 1, model_name: 1, run_ts: -1 });
+print('Created indexes on metrics (provider, model_name, gen_ts/run_ts)');
 
 // errors
 db.getCollection(errorsColl).createIndex({ provider: 1, model_name: 1, ts: -1 });
