@@ -84,3 +84,19 @@ def test_falls_back_to_reasoning_disabled_for_hybrid_models():
     assert metrics["reasoning_effort"] == "disabled"
     assert metrics["attempts_count"] == 4
     assert client.chat.completions.calls[-1]["extra_body"] == {"reasoning": {"enabled": False}}
+
+
+def test_uses_visible_tokens_when_provider_reports_zero_usage():
+    client = FakeClient([response(content="Visible answer.", reasoning="", completion_tokens=0, finish_reason="stop")])
+
+    metrics = run_chat_completion_benchmark(
+        client=client,
+        model="test-model",
+        query="Tell a story.",
+        max_tokens=64,
+        request_mode="groq_chat_completions",
+    )
+
+    assert metrics["output_tokens"] > 0
+    assert metrics["tokens_per_second"] > 0
+    assert metrics["token_source"] == "tiktoken_visible_fallback_zero_usage"

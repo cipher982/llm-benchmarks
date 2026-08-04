@@ -8,6 +8,11 @@ DEFAULT_DEADLINE_SECONDS = int(os.getenv("BENCHMARK_DEADLINE_SECONDS", "120"))
 LEASE_GRACE_SECONDS = int(os.getenv("BENCHMARK_LEASE_GRACE_SECONDS", "60"))
 DEFAULT_MAX_ATTEMPTS = int(os.getenv("BENCHMARK_MAX_ATTEMPTS", "2"))
 DEFAULT_BACKOFF_SECONDS = int(os.getenv("BENCHMARK_RETRY_BACKOFF_SECONDS", str(15 * 60)))
+MAX_BACKOFF_SECONDS = int(os.getenv("BENCHMARK_RETRY_MAX_BACKOFF_SECONDS", str(6 * 60 * 60)))
+DEAD_LETTER_RETRY_AFTER_SECONDS = int(os.getenv("BENCHMARK_DEAD_LETTER_RETRY_AFTER_SECONDS", str(15 * 60)))
+BILLING_DEAD_LETTER_RETRY_AFTER_SECONDS = int(
+    os.getenv("BENCHMARK_BILLING_DEAD_LETTER_RETRY_AFTER_SECONDS", str(6 * 60 * 60))
+)
 
 PROVIDER_CONCURRENCY_DEFAULTS: dict[str, int] = {
     "anthropic": 2,
@@ -25,8 +30,14 @@ RETRYABLE_ERROR_KINDS = {
     "rate_limit",
     "timeout",
     "transient_provider",
-    "unknown",
 }
+
+OVERLOADED_ERROR_MARKERS = (
+    "overloaded",
+    "model busy",
+    "retry later",
+    "temporarily unavailable",
+)
 
 
 def fresh_minutes() -> int:
@@ -49,13 +60,33 @@ def excluded_providers() -> set[str]:
     return {provider.strip() for provider in raw.split(",") if provider.strip()}
 
 
-def retry_backoff(error_kind: str | None = None) -> timedelta:
-    return timedelta(seconds=DEFAULT_BACKOFF_SECONDS)
+def is_retryable_failure(error_kind: str | None, error_message: str | None = None) -> bool:
+    if error_kind in RETRYABLE_ERROR_KINDS:
+        return True
+    if error_kind != "unknown" or not error_message:
+        return False
+    message = error_message.lower()
+    return any(marker in message for marker in OVERLOADED_ERROR_MARKERS)
 
 
-def should_retry(error_kind: str | None, attempt: int, max_attempts: int) -> bool:
+def retry_backoff(error_kind: str | None = None, attempt: int = 1) -> timedelta:
+    del error_kind  # Kept in the signature for callers that classify by kind.
+    multiplier = 2 ** max(0, attempt - 1)
+    return timedelta(seconds=min(DEFAULT_BACKOFF_SECONDS * multiplier, MAX_BACKOFF_SECONDS))
+
+
+def should_retry(
+    error_kind: str | None,
+    attempt: int,
+    max_attempts: int,
+    error_message: str | None = None,
+) -> bool:
+    # Provider weather is not a terminal model decision. Keep these jobs
+    # recoverable so a short outage cannot permanently remove a model.
+    if is_retryable_failure(error_kind, error_message):
+        return True
     if attempt >= max_attempts:
         return False
     if not error_kind:
         return True
-    return error_kind in RETRYABLE_ERROR_KINDS
+    return error_kind == "unknown"

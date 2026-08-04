@@ -15,9 +15,18 @@ services:
       - MONGODB_COLLECTION_BENCH_JOBS=${MONGODB_COLLECTION_BENCH_JOBS:-bench_jobs}
       - BENCHMARK_PROVIDERS=${BENCHMARK_PROVIDERS:-all}
       - FRESH_MINUTES=${FRESH_MINUTES:-30}
+      - BENCHMARK_LIVENESS_MAX_IDLE_SECONDS=${BENCHMARK_LIVENESS_MAX_IDLE_SECONDS:-900}
+      - BENCHMARK_LIVENESS_STARTUP_GRACE_SECONDS=${BENCHMARK_LIVENESS_STARTUP_GRACE_SECONDS:-600}
+      - BENCHMARK_LIVENESS_PROVIDERS=${BENCHMARK_LIVENESS_PROVIDERS:-openai,anthropic,vertex,anyscale,together,fireworks,deepinfra,groq,databricks,lambda,cerebras}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - /home/drose/bench-sa-key.json:/app/gcp-key.json:ro
     # Emit logs to stdout/stderr (captured by Docker), no volume mount
     command: python -m llm_bench.scheduler.cli daemon
+    healthcheck:
+      test: ["CMD", "python", "-m", "llm_bench.scheduler.healthcheck"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10m

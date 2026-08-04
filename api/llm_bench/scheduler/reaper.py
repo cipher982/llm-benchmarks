@@ -16,6 +16,7 @@ def run_reaper_pass(*, cadence_seconds: int) -> int:
     try:
         db = client[db_name]
         expired = queue.expire_orphaned_running(db)
+        requeued = queue.requeue_retryable_dead_letters(db)
         for job in expired:
             log_error_mongo(
                 provider=str(job.get("provider")),
@@ -34,10 +35,16 @@ def run_reaper_pass(*, cadence_seconds: int) -> int:
                 error_kind="timeout",
                 error_message="lease expired",
             )
-        health.heartbeat(db, component="reaper", details={"expired": len(expired)})
+        health.heartbeat(
+            db,
+            component="reaper",
+            details={"expired": len(expired), "requeued_dead_letters": len(requeued)},
+        )
         if expired:
             print(f"Reaper expired {len(expired)} running jobs", flush=True)
-        return len(expired)
+        if requeued:
+            print(f"Reaper requeued {len(requeued)} retryable dead letters", flush=True)
+        return len(expired) + len(requeued)
     finally:
         client.close()
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from datetime import timedelta
 from datetime import timezone
 from typing import Any
 
@@ -41,6 +42,7 @@ def ensure_indexes(db: Database) -> None:
     coll.create_index([("provider", 1), ("status", 1), ("not_before", 1), ("priority", -1), ("created_at", 1)])
     coll.create_index([("status", 1), ("lease_expires_at", 1)])
     coll.create_index([("job_kind", 1), ("updated_at", -1)])
+    coll.create_index([("status", 1), ("last_attempt_error_kind", 1), ("updated_at", -1)])
 
 
 def _new_job_doc(
@@ -235,9 +237,9 @@ def mark_success(db: Database, *, job_id: Any, worker_id: str | None = None, now
 def _failure_update(job: dict[str, Any], *, error_kind: str, error_message: str, now: datetime) -> dict[str, Any]:
     attempt = int(job.get("attempt") or 0)
     max_attempts = int(job.get("max_attempts") or policies.DEFAULT_MAX_ATTEMPTS)
-    retry = policies.should_retry(error_kind, attempt, max_attempts)
+    retry = policies.should_retry(error_kind, attempt, max_attempts, error_message)
     status = "queued" if retry else "dead_letter"
-    not_before = now + policies.retry_backoff(error_kind) if retry else now
+    not_before = now + policies.retry_backoff(error_kind, attempt=attempt) if retry else now
     return {
         "$set": {
             "status": status,
@@ -270,6 +272,61 @@ def mark_failure(
     if result.modified_count == 0:
         return None
     return update["$set"]["status"]
+
+
+def requeue_retryable_dead_letters(
+    db: Database,
+    *,
+    now: datetime | None = None,
+    min_age_seconds: int = policies.DEAD_LETTER_RETRY_AFTER_SECONDS,
+) -> list[dict[str, Any]]:
+    """Return old recoverable dead letters to the queue."""
+    now = now or utcnow()
+    cutoff = now - timedelta(seconds=min_age_seconds)
+    billing_cutoff = now - timedelta(seconds=policies.BILLING_DEAD_LETTER_RETRY_AFTER_SECONDS)
+    coll = jobs_collection(db)
+    retryable_kinds = sorted(policies.RETRYABLE_ERROR_KINDS)
+    query: dict[str, Any] = {
+        "status": "dead_letter",
+        "$or": [
+            {
+                "updated_at": {"$lte": cutoff},
+                "$or": [
+                    {"last_attempt_error_kind": {"$in": retryable_kinds}},
+                    {
+                        "last_attempt_error_kind": "unknown",
+                        "last_attempt_error_message": {
+                            "$regex": "overloaded|model busy|retry later|temporarily unavailable",
+                            "$options": "i",
+                        },
+                    },
+                ],
+            },
+            {
+                "updated_at": {"$lte": billing_cutoff},
+                "last_attempt_error_kind": "billing",
+            },
+        ],
+    }
+    transitioned: list[dict[str, Any]] = []
+    for job in coll.find(query):
+        result = coll.update_one(
+            {"_id": job["_id"], "status": "dead_letter", "updated_at": job.get("updated_at")},
+            {
+                "$set": {
+                    "status": "queued",
+                    "updated_at": now,
+                    "finished_at": None,
+                    "not_before": now,
+                    "lease_expires_at": None,
+                    "worker_id": None,
+                },
+                "$inc": {"dead_letter_requeues": 1},
+            },
+        )
+        if result.modified_count:
+            transitioned.append({**job, "transitioned_status": "queued"})
+    return transitioned
 
 
 def expire_orphaned_running(db: Database, *, now: datetime | None = None) -> list[dict[str, Any]]:

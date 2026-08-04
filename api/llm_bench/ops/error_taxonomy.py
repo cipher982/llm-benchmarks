@@ -84,6 +84,12 @@ def classify_error(*, message: str, exc_type: str = "") -> ClassifiedError:
         return ClassifiedError(kind=ErrorKind.HARD_MODEL, normalized_message=normalized, http_status=http_status)
     if exc_type == "TimeoutError" or "timed out" in normalized or "timeout" in normalized:
         return ClassifiedError(kind=ErrorKind.TIMEOUT, normalized_message=normalized, http_status=http_status)
+    if any(marker in normalized for marker in ("overloaded", "model busy", "retry later", "temporarily unavailable")):
+        return ClassifiedError(
+            kind=ErrorKind.TRANSIENT_PROVIDER,
+            normalized_message=normalized,
+            http_status=http_status,
+        )
 
     # Together "model not available as serverless" — provider removed serverless access
     if "'code': 'model_not_available'" in raw or '"code": "model_not_available"' in raw:

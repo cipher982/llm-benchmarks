@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import signal
 import threading
 import time
@@ -103,6 +104,39 @@ def run_scheduler_loop(
         stop_event.wait(tick_seconds)
 
 
+def run_liveness_watchdog(
+    *,
+    providers: list[str],
+    stop_event: threading.Event,
+    max_idle_seconds: int,
+    startup_grace_seconds: int,
+    tick_seconds: int,
+    exit_process=os._exit,
+) -> None:
+    """Restart the container when the direct runner stops making progress."""
+    started_at = time.monotonic()
+    while not stop_event.wait(max(5, min(tick_seconds, 60))):
+        if time.monotonic() - started_at < startup_grace_seconds:
+            continue
+        try:
+            _, db_name = mongo_env()
+            client = mongo_client()
+            try:
+                healthy, details = health.liveness_status(
+                    client[db_name],
+                    max_idle_seconds=max_idle_seconds,
+                    providers=providers,
+                )
+            finally:
+                client.close()
+        except Exception as exc:
+            healthy = False
+            details = {"reason": f"watchdog database check failed: {type(exc).__name__}: {exc}"}
+        if not healthy:
+            print(f"Liveness watchdog stopping daemon: {details}", flush=True)
+            exit_process(1)
+
+
 @app.command()
 def daemon(
     providers: Optional[str] = typer.Option(
@@ -168,8 +202,21 @@ def daemon(
         name="reaper-loop",
         daemon=True,
     )
+    liveness_thread = threading.Thread(
+        target=run_liveness_watchdog,
+        kwargs={
+            "providers": selected,
+            "stop_event": stop_event,
+            "max_idle_seconds": int(os.getenv("BENCHMARK_LIVENESS_MAX_IDLE_SECONDS", "900")),
+            "startup_grace_seconds": int(os.getenv("BENCHMARK_LIVENESS_STARTUP_GRACE_SECONDS", "600")),
+            "tick_seconds": tick_seconds,
+        },
+        name="liveness-watchdog",
+        daemon=True,
+    )
     scheduler_thread.start()
     reaper_thread.start()
+    liveness_thread.start()
     workers = start_provider_workers(providers=selected, cadence_seconds=cadence_seconds, stop_event=stop_event)
 
     while not stop_event.is_set():

@@ -342,3 +342,58 @@ def heartbeat(
         {"$set": {"component": component, "details": details or {}, "updated_at": now}},
         upsert=True,
     )
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def liveness_status(
+    db: Database,
+    *,
+    max_idle_seconds: int,
+    providers: list[str] | None = None,
+    now: datetime | None = None,
+) -> tuple[bool, dict[str, Any]]:
+    """Check that this direct runner is alive and has completed recent work."""
+    now = _as_utc(now or utcnow())
+    query: dict[str, Any] = {}
+    if providers:
+        query["provider"] = {"$in": providers}
+    latest = db[metrics_collection_name()].find_one(
+        query,
+        {"provider": 1, "gen_ts": 1, "run_ts": 1},
+        sort=[("gen_ts", -1), ("run_ts", -1)],
+    )
+    latest_at = _as_utc((latest or {}).get("gen_ts") or (latest or {}).get("run_ts"))
+    latest_age = int((now - latest_at).total_seconds()) if latest_at else None
+
+    scheduler_heartbeat = db[heartbeats_collection_name()].find_one({"_id": "scheduler"}, {"updated_at": 1})
+    heartbeat_at = _as_utc((scheduler_heartbeat or {}).get("updated_at"))
+    heartbeat_age = int((now - heartbeat_at).total_seconds()) if heartbeat_at else None
+    heartbeat_limit = max(max_idle_seconds, 180)
+
+    details = {
+        "latest_provider": (latest or {}).get("provider"),
+        "latest_completed_at": latest_at.isoformat() if latest_at else None,
+        "latest_age_seconds": latest_age,
+        "scheduler_heartbeat_at": heartbeat_at.isoformat() if heartbeat_at else None,
+        "scheduler_heartbeat_age_seconds": heartbeat_age,
+        "max_idle_seconds": max_idle_seconds,
+        "providers": providers or [],
+    }
+    if latest_age is None:
+        details["reason"] = "no completed benchmark found"
+        return False, details
+    if latest_age > max_idle_seconds:
+        details["reason"] = "benchmark completion is stale"
+        return False, details
+    if heartbeat_age is None or heartbeat_age > heartbeat_limit:
+        details["reason"] = "scheduler heartbeat is stale"
+        return False, details
+    details["reason"] = "ok"
+    return True, details

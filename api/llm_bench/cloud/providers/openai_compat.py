@@ -110,6 +110,13 @@ def run_chat_completion_benchmark(
             elif reasoning_str:
                 reasoning_tokens = max(generated_tokens - visible_tokens, 0)
             token_source = "provider_usage_completion_tokens"
+            if generated_tokens <= 0 and visible_tokens > 0:
+                # Some OpenAI-compatible responses return zero usage while
+                # still including content. Do not turn that parse inconsistency
+                # into a zero-throughput benchmark.
+                generated_tokens = visible_tokens
+                reasoning_tokens = None
+                token_source = "tiktoken_visible_fallback_zero_usage"
         else:
             reasoning_tokens = len(encoder.encode(reasoning_str)) if reasoning_str else None
             generated_tokens = visible_tokens + (reasoning_tokens or 0)
