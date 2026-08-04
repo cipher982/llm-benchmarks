@@ -194,7 +194,9 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 MAX_TOKENS = 4000
 
 
-def call_openrouter(prompt: str, *, model: str | None = None, timeout: float = 90.0) -> dict[str, Any]:
+def call_openrouter(
+    prompt: str, *, model: str | None = None, timeout: float = 300.0, max_tokens: int = MAX_TOKENS
+) -> dict[str, Any]:
     """Ask a model to place an endpoint. Returns parsed JSON."""
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
@@ -206,7 +208,7 @@ def call_openrouter(prompt: str, *, model: str | None = None, timeout: float = 9
         json={
             "model": model or DEFAULT_MODEL,
             "temperature": 0,
-            "max_tokens": MAX_TOKENS,
+            "max_tokens": max_tokens,
             "response_format": {"type": "json_object"},
             "messages": [{"role": "user", "content": prompt}],
         },
@@ -278,6 +280,10 @@ def consolidate_groups(
     if len(groups) < 2:
         return []
 
+    # Consolidation reasons over every group at once and can answer with many
+    # merges, so it needs far more room than placing a single endpoint. Reusing
+    # the smaller budget returns empty content, which this call correctly refuses
+    # to read as "no merges".
     answer = call_llm(build_consolidate_prompt(groups))
     applied: list[dict[str, Any]] = []
 
