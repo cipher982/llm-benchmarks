@@ -188,3 +188,15 @@ class TestDisplayNameUnification:
             {"provider": "groq", "model_id": "x", "canonical_key": None, "effective_from": NOW}
         )
         assert reconciler.unify_display_names(db, now=NOW, dry_run=True) == []
+
+    def test_two_endpoints_at_one_provider_are_never_unified(self, db):
+        """DeepSeek-V3.1 and V3.1-Terminus are separate checkpoints at DeepInfra.
+
+        They share a derived key because checkpoint is not part of it. Merging
+        them would hide one behind the other, and buys nothing — the chart
+        compares providers, and there is only one provider here.
+        """
+        self._identify(db, "deepinfra", "deepseek-ai/DeepSeek-V3.1", "deepseek-v3.1", "DeepSeek-V3.1")
+        self._identify(db, "deepinfra", "deepseek-ai/DeepSeek-V3.1-Terminus", "deepseek-v3.1", "DeepSeek-V3.1-Terminus")
+
+        assert reconciler.unify_display_names(db, now=NOW, dry_run=True) == []

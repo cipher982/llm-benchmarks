@@ -275,6 +275,13 @@ def unify_display_names(db: Database, *, now: datetime | None = None, dry_run: b
         names = [m.get("display_name") for m in members if m.get("display_name")]
         if len(members) < 2 or len(set(names)) < 2:
             continue
+        # Only unify across providers. The chart exists to compare providers, so
+        # merging two endpoints at one provider buys nothing and risks real harm:
+        # DeepSeek-V3.1 and DeepSeek-V3.1-Terminus are separate checkpoints at
+        # DeepInfra that share a derived key, and collapsing them would hide one
+        # behind the other rather than put two providers on a line.
+        if len({m["provider"] for m in members}) < 2:
+            continue
         # Majority wins, so the group keeps the name most of the site already
         # publishes. Ties break on the shortest, which is the least decorated.
         winner = sorted(set(names), key=lambda n: (-names.count(n), len(n), n))[0]
