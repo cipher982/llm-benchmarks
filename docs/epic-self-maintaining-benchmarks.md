@@ -84,6 +84,39 @@ one violation detected and auto-remediated with no human involvement.
 
 ---
 
+## Cross-cutting: delete silent fallbacks
+
+A silent fallback converts a loud failure into a quiet wrongness. That is the
+exact failure class this epic exists to remove, and the codebase is full of it.
+
+`mapModelNames(data, useDatabase)` catches any error from database mapping and
+silently substitutes the 377-line hardcoded table, logging only to console.
+Production runs `USE_DATABASE_MODELS=true`, so if DB mapping breaks, the site
+keeps serving stale hardcoded names and nothing says so. This is not
+hypothetical: it caused a factual error in this very epic, which cited the
+hardcoded table as ground truth when it is the fallback path.
+
+Others of the same shape:
+
+| Fallback | What it hides |
+|---|---|
+| `mapModelNames` → `mapModelNamesHardcoded` on any exception | DB mapping broken; site serves stale names |
+| static JSON → live Mongo query | the regeneration cron being dead |
+| `resolveDisplayFromHardcoded` in `naming.ts` | missing catalogue metadata |
+| `dotenv.load_dotenv()` at import scope filling unset env | which collection the process actually reads |
+
+The rule for this epic: **a fallback must either be loud or not exist.** If a
+degraded path is genuinely wanted, taking it must set an explicit state that an
+invariant can see and an operator can query — not a console log. Where the
+fallback exists only because the primary path was once unreliable, delete it
+and let the primary path fail visibly.
+
+This is not deferred to Phase 4 cleanup. Every phase that touches one of these
+removes it as part of the work, because leaving them in place undermines the
+invariants the same phase is adding.
+
+---
+
 ## Phase 1 — the reconciler
 
 One nightly job that keeps the catalogue in sync with reality.
