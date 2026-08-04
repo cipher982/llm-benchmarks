@@ -184,3 +184,17 @@ ssh clifford 'mongosh "$MONGODB_URI" --quiet --eval "db.provider_catalog.aggrega
 - **Dashboard:** `~/git/llmbench/llm-benchmarks-dashboard/backend/`
 - **Sauron:** `~/git/sauron/AGENTS.md`
 - **OpenAI Reasoning:** `REASONING_MODELS.md` (this repo)
+- (2026-08-04) [gotcha] `log_mongo` copies only keys listed in
+  `OPTIONAL_METRIC_FIELDS`. A new metric field set by the runner is silently
+  dropped unless it is added there too — 92 rows were written carrying none of
+  a new provenance contract. Tests that mock the writer cannot see this; assert
+  against `_optional_metric_fields` output instead.
+- (2026-08-04) [pattern] Verify an invariant by running it against production
+  before trusting it. Of the first three findings, two were the check being
+  wrong: queue-age measured `created_at` and read normal exponential backoff as
+  stalls, and a terminal-reason check fired on 466 correctly-dead models
+  including a provider whose API shut down in 2024.
+- (2026-08-04) [gotcha] Sauron's control API needs `X-Sauron-Control-Token`
+  (not `X-Control-Token`); the value is `SAURON_CONTROL_TOKEN` in Infisical.
+  Sauron has no docker CLI, so a job cannot `docker exec` into a container —
+  jobs reach llm-bench through Mongo only.
