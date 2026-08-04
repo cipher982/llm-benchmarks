@@ -149,3 +149,78 @@ class TestMatchingWithoutATaxonomy:
 
         for i in range(30):
             assert f"group-{i}" in seen["prompt"]
+
+
+class TestConsolidation:
+    """Groups form one endpoint at a time, so the same model can get two names.
+
+    Llama 3.3 70B split into llama-3.3-70b (bedrock, groq) and
+    llama-3.3-70b-instruct (deepinfra, together) purely on arrival order,
+    turning a four-provider line into two two-provider lines.
+    """
+
+    def _existing(self, db, provider, model_id, key):
+        db.bench_model_identity.insert_one(
+            {"provider": provider, "model_id": model_id, "canonical_key": key, "effective_from": NOW}
+        )
+
+    def _split_llama(self, db):
+        self._existing(db, "bedrock", "us.meta.llama3-3-70b-instruct-v1:0", "llama-3.3-70b")
+        self._existing(db, "groq", "llama-3.3-70b-versatile", "llama-3.3-70b")
+        self._existing(db, "deepinfra", "meta-llama/Llama-3.3-70B-Instruct", "llama-3.3-70b-instruct")
+        self._existing(db, "together", "meta-llama/Llama-3.3-70B-Instruct-Turbo", "llama-3.3-70b-instruct")
+
+    def test_a_split_group_is_rejoined(self, db):
+        self._split_llama(db)
+
+        identity.consolidate_groups(
+            db,
+            call_llm=lambda _p: {"merges": [{"keep": "llama-3.3-70b", "absorb": ["llama-3.3-70b-instruct"]}]},
+            now=NOW,
+            dry_run=False,
+        )
+
+        groups = identity.existing_groups(db)
+        assert "llama-3.3-70b-instruct" not in groups
+        assert len({m.split("/")[0] for m in groups["llama-3.3-70b"]}) == 4
+
+    def test_dry_run_reports_without_merging(self, db):
+        self._split_llama(db)
+
+        merges = identity.consolidate_groups(
+            db,
+            call_llm=lambda _p: {"merges": [{"keep": "llama-3.3-70b", "absorb": ["llama-3.3-70b-instruct"]}]},
+            now=NOW,
+            dry_run=True,
+        )
+
+        assert merges[0]["endpoints"] == 2
+        assert "llama-3.3-70b-instruct" in identity.existing_groups(db)
+
+    def test_a_merge_naming_a_group_that_does_not_exist_is_ignored(self, db):
+        """Inventing either side would move endpoints onto a name nothing uses."""
+        self._split_llama(db)
+
+        merges = identity.consolidate_groups(
+            db,
+            call_llm=lambda _p: {"merges": [{"keep": "invented", "absorb": ["llama-3.3-70b"]}]},
+            now=NOW,
+            dry_run=False,
+        )
+
+        assert merges == []
+        assert "llama-3.3-70b" in identity.existing_groups(db)
+
+    def test_declining_to_merge_is_respected(self, db):
+        self._split_llama(db)
+        assert identity.consolidate_groups(db, call_llm=lambda _p: {"merges": []}, now=NOW) == []
+
+    def test_the_prompt_offers_every_group(self, db):
+        self._split_llama(db)
+        self._existing(db, "openai", "gpt-4o", "gpt-4o")
+
+        seen = {}
+        identity.consolidate_groups(db, call_llm=lambda p: seen.update(prompt=p) or {"merges": []}, now=NOW)
+
+        for key in ("llama-3.3-70b", "llama-3.3-70b-instruct", "gpt-4o"):
+            assert key in seen["prompt"]

@@ -219,3 +219,91 @@ def call_openrouter(prompt: str, *, model: str | None = None, timeout: float = 9
     if text.startswith("```"):
         text = re.sub(r"^```[a-z]*\n?|\n?```$", "", text).strip()
     return json.loads(text)
+
+
+# --------------------------------------------------------------------------
+# Consolidation
+# --------------------------------------------------------------------------
+
+CONSOLIDATE_PROMPT = """Here are the model groups this benchmark site tracks,
+each with the provider endpoints in it:
+
+{groups}
+
+Some of these are the same model under two names, because groups are created one
+endpoint at a time and whichever arrived first chose the name. For example
+"llama-3.3-70b" and "llama-3.3-70b-instruct" were the same model split in two.
+
+Which groups should be one group?
+
+Answer with JSON:
+  {{"merges": [{{"keep": "<group id>", "absorb": ["<group id>", ...]}}, ...]}}
+
+Use group ids exactly as written above. Return {{"merges": []}} if none should
+be merged.
+
+Only merge groups that are the same weights. Different sizes, different tiers,
+different versions, base versus instruction-tuned, and fine-tunes by other
+people are all different models and must stay separate. If you are not certain
+two groups are the same model, leave them apart.
+"""
+
+
+def build_consolidate_prompt(groups: dict[str, list[str]]) -> str:
+    rendered = "\n".join(f"  {key}: {', '.join(sorted(members))}" for key, members in sorted(groups.items()))
+    return CONSOLIDATE_PROMPT.format(groups=rendered)
+
+
+def consolidate_groups(
+    db: Database,
+    *,
+    call_llm: Callable[[str], dict[str, Any]],
+    max_merges: int = 25,
+    now: datetime | None = None,
+    dry_run: bool = True,
+) -> list[dict[str, Any]]:
+    """Merge groups that are the same model under two names.
+
+    Groups are created one endpoint at a time, so the same model can end up
+    under two names depending on which endpoint arrived first — Llama 3.3 70B
+    split into `llama-3.3-70b` and `llama-3.3-70b-instruct` exactly that way.
+
+    The alternative was to make naming deterministic, which is what the
+    attribute schema tried and why it needed a vendor taxonomy. Asking the same
+    question about the group list instead keeps the judgment where it belongs
+    and needs no rules.
+    """
+    now = now or utcnow()
+    groups = existing_groups(db)
+    if len(groups) < 2:
+        return []
+
+    answer = call_llm(build_consolidate_prompt(groups))
+    applied: list[dict[str, Any]] = []
+
+    for merge in (answer.get("merges") or [])[:max_merges]:
+        keep = merge.get("keep")
+        absorb = [a for a in (merge.get("absorb") or []) if a in groups and a != keep]
+        # Both sides must be groups that actually exist; inventing either would
+        # move endpoints into a name nothing else uses.
+        if keep not in groups or not absorb:
+            continue
+        applied.append({"keep": keep, "absorb": absorb, "endpoints": sum(len(groups[a]) for a in absorb)})
+        if dry_run:
+            continue
+        for key in absorb:
+            for row in current_identities(db):
+                if row.get("canonical_key") != key:
+                    continue
+                db[identity_collection_name()].insert_one(
+                    {
+                        "provider": row["provider"],
+                        "model_id": row["model_id"],
+                        "canonical_key": keep,
+                        "policy_version": POLICY_VERSION,
+                        "effective_from": now,
+                        "evidence": {"basis": f"consolidated from {key}", "groups_offered": len(groups)},
+                        "resolved": True,
+                    }
+                )
+    return applied
