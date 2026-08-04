@@ -163,12 +163,22 @@ def no_work_for_disabled_models(ctx: Context) -> list[Violation]:
     cancelling the job resolves it without touching either side's contents.
     """
     eligible = set(desired_set_module.capture_view(ctx.db))
+    # Candidates under admission are deliberately not enabled — that is what
+    # probing means. Their probe work is legitimate and must not read as a
+    # queue/catalogue disagreement.
+    probing = {
+        (doc["provider"], doc["model_id"])
+        for doc in ctx.db[models_collection_name()].find({"status": "probing"}, {"provider": 1, "model_id": 1})
+    }
     violations = []
     for job in ctx.db[jobs_collection_name()].find(
         {"status": {"$in": ["queued", "running"]}},
-        {"provider": 1, "model_id": 1, "status": 1},
+        {"provider": 1, "model_id": 1, "status": 1, "sample_role": 1},
     ):
         key = (job.get("provider"), job.get("model_id"))
+        if (job.get("sample_role") or "published") != "published":
+            if key in probing:
+                continue
         if key not in eligible:
             violations.append(
                 Violation(

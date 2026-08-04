@@ -378,3 +378,32 @@ class TestIndexes:
         # mongomock does not model collation, so the case-insensitivity itself
         # cannot be asserted here. It was verified against production by
         # inserting a differently-cased duplicate and getting E11000.
+
+
+class TestProbeWorkIsNotAViolation:
+    """Admission enqueues work against models that are deliberately not enabled.
+
+    Probing means "not enabled because we are still deciding". Reading that as a
+    queue/catalogue disagreement would make the invariant fire on every
+    admission pass, and the obvious way to silence it would be to stop probing.
+    """
+
+    def test_probe_work_against_a_probing_candidate_is_fine(self, db):
+        db.models.insert_one({"provider": "groq", "model_id": "cand", "enabled": False, "status": "probing"})
+        db.bench_jobs.insert_one(
+            {"_id": "p1", "provider": "groq", "model_id": "cand", "status": "queued", "sample_role": "probe"}
+        )
+        assert invariants.no_work_for_disabled_models(ctx(db)) == []
+
+    def test_probe_work_against_a_rejected_model_is_still_a_violation(self, db):
+        db.models.insert_one({"provider": "groq", "model_id": "dead", "enabled": False, "status": "rejected"})
+        db.bench_jobs.insert_one(
+            {"_id": "p1", "provider": "groq", "model_id": "dead", "status": "queued", "sample_role": "probe"}
+        )
+        assert names(invariants.no_work_for_disabled_models(ctx(db))) == ["groq/dead"]
+
+    def test_published_work_against_a_probing_candidate_is_a_violation(self, db):
+        """A candidate must not reach the site before it has evidence."""
+        db.models.insert_one({"provider": "groq", "model_id": "cand", "enabled": False, "status": "probing"})
+        db.bench_jobs.insert_one({"_id": "s1", "provider": "groq", "model_id": "cand", "status": "queued"})
+        assert names(invariants.no_work_for_disabled_models(ctx(db))) == ["groq/cand"]
