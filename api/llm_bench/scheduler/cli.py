@@ -12,6 +12,7 @@ import dotenv
 import typer
 
 from llm_bench.models_db import load_provider_models
+from llm_bench.ops import admission
 from llm_bench.ops import desired_set
 from llm_bench.ops import invariants
 from llm_bench.scheduler import health
@@ -199,6 +200,30 @@ def run_invariants_loop(
             print(f"Invariant loop error: {type(exc).__name__}: {exc}", flush=True)
 
 
+def run_admission_loop(*, stop_event: threading.Event, interval_seconds: int) -> None:
+    """Register candidates, probe them, and promote what keeps working.
+
+    Paced at roughly the spacing admission requires between samples. Running it
+    faster would not promote anything sooner — two calls minutes apart count as
+    one observation — it would only spend more.
+    """
+    while not stop_event.wait(interval_seconds):
+        try:
+            _, db_name = mongo_env()
+            client = mongo_client()
+            try:
+                report = admission.run_admission_pass(client[db_name])
+                print(f"Admission pass: {report.summary()}", flush=True)
+                for subject in report.promoted:
+                    print(f"  promoted {subject}", flush=True)
+                for subject, reason in report.rejected:
+                    print(f"  rejected {subject}: {reason}", flush=True)
+            finally:
+                client.close()
+        except Exception as exc:  # noqa: BLE001
+            print(f"Admission loop error: {type(exc).__name__}: {exc}", flush=True)
+
+
 @app.command()
 def daemon(
     providers: Optional[str] = typer.Option(
@@ -288,10 +313,20 @@ def daemon(
         name="invariants-loop",
         daemon=True,
     )
+    admission_thread = threading.Thread(
+        target=run_admission_loop,
+        kwargs={
+            "stop_event": stop_event,
+            "interval_seconds": int(os.getenv("BENCHMARK_ADMISSION_INTERVAL_SECONDS", "7200")),
+        },
+        name="admission-loop",
+        daemon=True,
+    )
     scheduler_thread.start()
     reaper_thread.start()
     liveness_thread.start()
     invariants_thread.start()
+    admission_thread.start()
     workers = start_provider_workers(providers=selected, cadence_seconds=cadence_seconds, stop_event=stop_event)
 
     while not stop_event.is_set():
