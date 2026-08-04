@@ -77,8 +77,10 @@ Also in Phase 0, from the adversarial review of the prior plan:
 - Observe one real scheduled discovery run and one health run, including email
   outcome, before treating either control as live.
 
-Exit criteria: all invariants green for seven consecutive days, and at least one
-violation detected and auto-remediated without human involvement.
+Exit criteria: every invariant either green or carrying a dated,
+machine-readable exception, for seven consecutive days — several cannot go
+green until Phase 1 lands, so requiring green alone is circular. Plus at least
+one violation detected and auto-remediated with no human involvement.
 
 ---
 
@@ -96,9 +98,13 @@ NEW   → insert enabled:false, status:"probing" → probe
         terminal fail → enabled:false + observed reason
         transient → retry tomorrow
   ↓
-GONE  → absent from provider API 3 consecutive days → deprecated:true
+GONE  → absent from 3 consecutive *completed* syncs → deprecated:true
+        (a failed or skipped sync is not evidence of absence)
   ↓
 STALE → enabled, no success in 7d, terminal errors → demote
+        (exempt when the whole provider is failing — a 7-day billing lapse
+         must not demote a provider's entire catalogue, which is exactly what
+         DeepInfra's 402 would have done)
 ```
 
 **Probe before promote.** A candidate is admitted because a real benchmark call
@@ -165,11 +171,22 @@ evidence pass against provider docs — never to a human queue. Merges into an
 established time series must be non-destructive: write the new identity forward
 and keep the old series addressable rather than rewriting history.
 
-**Validate before trusting.** The 377-line table is hand-built ground truth. Run
-the normalizer across it and check it reproduces the mappings. Disagreements are
-either LLM errors or latent table bugs; expect both.
+**Validate against the right target.** Production runs
+`USE_DATABASE_MODELS=true`, so `modelMapping.ts` is the *fallback* path and
+`models.display_name` is what actually ships. Validate against live display
+names first; the 377-line table is a useful second corpus, not ground truth.
 
-Exit criteria: normalizer reproduces the existing table within a stated error
+**Split by default on ambiguity, and prefer agreement over confidence.** The
+self-reported confidence field is uncalibrated. Two independent derivations
+agreeing is evidence; a model asserting 0.95 is not. Ambiguous cases stay split
+into separate series, which is the safe direction given a false merge is worse
+than a missed one — and it is what makes the no-human-queue rule sound rather
+than dogmatic.
+
+Caching per unseen ID never revisits mutable aliases such as `-latest`; those
+need periodic re-derivation.
+
+Exit criteria: normalizer reproduces live display names within a stated error
 rate, with every disagreement explained.
 
 ---
@@ -224,6 +241,11 @@ fallback, so two of five templates cannot be iterated offline.
 
 ```
 Phase 0  eyes              ← start here; closes open review findings
+         case-insensitive unique index on models moves HERE from Phase 4:
+         production has 5 case-duplicate enabled pairs today, and the
+         reconciler must not insert against an index that cannot see them
+         sample_role provenance moves HERE from Phase 3: probe rows must be
+         separable from published measurements before any probing starts
 Phase 1  reconciler        ← needs 0 to verify itself
 Phase 2  identity          ← validate against the table first; independent of 1
 Phase 3  measurement       ← needs a decision from David
