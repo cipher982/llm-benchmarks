@@ -480,25 +480,31 @@ merged unlabelled endpoints into Meta's declared base weights.
 Both were caught because derived keys are compared against the live mapping
 before being allowed to drive it, not switched over on faith.
 
-### Identity is a relation with provenance, not a property of a string
+### One question, no scaffolding
 
-Normalizing one unseen ID at a time cannot see a provider's naming convention, a
-base/instruct pair that disambiguate each other, a renamed alias, or two
-providers pointing at the same Hugging Face model. It also never revisits a
-mutable `-latest` alias, because that ID is no longer unseen — while the weights
-behind it change.
+An endpoint is placed by showing a model every group that exists and asking
+which one it belongs to, or whether it is new. That is the whole mechanism.
 
-Each decision gets a small retrieved context: the endpoint row, sibling provider
-rows, candidate base models, explicit aliases, and first-party documentation.
-OpenRouter's API shows the shape that is actually available — stable
-`canonical_slug`, explicit alias resolution, variant suffixes, sometimes a
-Hugging Face ID. Those are relations to look up, not attributes to infer from
-spelling.
+Two earlier versions of this failed the same way, and both failures are worth
+recording because the pull toward them is strong:
 
-Store an effective-dated `provider_endpoint → base_model` relation with evidence
-type and source. Merging requires explicit source evidence or independent
-verifier agreement. Ambiguity leaves the endpoint separate — which is the
-correct no-human-queue outcome under the false-merge asymmetry, not a dodge.
+1. **An attribute schema.** IDs were decomposed into
+   `developer/family/version/params/role` and a key assembled from them. That
+   only works for names that decompose that way. Anthropic's do not — Claude is
+   distinguished by tier, not parameter count — so Haiku merged with Sonnet, and
+   the fix was to list the tiers in the prompt: `claude-haiku`, `claude-sonnet`,
+   `gemini-flash`, `nova-pro`. That is the 377-line table in a different file,
+   needing an entry for every vendor that names something a new way.
+2. **Candidate filtering.** The question was right but the options were
+   pre-selected by shared tokens, against a hand-maintained list of words to
+   ignore (`instruct`, `turbo`, `versatile`). Choosing which groups an endpoint
+   may be compared against is itself a claim about which models resemble each
+   other — the judgment being delegated.
+
+The whole list goes in the prompt. A few hundred short strings costs nothing
+next to a wrong merge, and there is no rule left to get wrong. A vendor with a
+convention nobody anticipated forms its own group without anyone editing
+anything.
 
 **Self-reported confidence is not a control-plane field.** `confidence: 0.95` is
 not calibrated probability and must not drive publication or merge decisions.
