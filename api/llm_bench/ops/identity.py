@@ -4,28 +4,30 @@
 and `Meta-Llama-3-8B-Instruct` both map to `llama-3-8b`, which are different
 models. Hand-maintenance is what this epic retires.
 
-The split: the *judgment* — what does this string denote — goes to a model,
-where fuzzy world knowledge belongs. The *policy* — what counts as the same
-model — stays in code, where it can be read, versioned and tested. Asking one
-model to do both is how you get groupings that reshuffle when a new endpoint
-appears.
+An endpoint is placed by showing a model the groups that already exist and
+asking which one it belongs to, or whether it is new. There is no attribute
+schema. The first version decomposed IDs into developer/family/version/params
+and assembled a key from them, which only works for names that decompose that
+way — Anthropic's tiers did not, so the prompt grew a list of how each vendor
+names things. That is the same table in a different file. Matching against real
+groups needs no list, and a vendor with a convention nobody anticipated simply
+forms its own group.
 
-Two properties follow from doing it this way. It is idempotent, because each
-endpoint is normalised independently and cannot perturb an existing group. And
-it is auditable, because grouping is a pure function you can run over stored
-attributes without calling anything.
+What stays in code is chart policy, not identity: only unify names across
+providers, never rename onto a name a provider already publishes, and treat an
+unmatched endpoint as its own line. Those are statements about what a
+comparison chart should show, and they do not change when a vendor invents a
+naming scheme.
 
-Quantization is deliberately not part of the key. Measured on 2026-08-04: 1% of
-enabled models declare it, splitting on it would affect one chart line, and on
-that line provider infrastructure accounts for a 12x spread it does not explain.
-It is display annotation, not identity.
+Quantization is deliberately not identity. Measured on 2026-08-04: 1% of enabled
+models declare it, splitting on it would affect one chart line, and on that line
+provider infrastructure accounts for a 12x spread it does not explain.
 
 The governing asymmetry is that a false merge is worse than a missed merge. A
 wrong merge silently reports one provider as faster than another when the rows
 are not comparable; a missed merge shows two lines, which is visible and
-self-correcting. So ambiguity leaves an endpoint on its own rather than guessing,
-and that is the correct outcome under the no-review-queue rule rather than a
-dodge around it.
+self-correcting. So an uncertain endpoint starts its own group, and that is the
+correct outcome under the no-review-queue rule rather than a dodge around it.
 """
 
 from __future__ import annotations
@@ -33,8 +35,6 @@ from __future__ import annotations
 import json
 import os
 import re
-from dataclasses import dataclass
-from dataclasses import field
 from datetime import datetime
 from datetime import timezone
 from typing import Any
@@ -49,12 +49,11 @@ from llm_bench.scheduler.mongo import collection_name
 # records which policy produced it and old rows can be re-derived rather than
 # trusted blindly.
 #
-# v2: family carries the vendor tier (claude-haiku, not claude), and an unknown
-# role no longer defaults to "base". v1 merged Claude Haiku with Claude Sonnet.
-# Nothing consumed v1 rows, so they were discarded rather than superseded —
-# possible exactly once, before this collection feeds anything. From here a
-# policy change re-derives alongside the old rows instead of replacing them.
-POLICY_VERSION = 2
+# v3: endpoints are matched against groups that already exist instead of being
+# decomposed into developer/family/version/params. The decomposition only fitted
+# names that decompose that way, so Anthropic's tiers had to be listed in the
+# prompt — the hand-maintained table this epic retires, moved into a string.
+POLICY_VERSION = 3
 
 
 def identity_collection_name() -> str:
@@ -65,83 +64,9 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-@dataclass(frozen=True)
-class Attributes:
-    """What an endpoint denotes. Everything here is evidence, not policy."""
-
-    developer: str | None = None
-    family: str | None = None
-    version: str | None = None
-    params: str | None = None
-    role: str | None = None
-    # Carried for display only. Never part of the key.
-    annotations: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def complete(self) -> bool:
-        """Whether there is enough to group on at all."""
-        return bool(self.developer and self.family)
-
-
-def canonical_key(attrs: Attributes) -> str | None:
-    """The grouping policy, as a pure function.
-
-    Returns None when the attributes are too thin to group, which keeps the
-    endpoint on its own rather than merging it into whatever it most resembles.
-    """
-    if not attrs.complete:
-        return None
-    parts = [attrs.developer, attrs.family]
-    if attrs.version:
-        parts.append(attrs.version)
-    if attrs.params:
-        parts.append(attrs.params)
-    # Base and instruct-tuned weights are different models — the concrete bug in
-    # the table this replaces. An unknown role is its own token rather than a
-    # default of "base", because defaulting asserts something: an unlabelled
-    # endpoint would merge with one explicitly identified as base weights.
-    # Splitting here costs a duplicate line, which is visible and recoverable.
-    parts.append(attrs.role or "unspecified")
-    return "-".join(_slug(p) for p in parts if p)
-
-
 def _slug(value: str) -> str:
+    """Stable form of a group name, so casing or spacing cannot split a group."""
     return re.sub(r"[^a-z0-9.]+", "-", str(value).strip().lower()).strip("-")
-
-
-def group_by_identity(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    """Group endpoints by canonical key. Ungroupable endpoints stand alone.
-
-    Pure and offline: it reads stored attributes and calls nothing, so a
-    grouping can be recomputed and diffed without spending anything.
-    """
-    groups: dict[str, list[dict[str, Any]]] = {}
-    for row in rows:
-        attrs = row.get("attributes")
-        key = canonical_key(attrs) if isinstance(attrs, Attributes) else None
-        # An endpoint we cannot place gets a key of its own rather than joining
-        # a group on a guess.
-        groups.setdefault(key or f"unresolved:{row['provider']}/{row['model_id']}", []).append(row)
-    return groups
-
-
-def sibling_context(db: Database, *, model_id: str, limit: int = 8) -> list[dict[str, Any]]:
-    """Endpoints at other providers whose IDs look related.
-
-    Identity is a relation, not a property of one string. A base and an
-    instruct-tuned sibling disambiguate each other; a lone ID cannot. This is
-    the cheap version of that context — the rows the decision should see.
-    """
-    tokens = _search_tokens(model_id)
-    if not tokens:
-        return []
-    pattern = "|".join(re.escape(t) for t in tokens)
-    return list(
-        db.provider_catalog.find(
-            {"model_id": {"$regex": pattern, "$options": "i"}},
-            {"_id": 0, "provider": 1, "model_id": 1, "name": 1},
-        ).limit(limit)
-    )
 
 
 # Tokens that appear across unrelated models and so retrieve nothing useful.
@@ -172,109 +97,6 @@ def _search_tokens(model_id: str, *, limit: int = 2) -> list[str]:
     tail = str(model_id).rsplit("/", 1)[-1]
     tokens = [t for t in re.split(r"[-_.]", tail) if len(t) > 2 and t.lower() not in GENERIC_TOKENS]
     return tokens[:limit]
-
-
-PROMPT = """You are identifying which model a provider's endpoint ID refers to.
-
-Endpoint: {provider} / {model_id}
-Provider's display name: {name}
-
-Other endpoints with similar IDs, for disambiguation:
-{siblings}
-
-Return ONLY a JSON object with these fields:
-  developer  the organisation that trained it, lowercase (meta, openai, mistralai, deepseek, qwen, google, anthropic)
-  family     the specific model line, lowercase, INCLUDING the tier where the
-             vendor uses one to name distinct models: claude-haiku, claude-sonnet,
-             claude-opus, gemini-flash, gemini-pro, nova-lite, nova-pro, gpt, llama,
-             mixtral, deepseek-v3, qwen3
-  version    version number as written, or null (3.1, 4, 2.5)
-  params     parameter count as written, or null (8b, 70b, 480b-a35b)
-  role       one of: base, instruct, chat, reasoning, guard, code, or null if unclear
-
-Rules:
-- Report only what the evidence supports. Use null rather than guessing.
-- "instruct" and the base model are DIFFERENT models. Do not conflate them.
-- Tiers within a family are DIFFERENT models. Claude Haiku is not Claude Sonnet;
-  Gemini Flash is not Gemini Pro. If the tier is dropped, two unrelated models
-  merge into one line and the site reports a speed difference that is really a
-  different model.
-- Ignore serving hints like turbo, fast, fp8 — they are not identity.
-- If you cannot tell what the model is, return nulls. A missing answer is
-  correct and expected; a confident wrong one merges unrelated series.
-"""
-
-
-def build_prompt(*, provider: str, model_id: str, name: str | None, siblings: list[dict[str, Any]]) -> str:
-    rendered = "\n".join(f"  - {s['provider']} / {s['model_id']}" for s in siblings) if siblings else "  (none found)"
-    return PROMPT.format(provider=provider, model_id=model_id, name=name or "(none)", siblings=rendered)
-
-
-def attributes_from_response(payload: dict[str, Any]) -> Attributes:
-    """Parse a model's answer, keeping only fields it actually filled in."""
-
-    def clean(key: str) -> str | None:
-        value = payload.get(key)
-        if value is None:
-            return None
-        text = str(value).strip().lower()
-        return text or None if text not in {"null", "none", "unknown", ""} else None
-
-    return Attributes(
-        developer=clean("developer"),
-        family=clean("family"),
-        version=clean("version"),
-        params=clean("params"),
-        role=clean("role"),
-    )
-
-
-def resolve_endpoint(
-    db: Database,
-    *,
-    provider: str,
-    model_id: str,
-    name: str | None,
-    call_llm: Callable[[str], dict[str, Any]],
-    now: datetime | None = None,
-) -> dict[str, Any]:
-    """Derive and store one endpoint's identity, effective-dated.
-
-    Relations are appended rather than overwritten. The dashboard applies
-    today's mapping to old metric rows, so without effective dates a rename
-    silently rewrites what past measurements claim to be about.
-    """
-    now = now or utcnow()
-    siblings = sibling_context(db, model_id=model_id)
-    prompt = build_prompt(provider=provider, model_id=model_id, name=name, siblings=siblings)
-    attrs = attributes_from_response(call_llm(prompt))
-    key = canonical_key(attrs)
-
-    record = {
-        "provider": provider,
-        "model_id": model_id,
-        "canonical_key": key,
-        "attributes": {
-            "developer": attrs.developer,
-            "family": attrs.family,
-            "version": attrs.version,
-            "params": attrs.params,
-            "role": attrs.role,
-        },
-        "policy_version": POLICY_VERSION,
-        "effective_from": now,
-        "evidence": {
-            "sibling_count": len(siblings),
-            "siblings": [f"{s['provider']}/{s['model_id']}" for s in siblings],
-            "provider_display_name": name,
-        },
-        # Deliberately absent: any self-reported confidence score. It is not
-        # calibrated probability and must not gate publication. What gates a
-        # merge is whether the attributes are complete enough to key on.
-        "resolved": key is not None,
-    }
-    db[identity_collection_name()].insert_one(dict(record))
-    return record
 
 
 def current_identities(db: Database) -> list[dict[str, Any]]:
@@ -320,3 +142,116 @@ def call_openrouter(prompt: str, *, model: str | None = None, timeout: float = 4
     if text.startswith("```"):
         text = re.sub(r"^```[a-z]*\n?|\n?```$", "", text).strip()
     return json.loads(text)
+
+
+# --------------------------------------------------------------------------
+# Matching, which replaces the fixed attribute taxonomy
+# --------------------------------------------------------------------------
+
+MATCH_PROMPT = """Decide whether a provider's endpoint serves the same model as
+any group that already exists.
+
+Endpoint: {provider} / {model_id}
+Provider's display name: {name}
+
+Existing groups, with the endpoints already in them:
+{candidates}
+
+Answer with JSON:
+  {{"group": "<exact id of an existing group>"}}       if it is the same model
+  {{"group": null, "name": "<short lowercase name>"}}  if it is a new model
+
+Same model means the same weights, served by someone. Serving differences —
+turbo, fp8, a provider's own suffix, a date stamp — do not make it a different
+model. These do:
+- a different size (8b is not 70b)
+- a different tier in a family, whatever the vendor calls them
+- base weights versus instruction-tuned weights
+- a different version or generation
+
+If you are not sure it is the same model, return a new group. Two lines on a
+chart is a visible, fixable mistake. Silently merging two different models
+reports a speed difference that does not exist.
+"""
+
+
+def candidate_groups(db: Database, *, model_id: str, limit: int = 12) -> dict[str, list[str]]:
+    """Existing groups whose members look related to this endpoint."""
+    tokens = _search_tokens(model_id)
+    if not tokens:
+        return {}
+    pattern = "|".join(re.escape(t) for t in tokens)
+    groups: dict[str, list[str]] = {}
+    for row in db[identity_collection_name()].find(
+        {"canonical_key": {"$ne": None}, "model_id": {"$regex": pattern, "$options": "i"}},
+        {"provider": 1, "model_id": 1, "canonical_key": 1},
+    ):
+        members = groups.setdefault(row["canonical_key"], [])
+        entry = f"{row['provider']}/{row['model_id']}"
+        if entry not in members:
+            members.append(entry)
+        if len(groups) >= limit:
+            break
+    return groups
+
+
+def build_match_prompt(*, provider: str, model_id: str, name: str | None, candidates: dict[str, list[str]]) -> str:
+    rendered = (
+        "\n".join(f"  {key}: {', '.join(members)}" for key, members in sorted(candidates.items()))
+        if candidates
+        else "  (no existing groups look related)"
+    )
+    return MATCH_PROMPT.format(provider=provider, model_id=model_id, name=name or "(none)", candidates=rendered)
+
+
+def match_endpoint(
+    db: Database,
+    *,
+    provider: str,
+    model_id: str,
+    name: str | None,
+    call_llm: Callable[[str], dict[str, Any]],
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Place an endpoint in an existing group, or start a new one.
+
+    No taxonomy. The earlier version asked for developer/family/version/params
+    and assembled a key from them, which meant maintaining a list of how each
+    vendor names things — Anthropic's tiers had to be spelled out in the prompt
+    the moment Claude broke the schema. That is the hand-maintained table this
+    epic exists to retire, moved into a string.
+
+    Matching against groups that already exist needs no such list. A vendor with
+    a naming convention nobody anticipated simply forms its own group.
+    """
+    now = now or utcnow()
+    candidates = candidate_groups(db, model_id=model_id)
+    answer = call_llm(build_match_prompt(provider=provider, model_id=model_id, name=name, candidates=candidates))
+
+    chosen = answer.get("group")
+    if chosen and chosen in candidates:
+        key, basis = chosen, "matched an existing group"
+    elif chosen:
+        # It named a group that does not exist. Treating that as a match would
+        # invent a merge target, so it starts its own group instead.
+        key, basis = _slug(str(chosen)), "named a group that did not exist; started its own"
+    else:
+        proposed = answer.get("name")
+        key = _slug(str(proposed)) if proposed else None
+        basis = "new group" if key else "declined to name it"
+
+    record = {
+        "provider": provider,
+        "model_id": model_id,
+        "canonical_key": key,
+        "policy_version": POLICY_VERSION,
+        "effective_from": now,
+        "evidence": {
+            "candidates_offered": sorted(candidates),
+            "basis": basis,
+            "provider_display_name": name,
+        },
+        "resolved": key is not None,
+    }
+    db[identity_collection_name()].insert_one(dict(record))
+    return record

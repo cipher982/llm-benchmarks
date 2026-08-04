@@ -183,7 +183,7 @@ def resolve_missing_identities(
         if key in known:
             continue
         try:
-            record = identity.resolve_endpoint(
+            record = identity.match_endpoint(
                 db,
                 provider=doc["provider"],
                 model_id=doc["model_id"],
