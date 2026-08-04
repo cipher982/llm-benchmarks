@@ -29,7 +29,6 @@ from .promotion import build_promotion_plan
 
 # Setup
 app = typer.Typer(help="Model discovery via OpenRouter catalog")
-dotenv.load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -233,6 +232,12 @@ def stats():
 
 def main():
     """Entry point for CLI."""
+    # Loaded here rather than at import. At module scope this mutated process
+    # environment as a side effect of importing, silently repointing anything
+    # that later resolved a collection name — the repo .env sets
+    # MONGODB_COLLECTION_CLOUD=metrics_cloud_staging, so merely importing this
+    # module switched readers off the production collection.
+    dotenv.load_dotenv()
     app()
 
 

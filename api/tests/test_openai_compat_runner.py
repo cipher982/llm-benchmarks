@@ -1,3 +1,4 @@
+import time
 from types import SimpleNamespace
 
 from llm_bench.cloud.providers.openai_compat import run_chat_completion_benchmark
@@ -10,6 +11,10 @@ class FakeCompletions:
 
     def create(self, **kwargs):
         self.calls.append(kwargs)
+        # A real API call always takes measurable time. Returning instantly let
+        # generate_time round to 0.0 on fast runs, which made throughput
+        # assertions fail roughly one run in five.
+        time.sleep(0.001)
         return self.responses.pop(0)
 
 
