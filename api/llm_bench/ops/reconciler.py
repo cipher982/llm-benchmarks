@@ -285,8 +285,20 @@ def unify_display_names(db: Database, *, now: datetime | None = None, dry_run: b
         # Majority wins, so the group keeps the name most of the site already
         # publishes. Ties break on the shortest, which is the least decorated.
         winner = sorted(set(names), key=lambda n: (-names.count(n), len(n), n))[0]
+        # Endpoints already published under the winning name, by provider. A
+        # rename that collides with one of them does not add a provider to the
+        # line — it merges two of that provider's deployments into a single row
+        # and averages them. DeepInfra serves both Llama-3.3-70B-Instruct and
+        # its Turbo build; renaming the second onto the first hides one.
+        taken = {
+            doc["provider"]
+            for doc in db[models_collection_name()].find(
+                {"enabled": True, "deprecated": {"$ne": True}, "display_name": winner},
+                {"provider": 1},
+            )
+        }
         for member in members:
-            if member.get("display_name") != winner:
+            if member.get("display_name") != winner and member["provider"] not in taken:
                 changes.append(
                     {
                         "provider": member["provider"],

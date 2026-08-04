@@ -200,3 +200,30 @@ class TestDisplayNameUnification:
         self._identify(db, "deepinfra", "deepseek-ai/DeepSeek-V3.1-Terminus", "deepseek-v3.1", "DeepSeek-V3.1-Terminus")
 
         assert reconciler.unify_display_names(db, now=NOW, dry_run=True) == []
+
+    def test_a_rename_that_collides_at_the_same_provider_is_skipped(self, db):
+        """DeepInfra serves both Llama-3.3-70B-Instruct and its Turbo build.
+
+        Renaming the Turbo one onto the other does not add a provider to the
+        line — it merges two DeepInfra deployments into one row and averages
+        their throughput, hiding one behind the other.
+        """
+        self._identify(db, "groq", "llama-3.3-70b-versatile", "meta-llama-3.3-70b", "llama-3.3-70b")
+        self._identify(db, "deepinfra", "meta-llama/Llama-3.3-70B-Instruct", "meta-llama-3.3-70b", "llama-3.3-70b")
+        self._identify(
+            db,
+            "deepinfra",
+            "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+            "meta-llama-3.3-70b",
+            "Llama-3.3-70B-Instruct-Turbo",
+        )
+
+        assert reconciler.unify_display_names(db, now=NOW, dry_run=True) == []
+
+    def test_a_rename_with_no_collision_still_applies(self, db):
+        self._identify(db, "anthropic", "claude-haiku", "k", "claude-haiku-4.5")
+        self._identify(db, "bedrock", "us.anthropic.claude-haiku", "k", "claude-haiku-4.5")
+        self._identify(db, "deepinfra", "anthropic/claude-haiku", "k", "claude-haiku-4-5")
+
+        changes = reconciler.unify_display_names(db, now=NOW, dry_run=True)
+        assert [c["provider"] for c in changes] == ["deepinfra"]
