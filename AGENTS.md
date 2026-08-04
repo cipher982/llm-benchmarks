@@ -216,3 +216,11 @@ Categories: `gotcha`, `pattern`, `deploy`, `perf`, `data`.
   `curl -s https://openrouter.ai/api/v1/models -H "Authorization: Bearer $KEY"`.
   `openai/gpt-5.6-luna` honours `response_format: json_object`; the identity
   normalizer uses it.
+- (2026-08-04) [data] The publication pipeline groups by
+  `(providerCanonical, display_name)`, so two providers share a chart line only
+  when their display names match exactly. `claude-haiku-4.5` vs
+  `claude-haiku-4-5` split a three-provider model into two lines. Unifying
+  names within a derived identity group took 3+ provider lines from 3 to 6.
+  Two guards matter: only unify across providers, and never rename onto a name
+  the same provider already publishes — both merge deployments instead of
+  adding a provider.
