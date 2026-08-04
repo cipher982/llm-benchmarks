@@ -24,6 +24,7 @@ from typing import Any
 
 from pymongo.database import Database
 
+from llm_bench.ops import identity
 from llm_bench.ops import invariants
 from llm_bench.ops import mutations
 from llm_bench.scheduler.mongo import models_collection_name
@@ -149,4 +150,91 @@ def summarize(db: Database, *, now: datetime | None = None) -> dict[str, Any]:
         "retirement_count": len(retirements),
         "by_provider": by_provider,
         "subjects": [item.subject for item in retirements[:50]],
+    }
+
+
+# --------------------------------------------------------------------------
+# The nightly pass
+# --------------------------------------------------------------------------
+
+
+def resolve_missing_identities(
+    db: Database,
+    *,
+    call_llm: Any,
+    limit: int = 40,
+    now: datetime | None = None,
+) -> list[str]:
+    """Give every enabled endpoint a stored identity, cheapest-first.
+
+    Only endpoints without a current relation are resolved, so this costs one
+    call per genuinely new endpoint rather than one per model per night.
+    """
+    now = now or utcnow()
+    known = {(r["provider"], r["model_id"]) for r in identity.current_identities(db)}
+    resolved = []
+    for doc in db[models_collection_name()].find(
+        {"enabled": True, "deprecated": {"$ne": True}},
+        {"provider": 1, "model_id": 1, "display_name": 1},
+    ):
+        if len(resolved) >= limit:
+            break
+        key = (doc["provider"], doc["model_id"])
+        if key in known:
+            continue
+        try:
+            record = identity.resolve_endpoint(
+                db,
+                provider=doc["provider"],
+                model_id=doc["model_id"],
+                name=doc.get("display_name"),
+                call_llm=call_llm,
+                now=now,
+            )
+        except Exception as exc:  # noqa: BLE001
+            # One endpoint failing to resolve must not stop the rest. It simply
+            # stays ungrouped, which is the safe direction.
+            print(f"identity resolution failed for {key}: {type(exc).__name__}: {exc}", flush=True)
+            continue
+        resolved.append(f"{doc['provider']}/{doc['model_id']}" + ("" if record["resolved"] else " (unresolved)"))
+    return resolved
+
+
+def grouping_divergence(db: Database) -> dict[str, Any]:
+    """Compare derived identity against what the site groups by today.
+
+    Run before letting derived keys drive display. A disagreement is not
+    automatically an error — the hand-built table has known false merges, and
+    finding them is the point — but every one should be explainable before the
+    mapping changes under a live chart.
+    """
+    identities = {(r["provider"], r["model_id"]): r.get("canonical_key") for r in identity.current_identities(db)}
+
+    derived: dict[str, set[str]] = {}
+    current: dict[str, set[str]] = {}
+    for doc in db[models_collection_name()].find(
+        {"enabled": True, "deprecated": {"$ne": True}},
+        {"provider": 1, "model_id": 1, "display_name": 1},
+    ):
+        endpoint = f"{doc['provider']}/{doc['model_id']}"
+        key = identities.get((doc["provider"], doc["model_id"]))
+        if key:
+            derived.setdefault(key, set()).add(endpoint)
+        shown = doc.get("display_name")
+        if shown:
+            current.setdefault(shown, set()).add(endpoint)
+
+    current_sets = {frozenset(v) for v in current.values()}
+    derived_sets = {frozenset(v) for v in derived.values()}
+    return {
+        "endpoints_with_identity": len(identities),
+        "derived_groups": len(derived),
+        "current_groups": len(current),
+        "agreeing_groups": len(current_sets & derived_sets),
+        "derived_only": sorted(
+            ("|".join(sorted(s)) for s in derived_sets - current_sets),
+        )[:25],
+        "current_only": sorted(
+            ("|".join(sorted(s)) for s in current_sets - derived_sets),
+        )[:25],
     }
