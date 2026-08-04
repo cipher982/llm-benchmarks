@@ -237,3 +237,44 @@ class TestAdmissionIsReversibleAndBounded:
             admission.evaluate_candidates(db, now=NOW)
 
         assert db.models.count_documents({"status": admission.CANDIDATE_STATUS}) == 60
+
+
+class TestDefinitiveFailures:
+    def _dead_probe(self, db, provider, model_id, kind="hard_model", n=1):
+        for i in range(n):
+            db.bench_jobs.insert_one(
+                {
+                    "_id": f"probe:{provider}:{model_id}:{i}",
+                    "provider": provider,
+                    "model_id": model_id,
+                    "job_kind": "probe",
+                    "status": "dead_letter",
+                    "last_attempt_error_kind": kind,
+                }
+            )
+
+    def test_a_404_rejects_without_waiting_out_the_deadline(self, db):
+        """The provider answered. Re-probing for three days re-learns the same no.
+
+        This is the FLUX case: image endpoints 404 on chat completions, and
+        without this they would be probed every two hours for three days.
+        """
+        candidate(db, "deepinfra", "black-forest-labs/FLUX-1-dev", started=timedelta(hours=1))
+        self._dead_probe(db, "deepinfra", "black-forest-labs/FLUX-1-dev", n=2)
+
+        _, rejected = admission.evaluate_candidates(db, now=NOW)
+
+        assert [s for s, _ in rejected] == ["deepinfra/black-forest-labs/FLUX-1-dev"]
+
+    def test_one_definitive_failure_is_not_enough(self, db):
+        candidate(db, "groq", "maybe", started=timedelta(hours=1))
+        self._dead_probe(db, "groq", "maybe", n=1)
+        promoted, rejected = admission.evaluate_candidates(db, now=NOW)
+        assert (promoted, rejected) == ([], [])
+
+    def test_timeouts_do_not_count_as_an_answer(self, db):
+        """A timeout means we did not find out, so the candidate keeps its window."""
+        candidate(db, "together", "slow", started=timedelta(hours=1))
+        self._dead_probe(db, "together", "slow", kind="timeout", n=4)
+        promoted, rejected = admission.evaluate_candidates(db, now=NOW)
+        assert (promoted, rejected) == ([], [])

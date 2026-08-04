@@ -60,6 +60,12 @@ ADMISSION_DEADLINE = timedelta(days=3)
 # the ratchet that decayed coverage to 11.7% was exactly a no with no way back.
 RECHECK_AFTER_REJECTION = timedelta(days=30)
 
+# Error kinds that answer the question rather than fail to answer it. A 404 or
+# an outright rejection says this endpoint is not servable to this account
+# today; a timeout or rate limit says we did not find out.
+DEFINITIVE_ERROR_KINDS = frozenset({"hard_model", "auth"})
+DEFINITIVE_FAILURES_TO_REJECT = 2
+
 # Blast radius. A provider that suddenly lists 10,000 IDs, or a discovery bug
 # that widens the diff, must not turn into an unbounded spend.
 MAX_NEW_CANDIDATES_PER_RUN = int(os.getenv("BENCHMARK_MAX_NEW_CANDIDATES", "25"))
@@ -225,6 +231,19 @@ def _probe_successes(db: Database, *, provider: str, model_id: str) -> list[date
     return sorted(s for s in stamps if s is not None)
 
 
+def _definitive_failures(db: Database, *, provider: str, model_id: str) -> int:
+    """Probe attempts the provider answered with a refusal rather than silence."""
+    return db[queue.jobs_collection_name()].count_documents(
+        {
+            "provider": provider,
+            "model_id": model_id,
+            "job_kind": "probe",
+            "status": "dead_letter",
+            "last_attempt_error_kind": {"$in": sorted(DEFINITIVE_ERROR_KINDS)},
+        }
+    )
+
+
 def _windows_covered(stamps: list[datetime]) -> int:
     """How many separated observations there are, not how many samples."""
     if not stamps:
@@ -273,11 +292,21 @@ def evaluate_candidates(db: Database, *, now: datetime | None = None) -> tuple[l
             promoted.append(subject)
             continue
 
+        definitive = _definitive_failures(db, provider=provider, model_id=model_id)
         started = _as_utc(doc.get("admission_started_at")) or now
-        if now - started > ADMISSION_DEADLINE:
+        timed_out = now - started > ADMISSION_DEADLINE
+
+        if definitive >= DEFINITIVE_FAILURES_TO_REJECT or timed_out:
+            # A 404 is an answer, not a missing one. Waiting out the full
+            # deadline on a model the provider says does not exist re-probes it
+            # every couple of hours for days to re-learn the same thing.
             reason = (
-                f"no probe success in {ADMISSION_DEADLINE.days}d "
-                f"({len(successes)} sample(s), {_windows_covered(successes)} window(s))"
+                f"{definitive} definitive failure(s) (endpoint rejected the request outright)"
+                if definitive >= DEFINITIVE_FAILURES_TO_REJECT
+                else (
+                    f"no probe success in {ADMISSION_DEADLINE.days}d "
+                    f"({len(successes)} sample(s), {_windows_covered(successes)} window(s))"
+                )
             )
             batch.set_model_fields(
                 provider=provider,
