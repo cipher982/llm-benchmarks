@@ -190,10 +190,31 @@ each failure and observing detection and recovery:
 - [x] Failed alert delivery fails the health job.
 - [x] Discovery and health jobs verified by triggering them and checking the
       outcome, not the status field.
+- [x] Discovery run ledger. Each provider read now records start, end, status,
+      raw vs accepted counts, pagination completion and source version, and any
+      provider error fails the run instead of passing when another provider
+      happened to find something new.
+- [x] Case duplicates resolved and a case-insensitive unique index installed,
+      scoped to enabled rows so the 28 disabled duplicate groups keep their
+      display history. Verified by attempting the duplicate insert.
+- [x] Minimal metric contract: sample role, benchmark profile, protocol
+      version, attempt group. Probe samples route to a separate collection and
+      do not record freshness.
 - [ ] External dead man off clifford.
 - [ ] Black-box public contract check (below).
-- [ ] Discovery run ledger (Phase 1, but Phase 0 depends on it).
-- [ ] Case-duplicate cleanup and the intended unique index, before any promotion.
+- [ ] Fault-injection certification (the six cases above).
+
+**What running it against production immediately found**, which is the argument
+for this phase existing:
+
+- Five models enabled under two spellings, benchmarked and drawn twice.
+- 466 disabled models carrying a terminal reason with no expiry — though nearly
+  all correctly dead, which is what recalibrated the check.
+- Six jobs the first version of the queue check misread as stalled, when they
+  were in normal backoff.
+
+Two of those three were the checks being wrong rather than production. Both
+were found by running against live state, not by reasoning about the code.
 
 ---
 
