@@ -115,10 +115,9 @@ map to `llama-3-8b`. Those are different models.
 The chart groups provider lines under one model name, so identity assignment
 decides what the site claims. The governing asymmetry:
 
-> **A false merge is far worse than a missed merge.** Grouping Together's FP8
-> Turbo deployment with Bedrock's BF16 reports a provider speed difference that
-> is actually a quantization difference, silently. A missed merge shows two
-> lines instead of one: visible and self-correcting.
+> **A false merge is worse than a missed merge.** A wrong merge reports one
+> provider as faster than another when the rows are not comparable, silently. A
+> missed merge shows two lines instead of one: visible and self-correcting.
 
 Bias toward not merging under uncertainty, and make uncertainty visible.
 
@@ -131,21 +130,18 @@ attributes; grouping is then deterministic code over those attributes.
 ```json
 {
   "developer": "meta", "family": "llama", "version": "3.1", "params": "8B",
-  "variant": "instruct",
-  "quantization": "fp8",
-  "context_variant": null,
-  "serving_optimization": "turbo",
-  "confidence": 0.95,
-  "reasoning": "..."
+  "role": "instruct"
 }
 ```
 
 ```
-canonical = f(developer, family, version, params, variant)
+canonical = f(developer, family, version, params, role)
 ```
 
-`quantization` and `serving_optimization` are deliberately excluded from the key
-and carried as display annotations. Properties this buys:
+Quantization was measured and dropped from scope on 2026-08-04: 1% of enabled
+models declare it, splitting on it would affect one chart line, and on that line
+provider infrastructure accounts for a 12x spread that quantization does not
+explain. It stays a display annotation. Properties the per-ID shape buys:
 
 | Property | Effect |
 |---|---|
@@ -160,8 +156,8 @@ same model?) stays in code where it can be versioned and tested.
 
 Guardrails:
 
-- Confidence threshold routes to auto-apply or review. `pages/admin/model-review.tsx`
-  and `utils/modelReview/` already exist.
+- No confidence threshold and no review queue. Uncertainty resolves to more
+  evidence or to leaving the endpoint separate.
 - Never auto-merge into a group with an established time series; that rewrites
   published history.
 - Flag groups whose members show persistently non-overlapping throughput
@@ -178,11 +174,11 @@ Provider routing: OpenRouter per the global agent config.
 
 ### A4. Chart display
 
-Legend currently reads `bedrock / groq`. It should read `bedrock (bf16) /
-groq (fp8)` where variants differ. On the llama-3.1-8b panel groq runs ~255
-tok/s against bedrock ~100. Some of that is genuinely groq's hardware, which is
-the interesting story; if part is quantization, flattening both to a bare
-provider name makes the chart misleading.
+Legend reads `bedrock / groq`, which is right. Measurement on 2026-08-04
+showed provider infrastructure, not quantization, drives the spread: on
+llama-3.3-70b, Groq runs 153 tok/s against DeepInfra's 13, and Together's FP8
+deployment sits mid-pack at 48. Provider hardware is the story the chart should
+tell, and it already does.
 
 ---
 

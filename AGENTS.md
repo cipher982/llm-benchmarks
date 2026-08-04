@@ -95,7 +95,7 @@ mongosh "$MONGODB_URI" --eval "db.models.updateOne({provider: 'X', model_id: 'Y'
 | Symptom | Quick Fix |
 |---------|-----------|
 | Bedrock `ProfileNotFound: zh-ml-mlengineer` | Remove stale `AWS_PROFILE` from clifford env vars; Bedrock runs on the RND EC2 instance only |
-| Groq `output_tokens not within 10%` | Disable guard/compound models (unsuitable for benchmarking) |
+| Groq `output_tokens not within 10%` | Expected for variable-output providers; validation uses `visible_nonzero`, not a +-10% band |
 | OpenAI o3-mini `unsupported parameter: max_tokens` | Update code - needs Responses API (see REASONING_MODELS.md) |
 | Vertex `429 quota exceeded` | Increase GCP quota or reduce frequency |
 
@@ -134,11 +134,16 @@ ssh clifford 'docker logs -f llm-bench-api-service'   # fixed name, no hash suff
 - **OpenAI:** o1/o3/o4 models auto-detected as reasoning models
 - **OpenAI-compatible hosted providers:** use provider-reported usage tokens; streamed text chunks can omit hidden/reasoning tokens
 - **Bedrock ingest bridge:** `bench-ingest.drose.io` must preserve additive metric fields; schema-v2 runner fields are lost if the bridge rejects or ignores extras.
-- **Avoid:** Guard models, compound models, embeddings, TTS, image models.
-  Do not rely on name patterns to detect these — two passes of that still let
-  through `veo`, `kling`, `vidu`, `ideogram`, `parakeet`. A real benchmark call
-  is the reliable classifier: a non-text model cannot return text tokens at a
-  measurable rate.
+- **The benchmark surface is any endpoint that takes a query and returns text.**
+  That includes guard, moderation, router and compound models — a user asking
+  "how fast is Llama Guard" is asking a real question, and latency on a
+  classifier is useful information. Do not disable a text-returning model for
+  being the "wrong kind" of model.
+  Only genuinely non-text endpoints are out: embeddings, TTS, transcription,
+  image and video. Do not detect those by name pattern — two passes of that
+  still let through `veo`, `kling`, `vidu`, `ideogram`, `parakeet`. A real call
+  is the reliable classifier, because a non-text model cannot return text
+  tokens at a measurable rate.
 - **Provider `/models` does not tell you what is benchmarkable.** Together
   lists dedicated-endpoint-only models with normal pricing and `type: "chat"`,
   and its `running` field is `false` for all 274 models including working ones.
@@ -149,8 +154,8 @@ ssh clifford 'docker logs -f llm-bench-api-service'   # fixed name, no hash suff
 # Add
 mongosh "$MONGODB_URI" --eval "db.models.insertOne({provider: 'openai', model_id: 'gpt-4o', enabled: true, created_at: new Date()})"
 
-# Disable
-mongosh "$MONGODB_URI" --eval "db.models.updateOne({provider: 'groq', model_id: 'llama-guard-4-12b'}, {\$set: {enabled: false, disabled_reason: 'Guard model', disabled_at: new Date()}})"
+# Disable (record a class so a recoverable reason gets a recheck date)
+mongosh "$MONGODB_URI" --eval "db.models.updateOne({provider: 'X', model_id: 'Y'}, {\$set: {enabled: false, disabled_class: 'hard_model', disabled_reason: 'Endpoint 404s', disabled_at: new Date()}})"
 ```
 
 ---

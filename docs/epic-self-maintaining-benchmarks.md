@@ -389,30 +389,37 @@ lines, one of five files totalling 1,427 lines that all map model names. It is
 already wrong: `Meta-Llama-3-8B` (base) and `Meta-Llama-3-8B-Instruct` both map
 to `llama-3-8b`.
 
-The governing asymmetry: **a false merge is far worse than a missed merge.**
-Grouping Together's FP8 deployment with Bedrock's BF16 reports a provider speed
-difference that is actually a quantization difference, silently. A missed merge
-shows two lines instead of one — visible and self-correcting.
+The governing asymmetry: **a false merge is worse than a missed merge.** A wrong
+merge reports one provider as faster than another when the two rows are not
+comparable, and it does so silently. A missed merge shows two lines instead of
+one — visible and self-correcting.
 
-### Two relations, because one key cannot mean both things
+### Quantization is out of scope — the data settled it
 
-The original design excluded `quantization` and `serving_optimization` from the
-key and showed them as annotations — which performs exactly the Together-FP8 vs
-Bedrock-BF16 merge used to justify the rule. An annotation does not restore
-comparability; the samples still sit in one cohort and downstream summaries rank
-them as peers. Opaque labels like `turbo`, `instant` and `versatile` can encode
-quantization, speculative decoding, a fine-tune, routing, or different weights,
-and an *absent* quantization field does not mean the deployment matches a known
-BF16 one.
+An earlier draft split identity into base model plus a quantization-aware
+variant key. Measured against production on 2026-08-04, that was not worth
+building:
 
-- `base_model_id` groups lineage, for navigation and discovery.
-- `benchmark_variant_id` identifies a comparable measured deployment: base model
-  plus checkpoint, quantization, adapter/fine-tune, benchmark profile, and any
-  opaque serving optimization.
+- 3 of 220 enabled models declare quantization anywhere (1%). No provider
+  exposes it as a field; it survives only as a suffix on some IDs.
+- Splitting on declared markers would affect exactly **one** chart line,
+  `llama-3.3-70b` — which is also the site's only four-provider line.
+- On that line the quantized deployment is not the outlier. Groq runs 153 tok/s,
+  Bedrock 83, Together's FP8 Turbo 48, DeepInfra 13. The spread is 12× and
+  quantization does not explain it; provider infrastructure does.
+- Those series are already thin — 8 and 13 samples over 30 days. Splitting makes
+  sparse data sparser to encode a distinction that does not drive the number.
 
-Unknown modifiers split variants. The UI can nest variants under one base model,
-but charts compare only within a variant unless the difference is an explicit
-dimension of the chart.
+So grouping is by base model. Quantization and serving optimization are carried
+as annotations for display. The schema keeps room to split later if a provider
+starts publishing real quantization metadata *and* both sides have enough
+samples to compare, but nothing is built for it now.
+
+The same measurement corrected the assumption behind this phase. Charts show few
+providers per model because coverage is thin, not because matching is broken:
+158 of 185 display groups are genuinely single-provider, and 22 base models are
+served by three or more providers while we benchmark most at zero or one. More
+providers per line comes from Phase 1 admission, not from a better key.
 
 ### Identity is a relation with provenance, not a property of a string
 
@@ -516,8 +523,8 @@ The redesign is valid work with its own epic
 (`llm-benchmarks-dashboard/backend/docs/redesign-epic.md`, Console direction
 chosen, Phase 1 complete) but it does not make the site self-maintaining and
 should not sit on the autonomy critical path. Layout work can proceed in
-parallel; chart and legend work depends on settled profile and variant
-semantics from Phases 2 and 3.
+parallel; chart and legend work depends on settled profile semantics from
+Phase 3.
 
 ---
 
@@ -535,37 +542,40 @@ Revised after review — several items had hidden dependency inversions.
 5  resolve case duplicates; install the intended unique constraint
 6  discovery: raw, paginated, complete, with a run ledger
 7  bounded shadow probes + action-specific remediation + circuit breakers
-8  identity entities, benchmark variants, effective dates; then evaluate
-   assisted matching against source-backed cases
+8  identity entities and effective dates; then evaluate assisted matching
+   against source-backed cases
 9  automatic promotion/demotion under batch and spend limits; end-to-end
    publication fault tests
 ```
 
 Cleanup and refactoring follow the autonomy path rather than sitting inside it.
 
-## Decisions needed before Phase 1 starts
+## Decisions
 
-These are one-time product decisions, not an operational review queue. Each one
-changes what gets built.
+**Settled 2026-08-04:**
 
-1. **Is the benchmark surface serverless text-generation endpoints, or any
-   endpoint that can emit text?** Probe suitability cannot be specified without
-   this.
-2. **Does "same model" mean shared advertised base weights, or a directly
-   comparable measured deployment?** One key cannot safely mean both — hence
-   `base_model_id` and `benchmark_variant_id`.
-3. **Is publication within 24h more important than multi-window stability**, and
-   may a first-day series be labelled provisional? The current epic promises
-   both.
-4. **What daily and per-run spend can the automation exercise without David?**
+- **The benchmark surface is any endpoint that takes a query and returns text.**
+  Guard, moderation, router and compound models are in. "How fast is Llama
+  Guard" is a real question and latency on a classifier is useful. Only
+  genuinely non-text endpoints are out — embeddings, TTS, transcription, image,
+  video — and a live call is what establishes that, not a name pattern.
+- **Grouping is by base model.** Quantization is annotation, not identity. See
+  Phase 2 for the measurement that settled it.
+- **Publication timing:** publish at 24h labelled provisional, promote after
+  multi-window stability. Reversible, so it did not need to be escalated.
+
+**Still open:**
+
+1. **What daily and per-run spend can the automation exercise without David?**
    The 24h recovery snapshot held 3,554 successful metric rows and 2,099 error
    rows, so "hundreds of calls a day" already understates steady state and a
-   1,000-candidate sweep needs a real number.
-5. **What are the authoritative discovery sources for Vertex and Bedrock?**
-6. **Which external service owns the dead-man heartbeat**, so clifford and
+   1,000-candidate sweep needs a real number. This one genuinely needs David —
+   it is money, which is inside the authority boundary.
+2. **What are the authoritative discovery sources for Vertex and Bedrock?**
+3. **Which external service owns the dead-man heartbeat**, so clifford and
    Sauron do not watch themselves?
-7. Reasoning-on and reasoning-off as separate published profiles, or one?
-8. Is rewriting historical rows ever in scope when identity changes, or is
+4. Reasoning-on and reasoning-off as separate published profiles, or one?
+5. Is rewriting historical rows ever in scope when identity changes, or is
    identity forward-only?
 
 ## Non-goals
