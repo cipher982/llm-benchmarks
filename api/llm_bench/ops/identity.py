@@ -4,20 +4,23 @@
 and `Meta-Llama-3-8B-Instruct` both map to `llama-3-8b`, which are different
 models. Hand-maintenance is what this epic retires.
 
-An endpoint is placed by showing a model the groups that already exist and
-asking which one it belongs to, or whether it is new. There is no attribute
-schema. The first version decomposed IDs into developer/family/version/params
-and assembled a key from them, which only works for names that decompose that
+Placing an endpoint is one question with no scaffolding around it: here is every
+group that exists, does this belong to one of them or is it new. The whole list
+goes in the prompt. No attribute schema, no candidate filtering, no stopword
+list deciding which groups the model is allowed to consider.
+
+Two earlier versions got this wrong the same way. The first decomposed IDs into
+developer/family/version/params, which only works for names that decompose that
 way — Anthropic's tiers did not, so the prompt grew a list of how each vendor
-names things. That is the same table in a different file. Matching against real
-groups needs no list, and a vendor with a convention nobody anticipated simply
-forms its own group.
+names things, which is the 377-line table in a different file. The second kept
+the question but pre-filtered the candidates by shared tokens, using a
+hand-maintained list of "generic" words to ignore. Both were me deciding the
+taxonomy and leaving the model to fill in the blanks.
 
 What stays in code is chart policy, not identity: only unify names across
-providers, never rename onto a name a provider already publishes, and treat an
-unmatched endpoint as its own line. Those are statements about what a
-comparison chart should show, and they do not change when a vendor invents a
-naming scheme.
+providers, never rename onto a name a provider already publishes, and let an
+unmatched endpoint stand alone. Those say what a comparison chart should show,
+and they do not change when a vendor invents a naming scheme.
 
 Quantization is deliberately not identity. Measured on 2026-08-04: 1% of enabled
 models declare it, splitting on it would affect one chart line, and on that line
@@ -26,8 +29,7 @@ provider infrastructure accounts for a 12x spread it does not explain.
 The governing asymmetry is that a false merge is worse than a missed merge. A
 wrong merge silently reports one provider as faster than another when the rows
 are not comparable; a missed merge shows two lines, which is visible and
-self-correcting. So an uncertain endpoint starts its own group, and that is the
-correct outcome under the no-review-queue rule rather than a dodge around it.
+self-correcting. So an uncertain endpoint starts its own group.
 """
 
 from __future__ import annotations
@@ -45,15 +47,10 @@ from pymongo.database import Database
 
 from llm_bench.scheduler.mongo import collection_name
 
-# Bumped when the grouping function or the prompt changes, so a stored relation
-# records which policy produced it and old rows can be re-derived rather than
-# trusted blindly.
-#
-# v3: endpoints are matched against groups that already exist instead of being
-# decomposed into developer/family/version/params. The decomposition only fitted
-# names that decompose that way, so Anthropic's tiers had to be listed in the
-# prompt — the hand-maintained table this epic retires, moved into a string.
-POLICY_VERSION = 3
+# v4: the prompt carries every existing group. v3 pre-filtered candidates by
+# shared tokens against a hand-maintained stopword list, which is a smaller
+# version of the taxonomy v2 was replaced for.
+POLICY_VERSION = 4
 
 
 def identity_collection_name() -> str:
@@ -69,36 +66,6 @@ def _slug(value: str) -> str:
     return re.sub(r"[^a-z0-9.]+", "-", str(value).strip().lower()).strip("-")
 
 
-# Tokens that appear across unrelated models and so retrieve nothing useful.
-# "Instruct" is the longest token in most IDs and the least distinctive.
-GENERIC_TOKENS = frozenset(
-    {
-        "instruct",
-        "chat",
-        "turbo",
-        "fast",
-        "base",
-        "preview",
-        "latest",
-        "versatile",
-        "thinking",
-        "reasoning",
-        "exp",
-        "beta",
-        "free",
-        "fp8",
-        "bf16",
-    }
-)
-
-
-def _search_tokens(model_id: str, *, limit: int = 2) -> list[str]:
-    """The most distinctive chunks of an ID, used only to retrieve neighbours."""
-    tail = str(model_id).rsplit("/", 1)[-1]
-    tokens = [t for t in re.split(r"[-_.]", tail) if len(t) > 2 and t.lower() not in GENERIC_TOKENS]
-    return tokens[:limit]
-
-
 def current_identities(db: Database) -> list[dict[str, Any]]:
     """The newest relation per endpoint, which is what grouping should read."""
     newest: dict[tuple[str, str], dict[str, Any]] = {}
@@ -107,101 +74,58 @@ def current_identities(db: Database) -> list[dict[str, Any]]:
     return list(newest.values())
 
 
-# --------------------------------------------------------------------------
-# The model call
-# --------------------------------------------------------------------------
+def existing_groups(db: Database) -> dict[str, list[str]]:
+    """Every group there is, with its members.
 
-# Personal-funded OpenRouter, per the standing provider routing. Identity is
-# cheap structured extraction, so a small fast model is the right tier; the
-# expensive part of getting this wrong is a false merge, and the guard against
-# that is the null-rather-than-guess rule, not model size.
-DEFAULT_MODEL = os.getenv("BENCHMARK_IDENTITY_MODEL", "openai/gpt-5.6-luna")
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-
-
-def call_openrouter(prompt: str, *, model: str | None = None, timeout: float = 45.0) -> dict[str, Any]:
-    """Ask a model to extract identity attributes. Returns parsed JSON."""
-    api_key = os.getenv("OPENROUTER_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENROUTER_API_KEY is not set")
-
-    response = httpx.post(
-        OPENROUTER_URL,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
-            "model": model or DEFAULT_MODEL,
-            "temperature": 0,
-            "response_format": {"type": "json_object"},
-            "messages": [{"role": "user", "content": prompt}],
-        },
-        timeout=timeout,
-    )
-    response.raise_for_status()
-    text = response.json()["choices"][0]["message"]["content"].strip()
-    # Some models still fence JSON even when asked not to.
-    if text.startswith("```"):
-        text = re.sub(r"^```[a-z]*\n?|\n?```$", "", text).strip()
-    return json.loads(text)
-
-
-# --------------------------------------------------------------------------
-# Matching, which replaces the fixed attribute taxonomy
-# --------------------------------------------------------------------------
-
-MATCH_PROMPT = """Decide whether a provider's endpoint serves the same model as
-any group that already exists.
-
-Endpoint: {provider} / {model_id}
-Provider's display name: {name}
-
-Existing groups, with the endpoints already in them:
-{candidates}
-
-Answer with JSON:
-  {{"group": "<exact id of an existing group>"}}       if it is the same model
-  {{"group": null, "name": "<short lowercase name>"}}  if it is a new model
-
-Same model means the same weights, served by someone. Serving differences —
-turbo, fp8, a provider's own suffix, a date stamp — do not make it a different
-model. These do:
-- a different size (8b is not 70b)
-- a different tier in a family, whatever the vendor calls them
-- base weights versus instruction-tuned weights
-- a different version or generation
-
-If you are not sure it is the same model, return a new group. Two lines on a
-chart is a visible, fixable mistake. Silently merging two different models
-reports a speed difference that does not exist.
-"""
-
-
-def candidate_groups(db: Database, *, model_id: str, limit: int = 12) -> dict[str, list[str]]:
-    """Existing groups whose members look related to this endpoint."""
-    tokens = _search_tokens(model_id)
-    if not tokens:
-        return {}
-    pattern = "|".join(re.escape(t) for t in tokens)
+    All of them, every time. A few hundred short strings is nothing next to what
+    a wrong merge costs, and any rule for trimming the list is a rule about which
+    models resemble each other — the judgment being delegated in the first place.
+    """
     groups: dict[str, list[str]] = {}
-    for row in db[identity_collection_name()].find(
-        {"canonical_key": {"$ne": None}, "model_id": {"$regex": pattern, "$options": "i"}},
-        {"provider": 1, "model_id": 1, "canonical_key": 1},
-    ):
-        members = groups.setdefault(row["canonical_key"], [])
+    for row in current_identities(db):
+        key = row.get("canonical_key")
+        if not key:
+            continue
         entry = f"{row['provider']}/{row['model_id']}"
+        members = groups.setdefault(key, [])
         if entry not in members:
             members.append(entry)
-        if len(groups) >= limit:
-            break
     return groups
 
 
-def build_match_prompt(*, provider: str, model_id: str, name: str | None, candidates: dict[str, list[str]]) -> str:
+MATCH_PROMPT = """Here are the model groups this benchmark site already tracks,
+each with the provider endpoints in it:
+
+{groups}
+
+New endpoint: {provider} / {model_id}
+Provider's display name: {name}
+
+Does this endpoint serve the same model as one of the groups above, or is it a
+model the list does not have yet?
+
+Answer with JSON:
+  {{"group": "<exact id from the list>"}}          if it is the same model
+  {{"group": null, "name": "<short name>"}}        if it is new
+
+Same model means the same weights, served by someone else. How a provider
+serves it — turbo, fp8, a date stamp, their own suffix — does not make it a
+different model. A different size, a different tier in a family, base versus
+instruction-tuned weights, or a different version are different models.
+
+If you are not certain it is the same model, say it is new. Two lines on a chart
+is a visible mistake someone can fix. Merging two different models reports a
+speed difference that does not exist, and nobody can see that it happened.
+"""
+
+
+def build_match_prompt(*, provider: str, model_id: str, name: str | None, groups: dict[str, list[str]]) -> str:
     rendered = (
-        "\n".join(f"  {key}: {', '.join(members)}" for key, members in sorted(candidates.items()))
-        if candidates
-        else "  (no existing groups look related)"
+        "\n".join(f"  {key}: {', '.join(sorted(members))}" for key, members in sorted(groups.items()))
+        if groups
+        else "  (the list is empty — this is the first endpoint)"
     )
-    return MATCH_PROMPT.format(provider=provider, model_id=model_id, name=name or "(none)", candidates=rendered)
+    return MATCH_PROMPT.format(groups=rendered, provider=provider, model_id=model_id, name=name or "(none)")
 
 
 def match_endpoint(
@@ -213,32 +137,30 @@ def match_endpoint(
     call_llm: Callable[[str], dict[str, Any]],
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Place an endpoint in an existing group, or start a new one.
-
-    No taxonomy. The earlier version asked for developer/family/version/params
-    and assembled a key from them, which meant maintaining a list of how each
-    vendor names things — Anthropic's tiers had to be spelled out in the prompt
-    the moment Claude broke the schema. That is the hand-maintained table this
-    epic exists to retire, moved into a string.
-
-    Matching against groups that already exist needs no such list. A vendor with
-    a naming convention nobody anticipated simply forms its own group.
-    """
+    """Place an endpoint in an existing group, or start a new one."""
     now = now or utcnow()
-    candidates = candidate_groups(db, model_id=model_id)
-    answer = call_llm(build_match_prompt(provider=provider, model_id=model_id, name=name, candidates=candidates))
+    groups = existing_groups(db)
+    answer = call_llm(build_match_prompt(provider=provider, model_id=model_id, name=name, groups=groups))
 
     chosen = answer.get("group")
-    if chosen and chosen in candidates:
+    if chosen and chosen in groups:
         key, basis = chosen, "matched an existing group"
     elif chosen:
-        # It named a group that does not exist. Treating that as a match would
-        # invent a merge target, so it starts its own group instead.
-        key, basis = _slug(str(chosen)), "named a group that did not exist; started its own"
+        # It named a group that is not on the list. Treating that as a match
+        # would invent a merge target, so it starts its own group instead.
+        key, basis = _slug(str(chosen)), "named a group not on the list; started its own"
     else:
         proposed = answer.get("name")
-        key = _slug(str(proposed)) if proposed else None
-        basis = "new group" if key else "declined to name it"
+        if proposed:
+            key, basis = _slug(str(proposed)), "new group"
+        else:
+            # It would not name the model. Rather than leave the endpoint with
+            # no group — which would keep it out of the list forever, so a
+            # second provider serving the same thing could never match it — key
+            # it to its own ID. That is a group of one that others can join
+            # later. The judgment stays the model's; only the label is ours.
+            key = _slug(str(model_id).rsplit("/", 1)[-1])
+            basis = "unnamed; keyed to its own id so it can be matched later"
 
     record = {
         "provider": provider,
@@ -247,7 +169,7 @@ def match_endpoint(
         "policy_version": POLICY_VERSION,
         "effective_from": now,
         "evidence": {
-            "candidates_offered": sorted(candidates),
+            "groups_offered": len(groups),
             "basis": basis,
             "provider_display_name": name,
         },
@@ -255,3 +177,45 @@ def match_endpoint(
     }
     db[identity_collection_name()].insert_one(dict(record))
     return record
+
+
+# --------------------------------------------------------------------------
+# The model call
+# --------------------------------------------------------------------------
+
+# Personal-funded OpenRouter, per the standing provider routing. This is one
+# short question against a list, so the cheapest capable model is the right one.
+DEFAULT_MODEL = os.getenv("BENCHMARK_IDENTITY_MODEL", "deepseek/deepseek-v4-flash-0731")
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+# Generous on purpose. This model reasons before answering, and a cap that fits
+# the answer but not the reasoning returns empty content — the same failure that
+# currently blocks 19 models on the site.
+MAX_TOKENS = 4000
+
+
+def call_openrouter(prompt: str, *, model: str | None = None, timeout: float = 90.0) -> dict[str, Any]:
+    """Ask a model to place an endpoint. Returns parsed JSON."""
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is not set")
+
+    response = httpx.post(
+        OPENROUTER_URL,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={
+            "model": model or DEFAULT_MODEL,
+            "temperature": 0,
+            "max_tokens": MAX_TOKENS,
+            "response_format": {"type": "json_object"},
+            "messages": [{"role": "user", "content": prompt}],
+        },
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    text = (response.json()["choices"][0]["message"].get("content") or "").strip()
+    if not text:
+        raise RuntimeError("model returned no content; the token budget was probably spent on reasoning")
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-z]*\n?|\n?```$", "", text).strip()
+    return json.loads(text)

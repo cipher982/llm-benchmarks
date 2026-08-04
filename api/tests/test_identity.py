@@ -86,21 +86,66 @@ class TestMatchingWithoutATaxonomy:
         )
 
         assert record["canonical_key"] == "a-group-that-does-not-exist"
-        assert "did not exist" in record["evidence"]["basis"]
+        assert "not on the list" in record["evidence"]["basis"]
 
-    def test_declining_to_name_leaves_the_endpoint_unresolved(self, db):
+    def test_an_unnamed_model_is_still_keyed_so_it_can_be_matched_later(self, db):
+        """No group at all keeps an endpoint out of the list forever.
+
+        A second provider serving the same model would never see it as an
+        option, so a merge that should happen never can. Keying it to its own
+        ID gives a group of one that others can join.
+        """
         record = identity.match_endpoint(
             db,
-            provider="groq",
-            model_id="internal-codename",
+            provider="deepinfra",
+            model_id="thinkingmachines/Inkling",
             name=None,
             call_llm=lambda _p: {"group": None, "name": None},
             now=NOW,
         )
-        assert record["resolved"] is False
+        assert record["canonical_key"] == "inkling"
+        assert record["resolved"] is True
+
+    def test_a_later_provider_can_join_a_self_keyed_group(self, db):
+        self._existing(db, "deepinfra", "thinkingmachines/Inkling", "inkling")
+
+        seen = {}
+        record = identity.match_endpoint(
+            db,
+            provider="together",
+            model_id="thinkingmachines/Inkling",
+            name=None,
+            call_llm=lambda p: seen.update(prompt=p) or {"group": "inkling"},
+            now=NOW,
+        )
+        assert "inkling" in seen["prompt"]
+        assert record["canonical_key"] == "inkling"
 
     def test_the_prompt_carries_no_vendor_list(self):
         """The regression that motivated this: a taxonomy hidden in a string."""
-        prompt = identity.build_match_prompt(provider="x", model_id="y", name=None, candidates={})
+        prompt = identity.build_match_prompt(provider="x", model_id="y", name=None, groups={})
         for vendor_specific in ("claude-haiku", "gemini-flash", "nova-pro", "mixtral"):
             assert vendor_specific not in prompt
+
+    def test_every_group_is_offered_not_a_filtered_subset(self, db):
+        """No rule may decide which groups the model is allowed to consider.
+
+        Any such rule is a claim about which models resemble each other, which
+        is the judgment being delegated. v3 filtered by shared tokens against a
+        stopword list and was a smaller version of the taxonomy it replaced.
+        """
+        for i in range(30):
+            self._existing(db, "p", f"m{i}", f"group-{i}")
+
+        seen = {}
+        identity.match_endpoint(
+            db,
+            provider="groq",
+            model_id="totally-unrelated-name",
+            name=None,
+            call_llm=lambda p: seen.update(prompt=p) or {"group": None, "name": "new"},
+            now=NOW,
+        )
+
+        for i in range(30):
+            assert f"group-{i}" in seen["prompt"]
