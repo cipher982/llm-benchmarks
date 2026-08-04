@@ -298,7 +298,12 @@ def unify_display_names(db: Database, *, now: datetime | None = None, dry_run: b
             )
         }
         for member in members:
+            # `taken` grows as this loop assigns names, so two members at one
+            # provider cannot both be renamed onto the winner. DeepInfra serves
+            # Nemotron and its BF16 build; renaming both would merge them into a
+            # single row rather than add a provider to the line.
             if member.get("display_name") != winner and member["provider"] not in taken:
+                taken.add(member["provider"])
                 changes.append(
                     {
                         "provider": member["provider"],

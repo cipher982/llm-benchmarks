@@ -153,8 +153,10 @@ class TestDisplayNameUnification:
 
         changes = reconciler.unify_display_names(db, now=NOW, dry_run=True)
 
+        # Whichever name wins, no provider may be renamed onto it twice.
+        providers = [c["provider"] for c in changes]
+        assert len(providers) == len(set(providers))
         assert len(changes) == 1
-        assert changes[0]["provider"] == "deepinfra"
         assert changes[0]["to"] == "claude-haiku-4.5"
 
     def test_an_already_consistent_group_is_untouched(self, db):
@@ -227,3 +229,21 @@ class TestDisplayNameUnification:
 
         changes = reconciler.unify_display_names(db, now=NOW, dry_run=True)
         assert [c["provider"] for c in changes] == ["deepinfra"]
+
+    def test_two_endpoints_at_one_provider_cannot_both_take_the_winning_name(self, db):
+        """The collision guard has to count renames it is about to make.
+
+        DeepInfra serves Nemotron-3-Ultra and its BF16 build. Both were proposed
+        for the same name in one pass — neither collided with an endpoint already
+        published under it, but they collided with each other.
+        """
+        self._identify(db, "fireworks", "nemotron-3-ultra", "nemotron", "nemotron-3-ultra-550b-a55b")
+        self._identify(db, "deepinfra", "nvidia/Nemotron-3-Ultra", "nemotron", "NVIDIA-Nemotron-3-Ultra")
+        self._identify(db, "deepinfra", "nvidia/Nemotron-3-Ultra-BF16", "nemotron", "NVIDIA-Nemotron-3-Ultra-BF16")
+
+        changes = reconciler.unify_display_names(db, now=NOW, dry_run=True)
+
+        # Whichever name wins, no provider may be renamed onto it twice.
+        providers = [c["provider"] for c in changes]
+        assert len(providers) == len(set(providers))
+        assert len(changes) == 1
