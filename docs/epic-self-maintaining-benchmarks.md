@@ -200,9 +200,35 @@ each failure and observing detection and recovery:
 - [x] Minimal metric contract: sample role, benchmark profile, protocol
       version, attempt group. Probe samples route to a separate collection and
       do not record freshness.
+- [x] Black-box publication check, running off the app: fetches the endpoint a
+      visitor gets and asserts freshness, absolute model and provider floors,
+      and no model published under two spellings.
 - [ ] External dead man off clifford.
-- [ ] Black-box public contract check (below).
 - [ ] Fault-injection certification (the six cases above).
+
+### What the coverage checks found once the snapshot settled
+
+37 of 220 enabled models had no measurement in over four hours, while 182 sat on
+a healthy ~90-minute cycle — so the threshold is separating genuine laggards
+from normal cadence rather than firing on everything. The 37 break down as:
+
+| Cause | Count | Note |
+|---|---|---|
+| `visible output empty after token budget exhausted` | ~19 | the reasoning-token defect, Phase 3 |
+| timeout | 8 | mostly 405B/70B models at 120s |
+| stale terminal reasons | 8 | no billing errors in the last 6h |
+| rate limit / transient | 2 | self-recovering |
+
+**The single largest blocker is not breakage.** A 64-token budget is consumed
+entirely by hidden reasoning tokens on these models, leaving no visible text, so
+the validator rejects a response the provider considers successful. This is the
+defect `docs/reasoning-token-budget-spike.md` identified. It is not fixable
+without deciding the profile question, because raising the cap changes what the
+number means and makes new rows incomparable with old ones. Left alone
+deliberately rather than patched silently.
+
+`discovery_completed_recently` also correctly flagged Bedrock and Vertex, which
+have no discovery authority at all — the gap Sol named.
 
 **What running it against production immediately found**, which is the argument
 for this phase existing:
