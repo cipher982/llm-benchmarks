@@ -11,6 +11,7 @@ from pymongo.database import Database
 
 from llm_bench.scheduler import policies
 from llm_bench.scheduler.mongo import jobs_collection_name
+from llm_bench.scheduler.mongo import models_collection_name
 
 ACTIVE_STATUSES = {"queued", "running"}
 TERMINAL_RETRYABLE_STATUSES = {"success", "failed", "timeout"}
@@ -209,7 +210,62 @@ def claim_next_job(
         sort=[("priority", -1), ("created_at", 1)],
         return_document=ReturnDocument.AFTER,
     )
+    if job is not None and not is_model_eligible(db, provider=provider, model_id=job.get("model_id")):
+        # The catalogue is the authority on what should be benchmarked. Jobs
+        # outlive catalogue decisions, so a model disabled after its job was
+        # queued would otherwise keep consuming a worker slot forever.
+        cancel_job(db, job_id=job["_id"], reason="model no longer enabled", now=now)
+        return None
     return job
+
+
+def is_model_eligible(db: Database, *, provider: str, model_id: Any) -> bool:
+    """True when the catalogue still wants this model benchmarked."""
+    if not model_id:
+        return False
+    doc = db[models_collection_name()].find_one(
+        {"provider": provider, "model_id": model_id},
+        {"enabled": 1, "deprecated": 1},
+    )
+    return bool(doc and doc.get("enabled") and not doc.get("deprecated"))
+
+
+def cancel_job(db: Database, *, job_id: Any, reason: str, now: datetime | None = None) -> bool:
+    now = now or utcnow()
+    result = jobs_collection(db).update_one(
+        {"_id": job_id},
+        {
+            "$set": {
+                "status": "cancelled",
+                "updated_at": now,
+                "finished_at": now,
+                "lease_expires_at": None,
+                "worker_id": None,
+                "cancelled_reason": reason,
+            }
+        },
+    )
+    return result.modified_count > 0
+
+
+def cancel_ineligible_jobs(db: Database, *, now: datetime | None = None) -> int:
+    """Cancel queued or running jobs whose model is no longer enabled.
+
+    Demotion has to reach work already in the queue. Without this, disabling a
+    model stops new scheduling but leaves its existing jobs cycling.
+    """
+    now = now or utcnow()
+    enabled = {
+        (m["provider"], m["model_id"])
+        for m in db[models_collection_name()].find(
+            {"enabled": True, "deprecated": {"$ne": True}}, {"provider": 1, "model_id": 1}
+        )
+    }
+    cancelled = 0
+    for job in jobs_collection(db).find({"status": {"$in": ["queued", "running"]}}, {"provider": 1, "model_id": 1}):
+        if (job.get("provider"), job.get("model_id")) not in enabled:
+            cancelled += int(cancel_job(db, job_id=job["_id"], reason="model no longer enabled", now=now))
+    return cancelled
 
 
 def mark_success(db: Database, *, job_id: Any, worker_id: str | None = None, now: datetime | None = None) -> bool:
@@ -310,6 +366,12 @@ def requeue_retryable_dead_letters(
     }
     transitioned: list[dict[str, Any]] = []
     for job in coll.find(query):
+        if not is_model_eligible(db, provider=job.get("provider"), model_id=job.get("model_id")):
+            # Do not resurrect work for a model the catalogue has demoted.
+            cancel_job(db, job_id=job["_id"], reason="model no longer enabled", now=now)
+            continue
+        if int(job.get("dead_letter_requeues") or 0) >= policies.MAX_DEAD_LETTER_REQUEUES:
+            continue
         result = coll.update_one(
             {"_id": job["_id"], "status": "dead_letter", "updated_at": job.get("updated_at")},
             {

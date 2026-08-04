@@ -10,6 +10,10 @@ DEFAULT_MAX_ATTEMPTS = int(os.getenv("BENCHMARK_MAX_ATTEMPTS", "2"))
 DEFAULT_BACKOFF_SECONDS = int(os.getenv("BENCHMARK_RETRY_BACKOFF_SECONDS", str(15 * 60)))
 MAX_BACKOFF_SECONDS = int(os.getenv("BENCHMARK_RETRY_MAX_BACKOFF_SECONDS", str(6 * 60 * 60)))
 DEAD_LETTER_RETRY_AFTER_SECONDS = int(os.getenv("BENCHMARK_DEAD_LETTER_RETRY_AFTER_SECONDS", str(15 * 60)))
+# Retryable failures must not retry forever. Unbounded resurrection trades a
+# ratchet that loses models for a queue that never lets one go.
+MAX_DEAD_LETTER_REQUEUES = int(os.getenv("BENCHMARK_MAX_DEAD_LETTER_REQUEUES", "20"))
+MAX_RETRY_ATTEMPTS = int(os.getenv("BENCHMARK_MAX_RETRY_ATTEMPTS", "12"))
 BILLING_DEAD_LETTER_RETRY_AFTER_SECONDS = int(
     os.getenv("BENCHMARK_BILLING_DEAD_LETTER_RETRY_AFTER_SECONDS", str(6 * 60 * 60))
 )
@@ -82,9 +86,10 @@ def should_retry(
     error_message: str | None = None,
 ) -> bool:
     # Provider weather is not a terminal model decision. Keep these jobs
-    # recoverable so a short outage cannot permanently remove a model.
+    # recoverable so a short outage cannot permanently remove a model — but
+    # bounded, so a permanently broken model cannot cycle forever.
     if is_retryable_failure(error_kind, error_message):
-        return True
+        return attempt < MAX_RETRY_ATTEMPTS
     if attempt >= max_attempts:
         return False
     if not error_kind:
