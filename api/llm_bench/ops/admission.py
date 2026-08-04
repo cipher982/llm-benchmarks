@@ -114,31 +114,34 @@ def find_candidates(db: Database, *, limit: int = MAX_NEW_CANDIDATES_PER_RUN) ->
     }
     catalogue = list(db.provider_catalog.find({}, {"provider": 1, "model_id": 1, "name": 1}))
 
-    # How many distinct providers serve each rough base name, from the catalogue.
-    spread: dict[str, set[str]] = {}
-    for row in catalogue:
-        spread.setdefault(_base_name(row["model_id"]), set()).add(row["provider"])
-
     candidates = [row for row in catalogue if (row["provider"], row["model_id"]) not in known]
-    candidates.sort(key=lambda row: (-len(spread.get(_base_name(row["model_id"]), ())), row["provider"]))
+    candidates.sort(key=lambda row: (-_spread(row["model_id"], catalogue), row["provider"]))
     return candidates[:limit]
 
 
-def _base_name(model_id: str) -> str:
-    """Rough base name, only for prioritising which candidate to probe first.
+def _normalised(model_id: str) -> str:
+    """Lowercase alphanumerics of the ID's last segment.
 
-    Deliberately crude — it decides probe order, never identity. Grouping for
-    display is Phase 2's job and uses evidence, not string munging.
+    Used only to guess which candidates several providers serve, so the probe
+    budget goes to the ones that would add a provider to a chart line. It has no
+    vocabulary to maintain — an earlier version stripped a list of suffixes
+    (-turbo, -instruct, -versatile, -v1:0) which is the same hand-kept taxonomy
+    this codebase keeps growing in corners.
     """
-    text = str(model_id).lower()
-    text = text.replace("accounts/fireworks/models/", "")
-    if text.startswith("us."):
-        text = text[3:]
-    text = text.rsplit("/", 1)[-1]
-    for suffix in ("-turbo", "-fp8", "-instruct", "-it", "-chat", "-hf", "-versatile", "-latest", "-v1:0"):
-        if text.endswith(suffix):
-            text = text[: -len(suffix)]
-    return "".join(ch for ch in text if ch.isalnum())
+    return "".join(ch for ch in str(model_id).rsplit("/", 1)[-1].lower() if ch.isalnum())
+
+
+# How much of a normalised ID two providers must share before it is worth
+# guessing they serve the same thing. Only affects ordering, never identity.
+SHARED_PREFIX = 12
+
+
+def _spread(candidate: str, catalogue: list[dict[str, Any]]) -> int:
+    """How many providers plausibly serve this model, by shared prefix."""
+    stem = _normalised(candidate)[:SHARED_PREFIX]
+    if len(stem) < SHARED_PREFIX:
+        return 1
+    return len({row["provider"] for row in catalogue if _normalised(row["model_id"]).startswith(stem)})
 
 
 def register_candidates(
