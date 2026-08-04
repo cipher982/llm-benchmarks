@@ -153,6 +153,13 @@ operation. `disabled_reason` plus a timestamp is an audit hint, not a rollback
 mechanism — without prior values a confidently wrong agent can publish and then
 erase the evidence needed to recover.
 
+Built at `api/llm_bench/ops/mutations.py` and used by admission. An over-limit
+batch applies *nothing* rather than its first N changes, because half a
+migration is the state nobody designed for. There is a per-provider cap under
+the global one, since one provider going dark is the shape the July decay
+actually had, and a kill switch stops every mutation while read-only monitoring
+keeps running.
+
 Limits are admission requirements, not implementation details: per-run and
 per-provider call caps, per-run and daily USD ceilings from conservative output
 caps, a maximum catalogue delta per run, provider circuit breakers for auth /
