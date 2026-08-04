@@ -361,3 +361,20 @@ class TestChecksCalibratedAgainstProduction:
             }
         )
         assert invariants.terminal_reasons_are_current(ctx(db)) == []
+
+
+class TestIndexes:
+    def test_the_unique_index_is_scoped_to_enabled_rows(self, db):
+        """Disabled duplicates are history worth keeping; enabled ones are a bug.
+
+        28 duplicate groups exist among disabled production documents. They hold
+        display names that historical metric rows still resolve through, so the
+        constraint has to distinguish those from the five pairs that were live.
+        """
+        desired_set.ensure_indexes(db)
+        index = db.models.index_information()["uniq_enabled_provider_model_ci"]
+        assert index["unique"] is True
+        assert index["partialFilterExpression"] == {"enabled": True}
+        # mongomock does not model collation, so the case-insensitivity itself
+        # cannot be asserted here. It was verified against production by
+        # inserting a differently-cased duplicate and getting E11000.

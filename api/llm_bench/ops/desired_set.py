@@ -62,6 +62,29 @@ def _as_utc(value: datetime | None) -> datetime | None:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
+def ensure_indexes(db: Database) -> None:
+    """Indexes the desired set and the catalogue it snapshots both depend on."""
+    db[desired_set_collection_name()].create_index([("captured_at", -1)])
+
+    # The plain (provider, model_id) unique index is case-sensitive, so
+    # Qwen/Qwen2.5-7B-Instruct-Turbo and qwen/qwen2.5-7b-instruct-turbo are
+    # separate documents that can both be enabled — which benchmarks the model
+    # twice and draws it twice on the site. Five pairs were live on 2026-08-04.
+    #
+    # Scoped to enabled rows rather than the whole collection: 28 duplicate
+    # groups exist among disabled documents, and those are worth keeping. They
+    # are small, they carry display names for historical metric rows, and old
+    # URLs still resolve through them. The rule that matters is that no model
+    # is *enabled* under two spellings.
+    db[models_collection_name()].create_index(
+        [("provider", 1), ("model_id", 1)],
+        name="uniq_enabled_provider_model_ci",
+        unique=True,
+        collation={"locale": "en", "strength": 2},
+        partialFilterExpression={"enabled": True},
+    )
+
+
 def capture(db: Database, *, now: datetime | None = None) -> DesiredSet:
     """Write one immutable snapshot of the current intent. Never updates."""
     now = now or utcnow()

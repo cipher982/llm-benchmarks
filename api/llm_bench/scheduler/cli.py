@@ -235,6 +235,7 @@ def daemon(
         db = client[db_name]
         queue.ensure_indexes(db)
         health.ensure_indexes(db)
+        desired_set.ensure_indexes(db)
         backfilled = health.backfill_from_metrics(db, cadence_seconds=cadence_seconds)
         expired = run_reaper_pass(cadence_seconds=cadence_seconds)
         provider_models = load_provider_models()
