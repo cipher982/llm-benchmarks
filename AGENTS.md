@@ -184,6 +184,14 @@ ssh clifford 'mongosh "$MONGODB_URI" --quiet --eval "db.provider_catalog.aggrega
 - **Dashboard:** `~/git/llmbench/llm-benchmarks-dashboard/backend/`
 - **Sauron:** `~/git/sauron/AGENTS.md`
 - **OpenAI Reasoning:** `REASONING_MODELS.md` (this repo)
+
+---
+
+## Agent learnings
+
+Format: `- (YYYY-MM-DD) [category] Insight.`
+Categories: `gotcha`, `pattern`, `deploy`, `perf`, `data`.
+
 - (2026-08-04) [gotcha] `log_mongo` copies only keys listed in
   `OPTIONAL_METRIC_FIELDS`. A new metric field set by the runner is silently
   dropped unless it is added there too — 92 rows were written carrying none of
