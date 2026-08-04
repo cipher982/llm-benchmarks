@@ -1,7 +1,8 @@
 # Epic: a self-maintaining benchmark site
 
-Status: draft for review · 2026-08-04
+Status: revised after two independent reviews · 2026-08-04
 Supersedes `docs/platform-plan.md`, which is folded in below.
+Reviews: `docs/epic-review-claude-fable-5.md`, `docs/epic-review-gpt-5.6-sol.md`.
 
 ## Goal
 
@@ -16,6 +17,18 @@ current models can do it continuously and at a cost that does not matter.
 grouped and published within a day, with no human involvement. A model that
 disappears is deprecated the same way. When something breaks, the system
 notices, fixes what it can, and reports only what it genuinely could not.
+
+**The authority boundary.** A small set of events cannot be resolved by any
+amount of inference, because they need authority the automation does not hold:
+adding funds or accepting a new spending level, accepting provider terms,
+recovering an account behind human-bound 2FA or identity proofing, responding to
+a compromised credential when the automation's own authority must be revoked,
+renewing the domain, and destroying published history. The system stays
+autonomous *around* these: mark the provider `blocked_external_authority`, stop
+its spend, keep every other provider running, preserve evidence, and send a
+non-blocking notification. Stating this envelope is not a retreat from the goal
+— an epic that claims to eliminate it would just be wrong about where the
+remaining human touchpoints are.
 
 ## The governing evidence
 
@@ -45,42 +58,142 @@ suite, and why the autonomy work is sequenced before any cosmetic refactor.
 
 ## Phase 0 — eyes
 
-An agent needs eyes before hands. Continuous assertions over production state,
-evaluated on a schedule, each one derived from a failure above.
+An agent needs eyes before hands. Both reviews rejected the first version of
+this phase for the same reason, and the correction is the spine of everything
+below.
 
-| Invariant | Catches |
-|---|---|
-| No queued or running job targets a disabled or deprecated model | the 88% violation found on 2026-08-04 |
-| Every enabled provider wrote a metric within its cadence | dead provider lanes masked by a healthy one |
-| Every enabled model has data within N× cadence, or a recorded terminal reason | silent model loss |
-| `provider_catalog.last_seen_at` under 48h | a discovery job disabled or failing |
-| Dead-letter count not growing week over week | ratchets |
-| No model enabled twice under different casing | double-counting on the site |
-| Every Sauron job tagged `llm-benchmarks` ran within its cadence | jobs registered `enabled=False` |
-| Row volume within a band of trailing median, per provider | partial collapse |
+### The defect: a detector that can green itself
 
-Rules:
+The original design evaluated every invariant against live catalogue state and
+then auto-remediated violations by mutating that same state. So the cheapest way
+to satisfy "every enabled model is fresh" was to disable the stale model.
+Disabling a whole provider improved coverage ratios. Reclassifying dead letters
+until growth stopped satisfied the dead-letter check. Each resulting state is
+internally consistent and says nothing about whether the site is correct.
 
-- Each invariant returns pass/fail plus the offending records, not a boolean.
-- Violations are **acted on where the action is reversible** — cancel ineligible
-  jobs, requeue starved models, disable a model with a recorded reason. Report
-  only what could not be fixed.
-- A failed alert delivery fails the job. A page nobody received is not a page.
-- Thresholds are absolute where the correct value is known (ineligible jobs must
-  be zero) and relative to trailing history where it is not.
+Seven consecutive green days under that design proves only that the checks
+agreed with the state after their own actions.
 
-Also in Phase 0, from the adversarial review of the prior plan:
+### The correction: observation and action are separate
 
-- `liveness_status` must require per-provider progress, not any-provider.
-- Coverage alert floors (currently 50% model, 75% provider) must not let a large
-  regression land as `[INFO]`.
-- Observe one real scheduled discovery run and one health run, including email
-  outcome, before treating either control as live.
+**The denominator is an immutable record, not live state.** A `desired_set`
+snapshot is captured on a schedule and never modified. Coverage checks read the
+newest snapshot that is *already older* than the window they judge, so an action
+taken now cannot change the verdict on the window that produced it — only a
+later one, where the difference between two snapshots is itself the audit trail.
+`desired_set_is_not_silently_shrinking` watches that difference directly, which
+is the check that would have caught the decay to 11.7%: no single incident, just
+individually reasonable demotions adding up.
 
-Exit criteria: every invariant either green or carrying a dated,
-machine-readable exception, for seven consecutive days — several cannot go
-green until Phase 1 lands, so requiring green alone is circular. Plus at least
-one violation detected and auto-remediated with no human involvement.
+**Every run is recorded.** An immutable check-run row per evaluation, with
+inputs, threshold version and per-check outcome. Without it, a quiet period is
+indistinguishable from one where nothing ran — which is exactly how a disabled
+Sauron job passed for three months as a live data source.
+
+**Missing inputs are not a pass.** A check that cannot reach what it needs
+returns `CannotEvaluate`, which reads as neither green nor a violation. "I could
+not look" and "I looked and it was fine" need different fixes.
+
+**The watcher lives outside what it watches.** A Sauron job that checks Sauron
+jobs cannot report when Sauron, clifford, networking, or its own schedule is
+down. An external dead-man heartbeat and a black-box check against the public
+site — both off clifford — are the only things that cover that domain.
+
+### The invariants
+
+Built and passing at `api/llm_bench/ops/invariants.py`:
+
+| Invariant | Denominator | Catches |
+|---|---|---|
+| `no_work_for_disabled_models` | live, both sides | the 88% violation found on 2026-08-04 |
+| `no_case_duplicate_models` | live | double-counting on the site |
+| `no_job_is_stuck_in_queue` | live | a lane that accepts work and never drains |
+| `every_provider_is_progressing` | snapshot | dead lanes masked by a healthy one |
+| `desired_models_are_being_measured` | snapshot | silent model loss |
+| `desired_set_is_not_silently_shrinking` | snapshot | the detector shrinking its own scope |
+| `discovery_completed_recently` | run ledger | a discovery job disabled, failing or truncated |
+| `terminal_reasons_are_current` | live | a `disabled_reason` that suppresses forever |
+
+Agreement checks read live state deliberately: when queue and catalogue
+disagree, the disagreement *is* the fault, and cancelling the job moves no
+denominator.
+
+Three checks from the first version were removed as unsound:
+
+- `catalogue_is_fresh` read the newest `provider_catalog` row. Requiring every
+  row to be fresh fires forever on genuinely retired models; requiring the
+  newest to be fresh passes on a partial one-row response. The observable event
+  is a **completed provider sync**, so this now reads a discovery run ledger and
+  refuses to evaluate without one.
+- `provider_volume_within_band` compared against a trailing median, which
+  *learns a degraded state*. The July failure was a slow ratchet; a moving
+  baseline eventually calls it normal.
+- `dead_letters_are_not_accumulating` counted a pile rather than an outcome. A
+  stable 1,409 dead letters is equally compatible with full coverage and with
+  none.
+
+`terminal_reasons_are_current` is new and load-bearing: a terminal reason needs
+an expiry and a recovery probe, or it becomes the ratchet in a different
+costume. DeepInfra's 402 cleared when the balance returned; a `billing` label
+written once and trusted forever would have kept it dead.
+
+### Action classes
+
+Not "reversible, therefore automatic". Enabling a model spends money and
+publishes a semantic claim, and setting `enabled:false` later reverses neither.
+
+| Class | Actions | Gate |
+|---|---|---|
+| Safe | cancel ineligible work, requeue an exact transient failure under a bound | the violation itself |
+| Evidence-gated | disable, deprecate, change cadence, stamp a terminal reason | separate evidence + blast-radius rules |
+| Authority-gated | anything in the authority boundary above | notify and continue elsewhere |
+
+Every mutation batch carries a batch ID, a before-image, and an inverse
+operation. `disabled_reason` plus a timestamp is an audit hint, not a rollback
+mechanism — without prior values a confidently wrong agent can publish and then
+erase the evidence needed to recover.
+
+Limits are admission requirements, not implementation details: per-run and
+per-provider call caps, per-run and daily USD ceilings from conservative output
+caps, a maximum catalogue delta per run, provider circuit breakers for auth /
+billing / rate-limit / broad 5xx, and a kill switch that stops paid probes and
+mutations while read-only monitoring continues. Billing recovery uses one
+low-frequency sentinel, not a retry of every model.
+
+None of these gates is a human approval queue.
+
+### Exit criteria: fault injection, not green time
+
+Passive green time is close to a tautology. The phase is certified by injecting
+each failure and observing detection and recovery:
+
+1. Kill one provider lane while another continues → provider-specific failure
+   and recovery, no process restart.
+2. Feed discovery a partial or empty page → the run fails and performs zero
+   deprecations.
+3. Fail alert delivery and stop Sauron → the external dead man fires.
+4. Seed an ineligible job → cancelled without a provider call.
+5. Seed a stale model under provider-wide auth failure → provider pause, not
+   model demotion.
+6. Attempt an over-limit mutation batch → contained, with a reversible record.
+
+### Done in this phase
+
+- [x] Queue/catalogue eligibility gate (`cf1295f`, deployed; 223 jobs cancelled,
+      zero ineligible remaining).
+- [x] Invariant engine reworked against both reviews.
+- [x] Worker lanes derived from the catalogue rather than `PROVIDER_MODULES`, so
+      "no metric from this provider" is unambiguous.
+- [x] `liveness_status` reports per-provider progress; the aggregate boolean
+      stays aggregate on purpose, because it drives process exit and restarting
+      the container fixes neither auth nor billing.
+- [x] Failed alert delivery fails the health job.
+- [x] Discovery and health jobs verified by triggering them and checking the
+      outcome, not the status field.
+- [ ] External dead man off clifford.
+- [ ] Black-box public contract check (below).
+- [ ] Discovery run ledger (Phase 1, but Phase 0 depends on it).
+- [ ] Case-duplicate cleanup and the intended unique index, before any promotion.
 
 ---
 
@@ -102,8 +215,10 @@ Others of the same shape:
 |---|---|
 | `mapModelNames` → `mapModelNamesHardcoded` on any exception | DB mapping broken; site serves stale names |
 | static JSON → live Mongo query | the regeneration cron being dead |
+| `server.js` catching per-file static generation failures | a partial regeneration serving yesterday's file |
 | `resolveDisplayFromHardcoded` in `naming.ts` | missing catalogue metadata |
 | `dotenv.load_dotenv()` at import scope filling unset env | which collection the process actually reads |
+| worker lanes started for providers with nothing enabled | a dead lane looking idle *(fixed)* |
 
 The rule for this epic: **a fallback must either be loud or not exist.** If a
 degraded path is genuinely wanted, taking it must set an explicit state that an
@@ -117,22 +232,46 @@ invariants the same phase is adding.
 
 ---
 
+## Cross-cutting: is the published product actually right
+
+Every invariant above can be green while the site publishes false merges, mixed
+benchmark protocols, stale static files, or implausible values. They test
+operational consistency, not publication correctness — and an autonomous system
+that is confidently wrong is a failure mode the original epic did not cover at
+all.
+
+A black-box check, running outside the app's failure domain, fetches the same
+static endpoint users receive and asserts: freshness, expected provider and
+model coverage, no duplicate active identities, one benchmark protocol per
+series, and traceability from every published series back to endpoint, profile,
+identity decision and source evidence.
+
+An independent verifier runs on new identity relations and on suspicious public
+deltas. When it disagrees, the batch is quarantined and rolled back via its
+inverse — not queued for David.
+
+Provider model IDs, descriptions and documentation are **untrusted input** to
+the identity model. Anything that feeds an LLM whose output has mutation
+authority needs source allowlists and least-privilege database access.
+
+---
+
 ## Phase 1 — the reconciler
 
 One nightly job that keeps the catalogue in sync with reality.
 
 ```
-refresh provider_catalog from every provider API
-  ↓
+refresh provider_catalog from every provider API   ← must be raw, paginated,
+  ↓                                                   complete, and recorded
 diff against models
   ↓
 NEW   → insert enabled:false, status:"probing" → probe
-        pass → assign identity → enabled:true
-        terminal fail → enabled:false + observed reason
+        pass → assign identity → enabled:true (probationary)
+        terminal fail → enabled:false + observed reason + recheck_after
         transient → retry tomorrow
   ↓
-GONE  → absent from 3 consecutive *completed* syncs → deprecated:true
-        (a failed or skipped sync is not evidence of absence)
+GONE  → absent from 3 consecutive *complete* syncs → deprecated:true
+        (a failed, skipped or truncated sync is not evidence of absence)
   ↓
 STALE → enabled, no success in 7d, terminal errors → demote
         (exempt when the whole provider is failing — a 7-day billing lapse
@@ -140,11 +279,60 @@ STALE → enabled, no success in 7d, terminal errors → demote
          DeepInfra's 402 would have done)
 ```
 
-**Probe before promote.** A candidate is admitted because a real benchmark call
-succeeded, not because an API listed it. This subsumes modality filtering
-entirely: an image or TTS model cannot return text tokens at a measurable rate.
-Two passes of name-pattern filtering still let through `veo`, `kling`, `vidu`,
-`ideogram` and `parakeet`; the probe needs no brand list and never goes stale.
+### Discovery must be observable before it can drive deprecation
+
+The current job is none of the things the diff above assumes. It covers seven
+providers and omits Vertex and Bedrock. It performs one GET per provider and
+ignores pagination — Anthropic's models API defaults to 20 rows and exposes
+`has_more`/`last_id`, which the job does not follow. It filters names, modes,
+Together types and prices *before* writing `provider_catalog` and drops pricing
+and raw capabilities, so a filter change looks exactly like model removal. And
+it raises on provider errors only when `total_new == 0`, so a partial run
+returns success and becomes deprecation evidence.
+
+Required before any automatic `GONE`:
+
+- One immutable sync-run record per provider: start, end, cursor completion,
+  raw count, accepted count, source version, terminal status.
+- Store the raw provider row; filter at read time, not write time.
+- Count absence only across complete successful runs.
+- Distinguish `provider_absent`, `unavailable_to_account`, `unsupported_profile`
+  and `provider_deprecated`. Public `deprecated` must not conflate provider
+  retirement with "not benchmarkable by this account".
+- Explicit discovery authorities for Vertex and Bedrock, or drop the claim to
+  cover "any provider".
+
+### Probe before promote — necessary, but one call is not admission
+
+A real call is the final authority on whether *this account and runner* can
+execute a benchmark profile. It is not authority on whether the endpoint belongs
+in a comparable text-generation benchmark, and the current runner makes that
+concrete: it accepts any positive output from variable-output providers, so
+guard, moderation, router, compound and multimodal chat models pass while
+measuring a different product. It also writes every accepted result to
+`metrics_cloud_v2` before reporting success, so reusing that path would publish
+probe samples and contaminate health. A response can consume billable
+generation and then fail local validation — a failed probe is not a free probe.
+And the reasoning spike shows a success can be selected after protocol-changing
+retries or a reasoning-disable fallback, which is not admission evidence for the
+nominal benchmark.
+
+Admission is therefore a bounded evidence policy:
+
+1. Cheap exclusions from provider-declared product, modality and capability
+   metadata. Not authoritative — but enough to avoid obviously irrelevant paid
+   calls. Names remain hints, never authority.
+2. One non-public contract probe validating adapter, response shape, usage
+   accounting and requested controls.
+3. The exact frozen benchmark profile, run in shadow at least twice across
+   separate collection windows, with a stated success ratio and no
+   protocol-changing fallback.
+4. A deterministic suitability policy for guard, moderation, routing, compound,
+   alias and opaque endpoint classes. An evidence-gathering model adjudicates
+   unknowns; unresolved cases stay disabled.
+5. Promotion into a **probation** state, with the admission ratio still being
+   measured. A provisional label is more honest than claiming one call
+   established stability.
 
 Verified 2026-08-04 — no provider field predicts serverless text availability:
 
@@ -156,15 +344,20 @@ Verified 2026-08-04 — no provider field predicts serverless text availability:
 | groq | lists it | `400 requires terms acceptance` |
 | openai | lists it | `dall-e`, `sora`, `realtime`, `davinci-002` |
 
-**Stages stay separable.** The adversarial review was right that these three
-concerns share a data model but must not share a failure boundary. Discovery is
-free and read-only; probing has paid side effects and takes days to establish
-stability; identity is a semantic publication decision. An LLM or OpenRouter
-outage must not stop catalogue refresh, and must not stop collection under an
-ungrouped name. Each stage commits its own results and degrades independently.
+Together's current documentation does separate serverless and dedicated
+catalogues, and Anthropic's models endpoint exposes capabilities. That metadata
+is not authoritative enough to promote, but it is good enough to skip paying for
+calls that cannot possibly qualify.
+
+**Stages stay separable.** Discovery is free and read-only; probing has paid
+side effects and takes days to establish stability; identity is a semantic
+publication decision. An LLM or OpenRouter outage must not stop catalogue
+refresh, and must not stop collection under an ungrouped name. Each stage
+commits its own results and degrades independently.
 
 Exit criteria: a new model at any provider reaches the site within 24h with no
-human action, and a retired model is deprecated within 4 days.
+human action, labelled provisional until multi-window stability is established,
+and a retired model is deprecated after three complete syncs confirm absence.
 
 ---
 
@@ -180,47 +373,63 @@ Grouping Together's FP8 deployment with Bedrock's BF16 reports a provider speed
 difference that is actually a quantization difference, silently. A missed merge
 shows two lines instead of one — visible and self-correcting.
 
-**LLM normalizes, code groups.** One call per *unseen* model ID returns
-structured attributes; grouping is deterministic over those attributes.
+### Two relations, because one key cannot mean both things
 
-```json
-{ "developer": "meta", "family": "llama", "version": "3.1", "params": "8B",
-  "variant": "instruct", "quantization": "fp8", "context_variant": null,
-  "serving_optimization": "turbo", "confidence": 0.95, "reasoning": "..." }
-```
+The original design excluded `quantization` and `serving_optimization` from the
+key and showed them as annotations — which performs exactly the Together-FP8 vs
+Bedrock-BF16 merge used to justify the rule. An annotation does not restore
+comparability; the samples still sit in one cohort and downstream summaries rank
+them as peers. Opaque labels like `turbo`, `instant` and `versatile` can encode
+quantization, speculative decoding, a fine-tune, routing, or different weights,
+and an *absent* quantization field does not mean the deployment matches a known
+BF16 one.
 
-```
-canonical = f(developer, family, version, params, variant)
-```
+- `base_model_id` groups lineage, for navigation and discovery.
+- `benchmark_variant_id` identifies a comparable measured deployment: base model
+  plus checkpoint, quantization, adapter/fine-tune, benchmark profile, and any
+  opaque serving optimization.
 
-`quantization` and `serving_optimization` are excluded from the key and carried
-as display annotations, so the chart legend reads `groq (fp8)` rather than
-`groq`. This is idempotent (new models cannot perturb existing groups),
-cacheable (~20 calls/day), reviewable per decision, and keeps *policy* in code
-where it can be versioned while *judgment* goes to the model.
+Unknown modifiers split variants. The UI can nest variants under one base model,
+but charts compare only within a variant unless the difference is an explicit
+dimension of the chart.
 
-Uncertainty escalates to more inference — a second opinion, a stronger model, an
-evidence pass against provider docs — never to a human queue. Merges into an
-established time series must be non-destructive: write the new identity forward
-and keep the old series addressable rather than rewriting history.
+### Identity is a relation with provenance, not a property of a string
+
+Normalizing one unseen ID at a time cannot see a provider's naming convention, a
+base/instruct pair that disambiguate each other, a renamed alias, or two
+providers pointing at the same Hugging Face model. It also never revisits a
+mutable `-latest` alias, because that ID is no longer unseen — while the weights
+behind it change.
+
+Each decision gets a small retrieved context: the endpoint row, sibling provider
+rows, candidate base models, explicit aliases, and first-party documentation.
+OpenRouter's API shows the shape that is actually available — stable
+`canonical_slug`, explicit alias resolution, variant suffixes, sometimes a
+Hugging Face ID. Those are relations to look up, not attributes to infer from
+spelling.
+
+Store an effective-dated `provider_endpoint → base_model` relation with evidence
+type and source. Merging requires explicit source evidence or independent
+verifier agreement. Ambiguity leaves the endpoint separate — which is the
+correct no-human-queue outcome under the false-merge asymmetry, not a dodge.
+
+**Self-reported confidence is not a control-plane field.** `confidence: 0.95` is
+not calibrated probability and must not drive publication or merge decisions.
+Store evidence class and verifier outcome; keep confidence as a diagnostic if it
+proves useful. Saving a `reasoning` string does not make a decision
+reproducible — source evidence, prompt and model version, and the relation do.
 
 **Validate against the right target.** Production runs
 `USE_DATABASE_MODELS=true`, so `modelMapping.ts` is the *fallback* path and
-`models.display_name` is what actually ships. Validate against live display
-names first; the 377-line table is a useful second corpus, not ground truth.
+`models.display_name` is what ships. The 377-line table is known to contain
+false merges, so reproducing it measures imitation of old policy, not identity
+accuracy. Evaluate against source-backed positive and negative cases with a
+held-out set and an independent label — "reproduces the table within a stated
+error rate" has no number and is not an exit criterion.
 
-**Split by default on ambiguity, and prefer agreement over confidence.** The
-self-reported confidence field is uncalibrated. Two independent derivations
-agreeing is evidence; a model asserting 0.95 is not. Ambiguous cases stay split
-into separate series, which is the safe direction given a false merge is worse
-than a missed one — and it is what makes the no-human-queue rule sound rather
-than dogmatic.
-
-Caching per unseen ID never revisits mutable aliases such as `-latest`; those
-need periodic re-derivation.
-
-Exit criteria: normalizer reproduces live display names within a stated error
-rate, with every disagreement explained.
+The identity schema and effective dates must exist before any mapping changes.
+The dashboard currently applies today's mapping while reading old metric rows,
+so forward-only identity cannot be enforced by the current read-time mapping.
 
 ---
 
@@ -233,10 +442,22 @@ final cap different from the nominal 64 tokens, and 119 were silently labeled
 reasoning-disabled. The runner publishes only the final successful attempt,
 biasing distributions toward requests that eventually produced text.
 
-Needs a decision on versioned benchmark profiles, separating answer yield from
-generated work, and recording budget exhaustion as an outcome rather than an
-error. Gates any schema change the reconciler writes. Streaming-only model
-support (4 disabled Qwen models) sequences here, same accounting code.
+**The minimal part of this phase is a hard dependency on all probing, not a
+later decision.** Before any probe runs, the metric contract needs: profile ID,
+protocol version, `sample_role`, attempt group, cost/usage, and publication
+filtering. Today a successful probe *is* a public metric and a model-health
+success, so probing without this contaminates the series it is meant to protect.
+
+The rest — versioned benchmark profiles, separating answer yield from generated
+work, recording budget exhaustion as an outcome rather than an error — is a
+one-time product decision that must be made before the autonomy work starts, not
+a recurring operational dependency. Streaming-only model support (4 disabled
+Qwen models) sequences here, same accounting code.
+
+Per-profile cadence is defined here. Until it exists, a global `N × cadence`
+staleness rule is not valid: production runs `FRESH_MINUTES=30`, but only 153 of
+225 enabled models succeeded within 30 minutes and 201 within 90, and expensive
+reasoning profiles will deliberately need different cadences.
 
 ---
 
@@ -247,56 +468,84 @@ In this order, because Phases 1–2 obsolete the messiest code:
 - delete `modelMapping.ts` and most of `modelMappingDB`/`Merge` (~800 lines)
 - delete the six root-level one-off discovery scripts
 - archive four competing `STATUS_DASHBOARD_DESIGN*.md` and other stale docs
-- case-insensitive unique index on `models`; prune 1,170 docs to what is real
-- derive worker lanes from enabled models, not `PROVIDER_MODULES`
-- delete the dead `MuiDataGrid` theme block and drop `@mui/x-data-grid`
+- retire the operator package and the `/admin/model-review` workflow, which
+  still encode confidence thresholds and pending human approval; leaving them
+  means the repo carries two contradictory lifecycle authorities
 - fix the `<th>` in `<div>` hydration error at `TanStackTable.tsx:293`
+- delete the dead `MuiDataGrid` theme block and drop `@mui/x-data-grid`
 - fix `docs/` being gitignored while five docs are tracked
+
+Moved out of this phase: the case-insensitive unique index (Phase 0 — the
+reconciler must not insert against an index that cannot see duplicates) and
+worker-lane derivation (done). **Not** doing: pruning the 1,170 disabled model
+documents. They are small, they retain audit and display data for historical
+metrics, and old URLs may still resolve through them. Merge proven duplicates,
+keep aliases and history.
 
 Only then refactor what remains and is genuinely load-bearing: `dataProcessing.ts`
 (510) and `pages/api/processed.ts` (473). Capture current output as golden
 fixtures before cutting — a safety net exactly where the knife goes, not blanket
-coverage. `cloud.tsx` (764) is rewritten by Phase 5 and needs no separate work.
+coverage.
 
 ---
 
-## Phase 5 — dashboard
+## Phase 5 — dashboard: not in this epic
 
-`llm-benchmarks-dashboard/backend/docs/redesign-epic.md`. Console direction
-chosen, Phase 1 complete, Phases 2–5 outstanding. Independent of the rest except
-that Phase 2 changes what the legend shows and Phase 3 changes which metrics
-exist. Open blocker: provider and model pages return 500 locally with no fixture
-fallback, so two of five templates cannot be iterated offline.
+The redesign is valid work with its own epic
+(`llm-benchmarks-dashboard/backend/docs/redesign-epic.md`, Console direction
+chosen, Phase 1 complete) but it does not make the site self-maintaining and
+should not sit on the autonomy critical path. Layout work can proceed in
+parallel; chart and legend work depends on settled profile and variant
+semantics from Phases 2 and 3.
 
 ---
 
 ## Sequencing
 
+Revised after review — several items had hidden dependency inversions.
+
 ```
-Phase 0  eyes              ← start here; closes open review findings
-         case-insensitive unique index on models moves HERE from Phase 4:
-         production has 5 case-duplicate enabled pairs today, and the
-         reconciler must not insert against an index that cannot see them
-         sample_role provenance moves HERE from Phase 3: probe rows must be
-         separable from published measurements before any probing starts
-Phase 1  reconciler        ← needs 0 to verify itself
-Phase 2  identity          ← validate against the table first; independent of 1
-Phase 3  measurement       ← needs a decision from David
-Phase 4  delete + refactor ← after 1 and 2 remove the code
-Phase 5  dashboard         ← independent
+1  lane selection (done), alert delivery (done), credential hygiene (done)
+2  immutable desired-set + check-run records; fault-inject Phase 0 read-only,
+   with no catalogue mutation at all
+3  external dead man + black-box public contract check, both off clifford
+4  minimal Phase 3 contract: profile ID, protocol version, sample_role,
+   attempt group, cost — required before ANY probe runs
+5  resolve case duplicates; install the intended unique constraint
+6  discovery: raw, paginated, complete, with a run ledger
+7  bounded shadow probes + action-specific remediation + circuit breakers
+8  identity entities, benchmark variants, effective dates; then evaluate
+   assisted matching against source-backed cases
+9  automatic promotion/demotion under batch and spend limits; end-to-end
+   publication fault tests
 ```
 
-## Open questions
+Cleanup and refactoring follow the autonomy path rather than sitting inside it.
 
-1. Probe budget: calls per candidate, and acceptable one-off cost for the
-   initial ~1,000-model sweep.
-2. Reasoning-on and reasoning-off as separate published profiles, or one?
-3. Does grouping merge serving optimizations (`Turbo`, `instant`) with the base
-   model, or split them? Product call, not technical.
-4. Is rewriting historical rows ever in scope when identity changes, or is
+## Decisions needed before Phase 1 starts
+
+These are one-time product decisions, not an operational review queue. Each one
+changes what gets built.
+
+1. **Is the benchmark surface serverless text-generation endpoints, or any
+   endpoint that can emit text?** Probe suitability cannot be specified without
+   this.
+2. **Does "same model" mean shared advertised base weights, or a directly
+   comparable measured deployment?** One key cannot safely mean both — hence
+   `base_model_id` and `benchmark_variant_id`.
+3. **Is publication within 24h more important than multi-window stability**, and
+   may a first-day series be labelled provisional? The current epic promises
+   both.
+4. **What daily and per-run spend can the automation exercise without David?**
+   The 24h recovery snapshot held 3,554 successful metric rows and 2,099 error
+   rows, so "hundreds of calls a day" already understates steady state and a
+   1,000-candidate sweep needs a real number.
+5. **What are the authoritative discovery sources for Vertex and Bedrock?**
+6. **Which external service owns the dead-man heartbeat**, so clifford and
+   Sauron do not watch themselves?
+7. Reasoning-on and reasoning-off as separate published profiles, or one?
+8. Is rewriting historical rows ever in scope when identity changes, or is
    identity forward-only?
-5. What is the escalation channel when the system genuinely cannot proceed, and
-   what is the maximum acceptable rate of such escalations?
 
 ## Non-goals
 
@@ -304,4 +553,7 @@ Phase 5  dashboard         ← independent
   do not see them.
 - Refactoring for tidiness ahead of the autonomy work.
 - Any human review queue. Routing low confidence to a person is a design
-  failure in this system.
+  failure in this system — ambiguity resolves to more evidence, an independent
+  verifier, or a conservative no-action state.
+- A general experiment framework for probes. The spike's explicit
+  benchmark-profile object plus `sample_role` and attempt provenance is enough.
