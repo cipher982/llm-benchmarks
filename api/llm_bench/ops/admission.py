@@ -33,6 +33,7 @@ from typing import Any
 
 from pymongo.database import Database
 
+from llm_bench.ops import mutations
 from llm_bench.scheduler import queue
 from llm_bench.scheduler.mongo import models_collection_name
 from llm_bench.scheduler.mongo import probe_metrics_collection_name
@@ -53,6 +54,11 @@ WINDOW = timedelta(hours=2)
 
 # A candidate that cannot produce them within this long is not merely slow.
 ADMISSION_DEADLINE = timedelta(days=3)
+
+# A rejection is evidence about today. Providers add capacity, fix routing and
+# grant entitlements, so a no gets revisited rather than becoming permanent —
+# the ratchet that decayed coverage to 11.7% was exactly a no with no way back.
+RECHECK_AFTER_REJECTION = timedelta(days=30)
 
 # Blast radius. A provider that suddenly lists 10,000 IDs, or a discovery bug
 # that widens the diff, must not turn into an unbounded spend.
@@ -232,9 +238,16 @@ def _windows_covered(stamps: list[datetime]) -> int:
 
 
 def evaluate_candidates(db: Database, *, now: datetime | None = None) -> tuple[list[str], list[tuple[str, str]]]:
-    """Promote candidates with enough spaced evidence; reject the exhausted."""
+    """Promote candidates with enough spaced evidence; reject the exhausted.
+
+    Every decision goes through one mutation batch, so a probe regression that
+    suddenly rejects everything hits the blast-radius cap and applies nothing,
+    and any pass can be inverted from its record rather than reconstructed.
+    """
     now = now or utcnow()
     promoted, rejected = [], []
+    batch = mutations.MutationBatch(db=db, reason="admission pass", actor="admission")
+
     for doc in db[models_collection_name()].find(
         {"status": CANDIDATE_STATUS},
         {"provider": 1, "model_id": 1, "admission_started_at": 1},
@@ -244,20 +257,17 @@ def evaluate_candidates(db: Database, *, now: datetime | None = None) -> tuple[l
         successes = _probe_successes(db, provider=provider, model_id=model_id)
 
         if _windows_covered(successes) >= REQUIRED_SUCCESSES:
-            db[models_collection_name()].update_one(
-                {"provider": provider, "model_id": model_id},
-                {
-                    "$set": {
-                        "enabled": True,
-                        "status": PROMOTED_STATUS,
-                        "promoted_at": now,
-                        "admission_evidence": {
-                            "successes": len(successes),
-                            "windows": _windows_covered(successes),
-                            "first_success": successes[0],
-                            "last_success": successes[-1],
-                        },
-                    }
+            batch.set_model_fields(
+                provider=provider,
+                model_id=model_id,
+                enabled=True,
+                status=PROMOTED_STATUS,
+                promoted_at=now,
+                admission_evidence={
+                    "successes": len(successes),
+                    "windows": _windows_covered(successes),
+                    "first_success": successes[0],
+                    "last_success": successes[-1],
                 },
             )
             promoted.append(subject)
@@ -269,19 +279,22 @@ def evaluate_candidates(db: Database, *, now: datetime | None = None) -> tuple[l
                 f"no probe success in {ADMISSION_DEADLINE.days}d "
                 f"({len(successes)} sample(s), {_windows_covered(successes)} window(s))"
             )
-            db[models_collection_name()].update_one(
-                {"provider": provider, "model_id": model_id},
-                {
-                    "$set": {
-                        "enabled": False,
-                        "status": REJECTED_STATUS,
-                        "disabled_class": "hard_model",
-                        "disabled_reason": reason,
-                        "disabled_at": now,
-                    }
-                },
+            batch.set_model_fields(
+                provider=provider,
+                model_id=model_id,
+                enabled=False,
+                status=REJECTED_STATUS,
+                disabled_class="hard_model",
+                disabled_reason=reason,
+                disabled_at=now,
+                # Provider availability changes. A rejection is evidence about
+                # today, not a permanent verdict, so it carries its own expiry.
+                recheck_after=now + RECHECK_AFTER_REJECTION,
             )
             rejected.append((subject, reason))
+
+    if batch.changes:
+        batch.apply(now=now)
     return promoted, rejected
 
 

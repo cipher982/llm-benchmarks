@@ -195,3 +195,45 @@ class TestEligibilitySeam:
             {"provider": "groq", "model_id": "dead", "enabled": False, "status": admission.REJECTED_STATUS}
         )
         assert queue.is_model_eligible(db, provider="groq", model_id="dead", sample_role="probe") is False
+
+
+class TestAdmissionIsReversibleAndBounded:
+    def test_a_promotion_can_be_inverted(self, db):
+        from llm_bench.ops import mutations
+
+        candidate(db, "groq", "cand")
+        probe_success(db, "groq", "cand", ago=timedelta(hours=6))
+        probe_success(db, "groq", "cand", ago=timedelta(hours=3))
+        admission.evaluate_candidates(db, now=NOW)
+        assert db.models.find_one({"model_id": "cand"})["enabled"] is True
+
+        batch = db.bench_mutation_batches.find_one()
+        mutations.revert(db, batch_id=batch["_id"], now=NOW)
+
+        doc = db.models.find_one({"model_id": "cand"})
+        assert doc["enabled"] is False
+        assert doc["status"] == admission.CANDIDATE_STATUS
+
+    def test_a_rejection_carries_its_own_expiry(self, db):
+        """A no is evidence about today, not a permanent verdict.
+
+        Providers add capacity and grant entitlements. The ratchet that decayed
+        coverage to 11.7% was exactly a no with no way back.
+        """
+        candidate(db, "groq", "gone", started=timedelta(days=5))
+        admission.evaluate_candidates(db, now=NOW)
+
+        doc = db.models.find_one({"model_id": "gone"})
+        assert admission._as_utc(doc["recheck_after"]) > NOW
+
+    def test_a_mass_rejection_is_refused_rather_than_half_applied(self, db):
+        """A probe regression must not empty the candidate pool."""
+        from llm_bench.ops import mutations
+
+        for i in range(60):
+            candidate(db, "deepinfra", f"c{i}", started=timedelta(days=5))
+
+        with pytest.raises(mutations.MutationRefused):
+            admission.evaluate_candidates(db, now=NOW)
+
+        assert db.models.count_documents({"status": admission.CANDIDATE_STATUS}) == 60
