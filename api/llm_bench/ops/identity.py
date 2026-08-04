@@ -30,6 +30,8 @@ dodge around it.
 
 from __future__ import annotations
 
+import json
+import os
 import re
 from dataclasses import dataclass
 from dataclasses import field
@@ -38,6 +40,7 @@ from datetime import timezone
 from typing import Any
 from typing import Callable
 
+import httpx
 from pymongo.database import Database
 
 from llm_bench.scheduler.mongo import collection_name
@@ -263,3 +266,40 @@ def current_identities(db: Database) -> list[dict[str, Any]]:
     for row in db[identity_collection_name()].find(sort=[("effective_from", 1)]):
         newest[(row["provider"], row["model_id"])] = row
     return list(newest.values())
+
+
+# --------------------------------------------------------------------------
+# The model call
+# --------------------------------------------------------------------------
+
+# Personal-funded OpenRouter, per the standing provider routing. Identity is
+# cheap structured extraction, so a small fast model is the right tier; the
+# expensive part of getting this wrong is a false merge, and the guard against
+# that is the null-rather-than-guess rule, not model size.
+DEFAULT_MODEL = os.getenv("BENCHMARK_IDENTITY_MODEL", "openai/gpt-5.6-luna")
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+
+def call_openrouter(prompt: str, *, model: str | None = None, timeout: float = 45.0) -> dict[str, Any]:
+    """Ask a model to extract identity attributes. Returns parsed JSON."""
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is not set")
+
+    response = httpx.post(
+        OPENROUTER_URL,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={
+            "model": model or DEFAULT_MODEL,
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
+            "messages": [{"role": "user", "content": prompt}],
+        },
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    text = response.json()["choices"][0]["message"]["content"].strip()
+    # Some models still fence JSON even when asked not to.
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-z]*\n?|\n?```$", "", text).strip()
+    return json.loads(text)

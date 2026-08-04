@@ -211,3 +211,8 @@ Categories: `gotcha`, `pattern`, `deploy`, `perf`, `data`.
   (not `X-Control-Token`); the value is `SAURON_CONTROL_TOKEN` in Infisical.
   Sauron has no docker CLI, so a job cannot `docker exec` into a container —
   jobs reach llm-bench through Mongo only.
+- (2026-08-04) [gotcha] Do not guess OpenRouter model IDs from memory —
+  `openai/gpt-5.3-mini` was invented and every call 400'd. List them first:
+  `curl -s https://openrouter.ai/api/v1/models -H "Authorization: Bearer $KEY"`.
+  `openai/gpt-5.6-luna` honours `response_format: json_object`; the identity
+  normalizer uses it.
