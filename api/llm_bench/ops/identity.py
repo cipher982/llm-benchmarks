@@ -195,121 +195,50 @@ MAX_TOKENS = 4000
 
 
 def call_openrouter(
-    prompt: str, *, model: str | None = None, timeout: float = 300.0, max_tokens: int = MAX_TOKENS
+    prompt: str,
+    *,
+    model: str | None = None,
+    timeout: float = 300.0,
+    max_tokens: int = MAX_TOKENS,
+    attempts: int = 3,
 ) -> dict[str, Any]:
-    """Ask a model to place an endpoint. Returns parsed JSON."""
+    """Ask a model to place or consolidate. Returns parsed JSON.
+
+    Retries on an empty answer. This model reasons before replying and the
+    reasoning length varies run to run, so the same budget that answered a
+    moment ago can be spent entirely on thinking. That is a transient failure,
+    not a verdict — and reading it as one would silently mean "nothing to merge".
+    """
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         raise RuntimeError("OPENROUTER_API_KEY is not set")
 
-    response = httpx.post(
-        OPENROUTER_URL,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
-            "model": model or DEFAULT_MODEL,
-            "temperature": 0,
-            "max_tokens": max_tokens,
-            "response_format": {"type": "json_object"},
-            "messages": [{"role": "user", "content": prompt}],
-        },
-        timeout=timeout,
-    )
-    response.raise_for_status()
-    text = (response.json()["choices"][0]["message"].get("content") or "").strip()
-    if not text:
-        raise RuntimeError("model returned no content; the token budget was probably spent on reasoning")
-    if text.startswith("```"):
-        text = re.sub(r"^```[a-z]*\n?|\n?```$", "", text).strip()
-    return json.loads(text)
-
-
-# --------------------------------------------------------------------------
-# Consolidation
-# --------------------------------------------------------------------------
-
-CONSOLIDATE_PROMPT = """Here are the model groups this benchmark site tracks,
-each with the provider endpoints in it:
-
-{groups}
-
-Some of these are the same model under two names, because groups are created one
-endpoint at a time and whichever arrived first chose the name. For example
-"llama-3.3-70b" and "llama-3.3-70b-instruct" were the same model split in two.
-
-Which groups should be one group?
-
-Answer with JSON:
-  {{"merges": [{{"keep": "<group id>", "absorb": ["<group id>", ...]}}, ...]}}
-
-Use group ids exactly as written above. Return {{"merges": []}} if none should
-be merged.
-
-Only merge groups that are the same weights. Different sizes, different tiers,
-different versions, base versus instruction-tuned, and fine-tunes by other
-people are all different models and must stay separate. If you are not certain
-two groups are the same model, leave them apart.
-"""
-
-
-def build_consolidate_prompt(groups: dict[str, list[str]]) -> str:
-    rendered = "\n".join(f"  {key}: {', '.join(sorted(members))}" for key, members in sorted(groups.items()))
-    return CONSOLIDATE_PROMPT.format(groups=rendered)
-
-
-def consolidate_groups(
-    db: Database,
-    *,
-    call_llm: Callable[[str], dict[str, Any]],
-    max_merges: int = 25,
-    now: datetime | None = None,
-    dry_run: bool = True,
-) -> list[dict[str, Any]]:
-    """Merge groups that are the same model under two names.
-
-    Groups are created one endpoint at a time, so the same model can end up
-    under two names depending on which endpoint arrived first — Llama 3.3 70B
-    split into `llama-3.3-70b` and `llama-3.3-70b-instruct` exactly that way.
-
-    The alternative was to make naming deterministic, which is what the
-    attribute schema tried and why it needed a vendor taxonomy. Asking the same
-    question about the group list instead keeps the judgment where it belongs
-    and needs no rules.
-    """
-    now = now or utcnow()
-    groups = existing_groups(db)
-    if len(groups) < 2:
-        return []
-
-    # Consolidation reasons over every group at once and can answer with many
-    # merges, so it needs far more room than placing a single endpoint. Reusing
-    # the smaller budget returns empty content, which this call correctly refuses
-    # to read as "no merges".
-    answer = call_llm(build_consolidate_prompt(groups))
-    applied: list[dict[str, Any]] = []
-
-    for merge in (answer.get("merges") or [])[:max_merges]:
-        keep = merge.get("keep")
-        absorb = [a for a in (merge.get("absorb") or []) if a in groups and a != keep]
-        # Both sides must be groups that actually exist; inventing either would
-        # move endpoints into a name nothing else uses.
-        if keep not in groups or not absorb:
+    last_error = ""
+    for attempt in range(attempts):
+        response = httpx.post(
+            OPENROUTER_URL,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": model or DEFAULT_MODEL,
+                "temperature": 0,
+                # Widen the budget each try rather than repeating a request that
+                # already proved too tight.
+                "max_tokens": max_tokens * (attempt + 1),
+                "response_format": {"type": "json_object"},
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        text = (response.json()["choices"][0]["message"].get("content") or "").strip()
+        if not text:
+            last_error = "empty content; the budget was spent on reasoning"
             continue
-        applied.append({"keep": keep, "absorb": absorb, "endpoints": sum(len(groups[a]) for a in absorb)})
-        if dry_run:
-            continue
-        for key in absorb:
-            for row in current_identities(db):
-                if row.get("canonical_key") != key:
-                    continue
-                db[identity_collection_name()].insert_one(
-                    {
-                        "provider": row["provider"],
-                        "model_id": row["model_id"],
-                        "canonical_key": keep,
-                        "policy_version": POLICY_VERSION,
-                        "effective_from": now,
-                        "evidence": {"basis": f"consolidated from {key}", "groups_offered": len(groups)},
-                        "resolved": True,
-                    }
-                )
-    return applied
+        if text.startswith("```"):
+            text = re.sub(r"^```[a-z]*\n?|\n?```$", "", text).strip()
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as exc:
+            last_error = f"unparseable JSON: {exc}"
+
+    raise RuntimeError(f"no usable answer after {attempts} attempts: {last_error}")
