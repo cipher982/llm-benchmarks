@@ -45,9 +45,16 @@ from pymongo.database import Database
 
 from llm_bench.scheduler.mongo import collection_name
 
-# Bumped when the grouping function changes, so a stored relation records which
-# policy produced it and old rows can be re-derived rather than trusted blindly.
-POLICY_VERSION = 1
+# Bumped when the grouping function or the prompt changes, so a stored relation
+# records which policy produced it and old rows can be re-derived rather than
+# trusted blindly.
+#
+# v2: family carries the vendor tier (claude-haiku, not claude), and an unknown
+# role no longer defaults to "base". v1 merged Claude Haiku with Claude Sonnet.
+# Nothing consumed v1 rows, so they were discarded rather than superseded —
+# possible exactly once, before this collection feeds anything. From here a
+# policy change re-derives alongside the old rows instead of replacing them.
+POLICY_VERSION = 2
 
 
 def identity_collection_name() -> str:
