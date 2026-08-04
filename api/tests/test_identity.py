@@ -238,3 +238,20 @@ class TestTiersAreDistinctModels:
         prompt = identity.build_prompt(provider="anthropic", model_id="claude-haiku-4-5", name=None, siblings=[])
         assert "claude-haiku" in prompt
         assert "Haiku is not Claude Sonnet" in prompt
+
+
+class TestUnknownRoleDoesNotAssert:
+    def test_an_unknown_role_does_not_merge_with_declared_base_weights(self):
+        """Defaulting unknown to "base" asserts something the evidence did not.
+
+        Meta publishes both base and instruct weights, so an unlabelled endpoint
+        silently joining the base group is a false merge.
+        """
+        unknown = Attributes(developer="meta", family="llama", version="3", params="8b")
+        base = Attributes(developer="meta", family="llama", version="3", params="8b", role="base")
+        assert identity.canonical_key(unknown) != identity.canonical_key(base)
+
+    def test_two_unknowns_still_group_together(self):
+        a = Attributes(developer="meta", family="llama", version="3", params="8b")
+        b = Attributes(developer="meta", family="llama", version="3", params="8b")
+        assert identity.canonical_key(a) == identity.canonical_key(b)

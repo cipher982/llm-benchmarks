@@ -89,9 +89,12 @@ def canonical_key(attrs: Attributes) -> str | None:
         parts.append(attrs.version)
     if attrs.params:
         parts.append(attrs.params)
-    # Base and instruct-tuned weights are different models. The existing table
-    # merges them, which is the concrete bug that motivated replacing it.
-    parts.append(attrs.role or "base")
+    # Base and instruct-tuned weights are different models — the concrete bug in
+    # the table this replaces. An unknown role is its own token rather than a
+    # default of "base", because defaulting asserts something: an unlabelled
+    # endpoint would merge with one explicitly identified as base weights.
+    # Splitting here costs a duplicate line, which is visible and recoverable.
+    parts.append(attrs.role or "unspecified")
     return "-".join(_slug(p) for p in parts if p)
 
 
