@@ -186,6 +186,12 @@ def match_endpoint(
 # Personal-funded OpenRouter, per the standing provider routing. This is one
 # short question against a list, so the cheapest capable model is the right one.
 DEFAULT_MODEL = os.getenv("BENCHMARK_IDENTITY_MODEL", "deepseek/deepseek-v4-flash-0731")
+
+# Consolidation reads every group at once and answers with a list, which a
+# reasoning model turns into a long think and an unreliable, slow reply — the
+# first attempts spent their whole budget reasoning and returned nothing. A
+# non-reasoning model answers this one in seconds.
+CONSOLIDATION_MODEL = os.getenv("BENCHMARK_CONSOLIDATION_MODEL", "openai/gpt-5.6-luna")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # Generous on purpose. This model reasons before answering, and a cap that fits

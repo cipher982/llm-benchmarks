@@ -322,3 +322,20 @@ def unify_display_names(db: Database, *, now: datetime | None = None, dry_run: b
         )
     batch.apply(now=now)
     return changes
+
+
+def consolidate(db: Database, *, dry_run: bool = True, now: datetime | None = None) -> list[dict[str, Any]]:
+    """Rejoin groups that are the same model under two names.
+
+    Groups form one endpoint at a time, so arrival order decides the name and
+    the same model can end up split — Llama 3.3 70B became `llama-3.3-70b` and
+    `llama-3.3-70b-instruct`, turning a four-provider line into two. Consolidation
+    also caught `minimax-m2p7` against `minimax-m2.7`, which no rule anyone would
+    write anticipates.
+    """
+    return identity.consolidate_groups(
+        db,
+        call_llm=lambda prompt: identity.call_openrouter(prompt, model=identity.CONSOLIDATION_MODEL, max_tokens=8000),
+        now=now,
+        dry_run=dry_run,
+    )
