@@ -454,6 +454,32 @@ providers per model because coverage is thin, not because matching is broken:
 served by three or more providers while we benchmark most at zero or one. More
 providers per line comes from Phase 1 admission, not from a better key.
 
+### What it found on real data
+
+Run against 80 production endpoints on 2026-08-04. It agrees with the live
+mapping on 52 groups and finds cross-provider merges the hand-built table
+misses entirely:
+
+| Derived group | Providers the table keeps separate |
+|---|---|
+| `claude-haiku-4.5` | anthropic, bedrock, deepinfra |
+| `claude-opus-4.7` | anthropic, bedrock, deepinfra |
+| `claude-sonnet-4.6` | anthropic, bedrock, deepinfra |
+| `claude-opus-4.1` | anthropic, bedrock |
+
+That is the answer to "why do I only see two providers per line" — several
+three-provider lines already exist in the data and the mapping splits them.
+
+**It also caught a false merge in its own first version.** `claude-haiku-4.5`
+and `claude-sonnet-4.5` produced the same key, because the attribute schema had
+no place for a vendor tier: Llama is distinguished by parameter count, Claude by
+name alone. Fixed by making `family` carry the tier, and by making an unknown
+role its own token rather than defaulting to `base` — a default that would have
+merged unlabelled endpoints into Meta's declared base weights.
+
+Both were caught because derived keys are compared against the live mapping
+before being allowed to drive it, not switched over on faith.
+
 ### Identity is a relation with provenance, not a property of a string
 
 Normalizing one unseen ID at a time cannot see a provider's naming convention, a
