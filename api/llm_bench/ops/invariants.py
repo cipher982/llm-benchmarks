@@ -202,24 +202,31 @@ def no_case_duplicate_models(ctx: Context) -> list[Violation]:
 
 
 def no_job_is_stuck_in_queue(ctx: Context) -> list[Violation]:
-    """Work that is never claimed means a lane is not draining.
+    """Runnable work that is never claimed means a lane is not draining.
 
     Replaces the earlier dead-letter-growth check, which counted a pile rather
     than an outcome: a stable 1,409 dead letters is compatible with every model
     being measured and with none of them being measured.
+
+    Measured from `not_before`, not `created_at`. A job in exponential backoff
+    legitimately carries a months-old creation date while being retried on
+    schedule; the first version of this check read six of those as stalls
+    against production. Only work whose start time has already passed is owed a
+    worker, which is also the exact condition `claim_next_job` selects on.
     """
     cutoff = ctx.now - MAX_QUEUE_AGE
     stale = ctx.db[jobs_collection_name()].aggregate(
         [
-            {"$match": {"status": "queued", "created_at": {"$lt": cutoff}}},
-            {"$group": {"_id": "$provider", "n": {"$sum": 1}, "oldest": {"$min": "$created_at"}}},
+            {"$match": {"status": "queued", "not_before": {"$lt": cutoff}}},
+            {"$group": {"_id": "$provider", "n": {"$sum": 1}, "oldest": {"$min": "$not_before"}}},
         ]
     )
     return [
         Violation(
             subject=row["_id"] or "unknown",
             detail=(
-                f"{row['n']} job(s) queued longer than {MAX_QUEUE_AGE}; " f"oldest {_as_utc(row['oldest']).isoformat()}"
+                f"{row['n']} job(s) runnable since {_as_utc(row['oldest']).isoformat()} "
+                f"and still unclaimed after {MAX_QUEUE_AGE}"
             ),
             data={"provider": row["_id"], "count": row["n"]},
         )
@@ -368,19 +375,82 @@ def discovery_completed_recently(ctx: Context) -> list[Violation]:
     return violations
 
 
-def terminal_reasons_are_current(ctx: Context) -> list[Violation]:
-    """A terminal reason must expire, or it becomes a permanent suppressor.
+# Classes where the provider may start serving the model again on its own.
+RECOVERABLE_DISABLED_CLASSES = {
+    "billing",
+    "auth",
+    "rate_limit",
+    "timeout",
+    "transient_provider",
+    "quota",
+}
+# Classes that are settled: the model is gone, unsuitable, or superseded.
+PERMANENT_DISABLED_CLASSES = {
+    "duplicate_spelling",
+    "provider_retired",
+    "hard_model",
+    "unsuitable",
+    "deprecated",
+}
+# Legacy rows carry free-text reasons written by the old operator rather than a
+# class. These markers are what a recoverable condition looks like in prose.
+RECOVERABLE_REASON_MARKERS = (
+    "billing",
+    "payment",
+    "credit",
+    "insufficient",
+    "quota",
+    "rate limit",
+    "402",
+    "401",
+    "auth",
+    "api key",
+)
 
-    `auth`, `billing` and `hard_model` are all recoverable states in practice —
-    DeepInfra's 402 cleared when the balance returned. A label written once and
-    trusted forever is the ratchet in a different costume.
+
+def _is_recoverable_reason(doc: dict[str, Any]) -> bool:
+    """Whether this model could come back without anyone changing the catalogue."""
+    klass = doc.get("disabled_class")
+    if klass:
+        return klass in RECOVERABLE_DISABLED_CLASSES
+    reason = (doc.get("disabled_reason") or "").lower()
+    return any(marker in reason for marker in RECOVERABLE_REASON_MARKERS)
+
+
+def terminal_reasons_are_current(ctx: Context) -> list[Violation]:
+    """A *recoverable* terminal reason must expire, or it suppresses forever.
+
+    DeepInfra's 402 cleared when the balance returned; a `billing` label written
+    once and trusted forever would have kept the whole provider dead. So a
+    reason in a recoverable class needs a recheck date.
+
+    Scope matters as much as the rule. The first version asked this of every
+    disabled model and fired on 466 of them — Anyscale models whose public API
+    shut down in 2024, Claude 2, provider-retired checkpoints. Those are
+    correctly dead and re-probing them would spend money to learn nothing. Only
+    live providers and recoverable classes are in scope.
     """
     cutoff = ctx.now - TERMINAL_REASON_MAX_AGE
+    live_providers = {provider for provider, _ in desired_set_module.capture_view(ctx.db)}
     violations = []
     for doc in ctx.db[models_collection_name()].find(
-        {"enabled": False, "disabled_reason": {"$exists": True, "$ne": None}},
-        {"provider": 1, "model_id": 1, "disabled_reason": 1, "disabled_at": 1, "recheck_after": 1},
+        {
+            "enabled": False,
+            "deprecated": {"$ne": True},
+            "provider": {"$in": sorted(live_providers)},
+            "disabled_reason": {"$exists": True, "$ne": None},
+        },
+        {
+            "provider": 1,
+            "model_id": 1,
+            "disabled_reason": 1,
+            "disabled_class": 1,
+            "disabled_at": 1,
+            "recheck_after": 1,
+        },
     ):
+        if not _is_recoverable_reason(doc):
+            continue
         recheck = _as_utc(doc.get("recheck_after"))
         disabled_at = _as_utc(doc.get("disabled_at"))
         if recheck is not None:

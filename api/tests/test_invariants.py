@@ -72,13 +72,13 @@ class TestNoCaseDuplicateModels:
 class TestNoJobIsStuckInQueue:
     def test_flags_work_that_never_gets_claimed(self, db):
         db.bench_jobs.insert_one(
-            {"_id": "j1", "provider": "vertex", "status": "queued", "created_at": NOW - timedelta(hours=9)}
+            {"_id": "j1", "provider": "vertex", "status": "queued", "not_before": NOW - timedelta(hours=9)}
         )
         assert names(invariants.no_job_is_stuck_in_queue(ctx(db))) == ["vertex"]
 
     def test_recent_queued_work_is_normal(self, db):
         db.bench_jobs.insert_one(
-            {"_id": "j1", "provider": "vertex", "status": "queued", "created_at": NOW - timedelta(minutes=10)}
+            {"_id": "j1", "provider": "vertex", "status": "queued", "not_before": NOW - timedelta(minutes=10)}
         )
         assert invariants.no_job_is_stuck_in_queue(ctx(db)) == []
 
@@ -207,6 +207,7 @@ class TestDiscoveryCompletedRecently:
 
 class TestTerminalReasonsAreCurrent:
     def test_flags_an_old_reason_with_no_recheck(self, db):
+        enable(db, "deepinfra", "still-running")
         db.models.insert_one(
             {
                 "provider": "deepinfra",
@@ -219,6 +220,7 @@ class TestTerminalReasonsAreCurrent:
         assert names(invariants.terminal_reasons_are_current(ctx(db))) == ["deepinfra/llama"]
 
     def test_flags_an_overdue_recheck(self, db):
+        enable(db, "groq", "still-running")
         db.models.insert_one(
             {
                 "provider": "groq",
@@ -232,6 +234,7 @@ class TestTerminalReasonsAreCurrent:
         assert names(invariants.terminal_reasons_are_current(ctx(db))) == ["groq/llama"]
 
     def test_a_pending_recheck_is_not_a_violation(self, db):
+        enable(db, "groq", "still-running")
         db.models.insert_one(
             {
                 "provider": "groq",
@@ -274,3 +277,87 @@ class TestEvaluate:
     def test_only_filter_runs_a_subset(self, db):
         results = invariants.evaluate(db, now=NOW, only={"no_case_duplicate_models"})
         assert [r.name for r in results] == ["no_case_duplicate_models"]
+
+
+class TestChecksCalibratedAgainstProduction:
+    """Cases where the first version of a check fired on legitimate state.
+
+    Both were found by running against production rather than by reasoning
+    about the code, which is the whole argument for this module existing.
+    """
+
+    def test_backoff_is_not_a_stall(self, db):
+        """Six production jobs in normal backoff read as stalls.
+
+        A retried job keeps its original created_at, so age since creation says
+        nothing about whether a worker owes it attention. not_before does.
+        """
+        db.bench_jobs.insert_one(
+            {
+                "_id": "j1",
+                "provider": "together",
+                "status": "queued",
+                "created_at": NOW - timedelta(days=60),
+                "not_before": NOW + timedelta(hours=1),
+                "attempt": 5,
+            }
+        )
+        assert invariants.no_job_is_stuck_in_queue(ctx(db)) == []
+
+    def test_overdue_runnable_work_is_still_a_stall(self, db):
+        db.bench_jobs.insert_one(
+            {
+                "_id": "j1",
+                "provider": "together",
+                "status": "queued",
+                "created_at": NOW - timedelta(days=60),
+                "not_before": NOW - timedelta(hours=9),
+            }
+        )
+        assert names(invariants.no_job_is_stuck_in_queue(ctx(db))) == ["together"]
+
+    def test_a_dead_provider_is_not_owed_a_recheck(self, db):
+        """466 production models were flagged, nearly all correctly dead.
+
+        Anyscale shut its public API down in 2024. Re-probing those spends money
+        to learn what is already known.
+        """
+        enable(db, "groq", "live")
+        db.models.insert_one(
+            {
+                "provider": "anyscale",
+                "model_id": "meta-llama/Llama-2-7b-chat-hf",
+                "enabled": False,
+                "disabled_reason": "Anyscale public API discontinued Aug 1, 2024",
+                "disabled_at": NOW - timedelta(days=700),
+            }
+        )
+        assert invariants.terminal_reasons_are_current(ctx(db)) == []
+
+    def test_a_recoverable_reason_at_a_live_provider_is_owed_a_recheck(self, db):
+        """The DeepInfra 402 case: cleared on its own once the balance returned."""
+        enable(db, "deepinfra", "live")
+        db.models.insert_one(
+            {
+                "provider": "deepinfra",
+                "model_id": "meta-llama/Llama-3.1-8B",
+                "enabled": False,
+                "disabled_reason": "Provider returned 402 insufficient credit",
+                "disabled_at": NOW - timedelta(days=40),
+            }
+        )
+        assert names(invariants.terminal_reasons_are_current(ctx(db))) == ["deepinfra/meta-llama/Llama-3.1-8B"]
+
+    def test_a_superseded_duplicate_is_not_owed_a_recheck(self, db):
+        enable(db, "together", "qwen/Qwen2.5-7B-Instruct-Turbo")
+        db.models.insert_one(
+            {
+                "provider": "together",
+                "model_id": "Qwen/Qwen2.5-7B-Instruct-Turbo",
+                "enabled": False,
+                "disabled_class": "duplicate_spelling",
+                "disabled_reason": "Case-duplicate of qwen/Qwen2.5-7B-Instruct-Turbo",
+                "disabled_at": NOW - timedelta(days=30),
+            }
+        )
+        assert invariants.terminal_reasons_are_current(ctx(db)) == []
