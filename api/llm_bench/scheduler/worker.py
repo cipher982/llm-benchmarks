@@ -9,6 +9,7 @@ from datetime import timezone
 from llm_bench.scheduler import health
 from llm_bench.scheduler import policies
 from llm_bench.scheduler import queue
+from llm_bench.scheduler import runner
 from llm_bench.scheduler.mongo import mongo_client
 from llm_bench.scheduler.mongo import mongo_env
 from llm_bench.scheduler.runner import run_job_in_child
@@ -78,7 +79,12 @@ def run_worker_loop(
 
                 if result.status == "success":
                     if queue.mark_success(db, job_id=job["_id"], worker_id=wid, now=now):
-                        if job.get("job_kind") != "smoke_hang":
+                        # A probe or shadow sample is not evidence that this
+                        # model is being measured for the site. Counting it
+                        # would make freshness reflect what we tried, not what
+                        # we publish.
+                        publishes = result.sample_role not in runner.NON_PUBLISHING_ROLES
+                        if job.get("job_kind") != "smoke_hang" and publishes:
                             health.record_success(
                                 db,
                                 provider=provider,

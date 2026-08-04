@@ -22,6 +22,7 @@ from llm_bench.scheduler.mongo import error_rollups_collection_name
 from llm_bench.scheduler.mongo import errors_collection_name
 from llm_bench.scheduler.mongo import metrics_collection_name
 from llm_bench.scheduler.mongo import mongo_env
+from llm_bench.scheduler.mongo import probe_metrics_collection_name
 from llm_bench.utils import get_current_timestamp
 
 dotenv.load_dotenv(".env")
@@ -58,6 +59,10 @@ class RunnerResult:
     status: str
     error_kind: str | None = None
     error_message: str | None = None
+    # Which series this sample belongs to. The worker uses it to decide whether
+    # the run counts as the model being measured; a probe must not create the
+    # appearance of freshness for a model that is not actually being published.
+    sample_role: str = "published"
 
 
 def load_provider_func(provider: str):
@@ -160,15 +165,30 @@ def log_error_mongo(
             client.close()
 
 
-def log_success_mongo(config: CloudConfig, metrics: dict[str, Any]) -> None:
+# Sample roles. Only PUBLISHED reaches the site and counts as freshness.
+SAMPLE_ROLE_PUBLISHED = "published"
+SAMPLE_ROLE_PROBE = "probe"
+SAMPLE_ROLE_SHADOW = "shadow"
+NON_PUBLISHING_ROLES = frozenset({SAMPLE_ROLE_PROBE, SAMPLE_ROLE_SHADOW})
+
+# The measurement protocol a row was produced under. Bump when the request
+# shape changes — cap, retry policy, reasoning controls — so rows measured
+# under different rules are never silently averaged together.
+PROTOCOL_VERSION = 1
+DEFAULT_PROFILE_ID = "cloud-default-v1"
+
+
+def log_success_mongo(config: CloudConfig, metrics: dict[str, Any], *, sample_role: str) -> None:
+    """Write one sample to the collection its role belongs in."""
     uri, db_name = mongo_env()
+    collection = probe_metrics_collection_name() if sample_role in NON_PUBLISHING_ROLES else metrics_collection_name()
     log_mongo(
         model_type="cloud",
         config=config,
         metrics=metrics,
         uri=uri,
         db_name=db_name,
-        collection_name=metrics_collection_name(),
+        collection_name=collection,
     )
 
 
@@ -182,6 +202,7 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
         time.sleep(seconds)
         return RunnerResult(status="success")
 
+    sample_role = str(job.get("sample_role") or SAMPLE_ROLE_PUBLISHED)
     run_ts = get_current_timestamp()
     model_config = CloudConfig(
         provider=provider,
@@ -224,8 +245,17 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
         return RunnerResult(status="error", error_kind=error_kind, error_message=str(why))
 
     metrics.setdefault("validation_policy", validation_policy(provider))
+    # Provenance every sample carries, so a row can always be traced back to the
+    # rules that produced it and to the group of attempts it came from. The
+    # spike found 975 of 1,182 Together rows came from multi-attempt retries
+    # with no way to tell from the row itself.
+    metrics["sample_role"] = sample_role
+    metrics["benchmark_profile_id"] = str(job.get("benchmark_profile_id") or DEFAULT_PROFILE_ID)
+    metrics["protocol_version"] = PROTOCOL_VERSION
+    metrics["attempt_group"] = str(job.get("_id"))
+    metrics["attempt"] = int(job.get("attempt") or 1)
     try:
-        log_success_mongo(model_config, metrics)
+        log_success_mongo(model_config, metrics, sample_role=sample_role)
     except Exception as exc:
         reason = f"log failure: {type(exc).__name__}: {exc}"
         error_kind = log_error_mongo(
@@ -239,11 +269,11 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
         return RunnerResult(status="error", error_kind=error_kind, error_message=reason)
 
     print(
-        f"Success {provider}:{model_id} "
+        f"Success[{sample_role}] {provider}:{model_id} "
         f"(tps={metrics.get('tokens_per_second'):.2f}, out={metrics.get('output_tokens')})",
         flush=True,
     )
-    return RunnerResult(status="success")
+    return RunnerResult(status="success", sample_role=sample_role)
 
 
 def _child_main(job: dict[str, Any], result_queue: Queue) -> None:

@@ -34,6 +34,18 @@ def metrics_collection_name() -> str:
     return collection_name("MONGODB_COLLECTION_CLOUD", "metrics_cloud_v2")
 
 
+def probe_metrics_collection_name() -> str:
+    """Where non-published samples go.
+
+    A separate collection rather than a flag on the published one. The dashboard
+    reads metrics_cloud_v2 from a dozen places, and a probe row is only excluded
+    from the site if every one of them remembers to filter — which is the silent
+    fallback shape this codebase keeps being bitten by. Routing by collection
+    makes exclusion structural instead of a thing each query must remember.
+    """
+    return collection_name("MONGODB_COLLECTION_CLOUD_PROBE", "metrics_cloud_probe")
+
+
 def errors_collection_name() -> str:
     return collection_name("MONGODB_COLLECTION_ERRORS", "errors_cloud")
 
