@@ -124,3 +124,67 @@ class TestApplication:
             reconciler.retire(db, now=NOW, dry_run=False)
 
         assert db.models.count_documents({"enabled": True}) == 40
+
+
+class TestDisplayNameUnification:
+    """One character split a three-provider line in production.
+
+    The pipeline groups by (providerCanonical, display_name), so
+    claude-haiku-4.5 and claude-haiku-4-5 were two lines for one model at three
+    providers. Derived identity does not have to replace the mapping code to fix
+    that — it only has to say which endpoints should share a name.
+    """
+
+    def _identify(self, db, provider, model_id, key, display):
+        db.models.insert_one({"provider": provider, "model_id": model_id, "enabled": True, "display_name": display})
+        db.bench_model_identity.insert_one(
+            {
+                "provider": provider,
+                "model_id": model_id,
+                "canonical_key": key,
+                "effective_from": NOW,
+            }
+        )
+
+    def test_the_outlier_moves_to_the_majority_name(self, db):
+        self._identify(db, "anthropic", "claude-haiku-4-5", "anthropic-claude-haiku-4.5", "claude-haiku-4.5")
+        self._identify(db, "bedrock", "us.anthropic.claude-haiku", "anthropic-claude-haiku-4.5", "claude-haiku-4.5")
+        self._identify(db, "deepinfra", "anthropic/claude-haiku", "anthropic-claude-haiku-4.5", "claude-haiku-4-5")
+
+        changes = reconciler.unify_display_names(db, now=NOW, dry_run=True)
+
+        assert len(changes) == 1
+        assert changes[0]["provider"] == "deepinfra"
+        assert changes[0]["to"] == "claude-haiku-4.5"
+
+    def test_an_already_consistent_group_is_untouched(self, db):
+        self._identify(db, "groq", "a", "meta-llama-3.3-70b-instruct", "llama-3.3-70b")
+        self._identify(db, "together", "b", "meta-llama-3.3-70b-instruct", "llama-3.3-70b")
+
+        assert reconciler.unify_display_names(db, now=NOW, dry_run=True) == []
+
+    def test_endpoints_in_different_groups_are_never_unified(self, db):
+        """Haiku must not take Sonnet's name because both are Claude."""
+        self._identify(db, "anthropic", "haiku", "anthropic-claude-haiku-4.5", "claude-haiku-4.5")
+        self._identify(db, "anthropic", "sonnet", "anthropic-claude-sonnet-4.5", "claude-sonnet-4.5")
+
+        assert reconciler.unify_display_names(db, now=NOW, dry_run=True) == []
+
+    def test_applying_is_reversible(self, db):
+        self._identify(db, "anthropic", "a", "k", "claude-haiku-4.5")
+        self._identify(db, "bedrock", "b", "k", "claude-haiku-4.5")
+        self._identify(db, "deepinfra", "c", "k", "claude-haiku-4-5")
+
+        reconciler.unify_display_names(db, now=NOW, dry_run=False)
+        assert db.models.find_one({"model_id": "c"})["display_name"] == "claude-haiku-4.5"
+
+        batch = db.bench_mutation_batches.find_one()
+        mutations.revert(db, batch_id=batch["_id"], now=NOW)
+        assert db.models.find_one({"model_id": "c"})["display_name"] == "claude-haiku-4-5"
+
+    def test_an_unresolved_endpoint_is_never_renamed(self, db):
+        db.models.insert_one({"provider": "groq", "model_id": "x", "enabled": True, "display_name": "mystery"})
+        db.bench_model_identity.insert_one(
+            {"provider": "groq", "model_id": "x", "canonical_key": None, "effective_from": NOW}
+        )
+        assert reconciler.unify_display_names(db, now=NOW, dry_run=True) == []

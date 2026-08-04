@@ -238,3 +238,68 @@ def grouping_divergence(db: Database) -> dict[str, Any]:
             ("|".join(sorted(s)) for s in current_sets - derived_sets),
         )[:25],
     }
+
+
+def unify_display_names(db: Database, *, now: datetime | None = None, dry_run: bool = True) -> list[dict[str, Any]]:
+    """Give every endpoint in a derived group the same display name.
+
+    The publication pipeline groups by (providerCanonical, display_name), so two
+    providers land on one chart line exactly when their display names match
+    character for character. In production `claude-haiku-4.5` and
+    `claude-haiku-4-5` were the same model at three providers, split into two
+    lines by a single hyphen.
+
+    So the derived identity does not need to replace the mapping code to be
+    useful — it only has to say which endpoints should share a name. The name
+    itself is the one most of the group already uses, so existing slugs and URLs
+    keep working and only the outlier moves.
+    """
+    now = now or utcnow()
+    current = {
+        (r["provider"], r["model_id"]): r.get("canonical_key")
+        for r in identity.current_identities(db)
+        if r.get("canonical_key")
+    }
+
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for doc in db[models_collection_name()].find(
+        {"enabled": True, "deprecated": {"$ne": True}},
+        {"provider": 1, "model_id": 1, "display_name": 1},
+    ):
+        key = current.get((doc["provider"], doc["model_id"]))
+        if key:
+            groups.setdefault(key, []).append(doc)
+
+    changes = []
+    for key, members in sorted(groups.items()):
+        names = [m.get("display_name") for m in members if m.get("display_name")]
+        if len(members) < 2 or len(set(names)) < 2:
+            continue
+        # Majority wins, so the group keeps the name most of the site already
+        # publishes. Ties break on the shortest, which is the least decorated.
+        winner = sorted(set(names), key=lambda n: (-names.count(n), len(n), n))[0]
+        for member in members:
+            if member.get("display_name") != winner:
+                changes.append(
+                    {
+                        "provider": member["provider"],
+                        "model_id": member["model_id"],
+                        "from": member.get("display_name"),
+                        "to": winner,
+                        "canonical_key": key,
+                    }
+                )
+
+    if dry_run or not changes:
+        return changes
+
+    batch = mutations.MutationBatch(db=db, reason="unify display names within a derived group", actor="reconciler")
+    for change in changes:
+        batch.set_model_fields(
+            provider=change["provider"],
+            model_id=change["model_id"],
+            display_name=change["to"],
+            identity_key=change["canonical_key"],
+        )
+    batch.apply(now=now)
+    return changes
