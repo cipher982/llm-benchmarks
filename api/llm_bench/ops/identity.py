@@ -174,7 +174,10 @@ Other endpoints with similar IDs, for disambiguation:
 
 Return ONLY a JSON object with these fields:
   developer  the organisation that trained it, lowercase (meta, openai, mistralai, deepseek, qwen, google, anthropic)
-  family     the model family, lowercase (llama, gpt, mixtral, deepseek-v3, qwen3)
+  family     the specific model line, lowercase, INCLUDING the tier where the
+             vendor uses one to name distinct models: claude-haiku, claude-sonnet,
+             claude-opus, gemini-flash, gemini-pro, nova-lite, nova-pro, gpt, llama,
+             mixtral, deepseek-v3, qwen3
   version    version number as written, or null (3.1, 4, 2.5)
   params     parameter count as written, or null (8b, 70b, 480b-a35b)
   role       one of: base, instruct, chat, reasoning, guard, code, or null if unclear
@@ -182,6 +185,10 @@ Return ONLY a JSON object with these fields:
 Rules:
 - Report only what the evidence supports. Use null rather than guessing.
 - "instruct" and the base model are DIFFERENT models. Do not conflate them.
+- Tiers within a family are DIFFERENT models. Claude Haiku is not Claude Sonnet;
+  Gemini Flash is not Gemini Pro. If the tier is dropped, two unrelated models
+  merge into one line and the site reports a speed difference that is really a
+  different model.
 - Ignore serving hints like turbo, fast, fp8 — they are not identity.
 - If you cannot tell what the model is, return nulls. A missing answer is
   correct and expected; a confident wrong one merges unrelated series.

@@ -212,3 +212,29 @@ class TestStoredRelations:
         )
         assert record["resolved"] is False
         assert record["canonical_key"] is None
+
+
+class TestTiersAreDistinctModels:
+    """Caught by the divergence report on the first production run.
+
+    claude-haiku-4.5 and claude-sonnet-4.5 collapsed into one key, because the
+    schema had no place for the tier and for Anthropic the tier is the model.
+    That is a false merge — the exact failure the whole design exists to avoid,
+    and worse than the base/instruct bug it was replacing.
+    """
+
+    def test_haiku_and_sonnet_do_not_share_a_key(self):
+        haiku = Attributes(developer="anthropic", family="claude-haiku", version="4.5", role="chat")
+        sonnet = Attributes(developer="anthropic", family="claude-sonnet", version="4.5", role="chat")
+        assert identity.canonical_key(haiku) != identity.canonical_key(sonnet)
+
+    def test_a_bare_family_would_have_merged_them(self):
+        """Why the prompt now demands the tier: without it the key is identical."""
+        a = Attributes(developer="anthropic", family="claude", version="4.5", role="chat")
+        b = Attributes(developer="anthropic", family="claude", version="4.5", role="chat")
+        assert identity.canonical_key(a) == identity.canonical_key(b)
+
+    def test_the_prompt_names_the_failure(self):
+        prompt = identity.build_prompt(provider="anthropic", model_id="claude-haiku-4-5", name=None, siblings=[])
+        assert "claude-haiku" in prompt
+        assert "Haiku is not Claude Sonnet" in prompt
