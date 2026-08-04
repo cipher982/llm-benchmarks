@@ -73,3 +73,35 @@ class TestProvenance:
 
 
 METRICS = {"output_tokens": 64, "generate_time": 1.0, "tokens_per_second": 64.0}
+
+
+class TestProvenanceSurvivesTheWriteLayer:
+    """The mocked tests above cannot see the allowlist that drops fields.
+
+    log_mongo copies only keys named in OPTIONAL_METRIC_FIELDS. The first
+    deploy of this contract set all five provenance fields and wrote 92 rows
+    carrying none of them, because a test that mocks the writer proves only
+    that the caller passed something.
+    """
+
+    def test_every_provenance_field_is_on_the_allowlist(self):
+        from llm_bench.logging import OPTIONAL_METRIC_FIELDS
+
+        required = {"sample_role", "benchmark_profile_id", "protocol_version", "attempt_group", "attempt"}
+        assert required <= set(OPTIONAL_METRIC_FIELDS), required - set(OPTIONAL_METRIC_FIELDS)
+
+    def test_the_fields_the_runner_sets_are_exactly_the_fields_that_persist(self, monkeypatch):
+        from llm_bench.logging import _optional_metric_fields
+
+        monkeypatch.setattr(runner, "load_provider_func", lambda p: lambda cfg, rc: dict(METRICS))
+        written = {}
+        monkeypatch.setattr(
+            runner,
+            "log_success_mongo",
+            lambda config, metrics, *, sample_role: written.update(metrics),
+        )
+        runner.run_benchmark_job({"_id": "job-1", "provider": "groq", "model_id": "m", "attempt": 2})
+
+        persisted = _optional_metric_fields(written)
+        for field in ("sample_role", "benchmark_profile_id", "protocol_version", "attempt_group", "attempt"):
+            assert field in persisted, f"{field} is set by the runner but dropped before Mongo"

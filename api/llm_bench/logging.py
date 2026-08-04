@@ -41,6 +41,14 @@ OPTIONAL_METRIC_FIELDS = (
     "reasoning_effort",
     "validation_policy",
     "visible_text_empty",
+    # Sample provenance. Without these on the allowlist the runner sets them and
+    # this function drops them, which is how the first deploy of the metric
+    # contract wrote 92 rows carrying none of it.
+    "sample_role",
+    "benchmark_profile_id",
+    "protocol_version",
+    "attempt_group",
+    "attempt",
 )
 
 
