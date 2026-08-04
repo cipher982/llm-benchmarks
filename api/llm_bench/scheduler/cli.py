@@ -36,10 +36,25 @@ def _selected_providers(providers: str | None, provider_models: dict[str, list[s
 
 
 def _worker_providers(providers: str | None, provider_models: dict[str, list[str]]) -> list[str]:
-    if not providers or providers.strip().lower() == "all":
-        excluded = policies.excluded_providers()
-        return sorted(provider for provider in PROVIDER_MODULES if provider not in excluded)
-    return _selected_providers(providers, provider_models)
+    """Lanes to start, derived from the catalogue rather than the adapter list.
+
+    This used to start every provider in PROVIDER_MODULES, so lanes existed for
+    providers with nothing enabled. That makes "this provider wrote no metric"
+    ambiguous — idle by design and dead are indistinguishable — which any
+    per-provider liveness check depends on being able to tell apart.
+
+    A provider with enabled models but no adapter cannot be worked at all, so it
+    is surfaced rather than dropped silently.
+    """
+    selected = _selected_providers(providers, provider_models)
+    unroutable = [provider for provider in selected if provider not in PROVIDER_MODULES]
+    if unroutable:
+        print(
+            f"WARNING: enabled models exist for {', '.join(sorted(unroutable))} "
+            "but no runner adapter is registered; those models cannot be benchmarked",
+            flush=True,
+        )
+    return [provider for provider in selected if provider in PROVIDER_MODULES]
 
 
 def _freshness_priority(doc: dict, cadence_seconds: int) -> float:

@@ -352,6 +352,38 @@ def _as_utc(value: datetime | None) -> datetime | None:
     return value.astimezone(timezone.utc)
 
 
+def provider_progress(
+    db: Database,
+    *,
+    providers: list[str],
+    now: datetime | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Age of the newest metric for each expected provider, reported separately.
+
+    Answers a different question from `liveness_status`: not "is this process
+    wedged" but "is each lane producing". One aggregate query cannot express
+    that — a busy OpenAI lane hides dead Together, DeepInfra and Vertex ones.
+    """
+    now = _as_utc(now or utcnow())
+    metrics = db[metrics_collection_name()]
+    result: dict[str, dict[str, Any]] = {}
+    # One small indexed query per provider rather than an aggregation: the
+    # provider list is single digits, and this keeps the same code path working
+    # against every Mongo-alike the tests use.
+    for provider in sorted(providers):
+        latest = metrics.find_one(
+            {"provider": provider},
+            {"gen_ts": 1, "run_ts": 1},
+            sort=[("gen_ts", -1), ("run_ts", -1)],
+        )
+        stamp = _as_utc((latest or {}).get("gen_ts") or (latest or {}).get("run_ts"))
+        result[provider] = {
+            "latest_completed_at": stamp.isoformat() if stamp else None,
+            "age_seconds": int((now - stamp).total_seconds()) if stamp else None,
+        }
+    return result
+
+
 def liveness_status(
     db: Database,
     *,
@@ -359,7 +391,14 @@ def liveness_status(
     providers: list[str] | None = None,
     now: datetime | None = None,
 ) -> tuple[bool, dict[str, Any]]:
-    """Check that this direct runner is alive and has completed recent work."""
+    """Check that this direct runner is alive and has completed recent work.
+
+    Deliberately aggregate: this drives process exit, and restarting the
+    container does not fix a single provider's auth or billing failure. A stalled
+    individual lane is a real fault, but it is reported through
+    `provider_progress` and acted on by the invariant layer, not by killing a
+    process that is working fine for every other provider.
+    """
     now = _as_utc(now or utcnow())
     query: dict[str, Any] = {}
     if providers:
@@ -385,6 +424,9 @@ def liveness_status(
         "scheduler_heartbeat_age_seconds": heartbeat_age,
         "max_idle_seconds": max_idle_seconds,
         "providers": providers or [],
+        # Present even when the aggregate check passes, so a stalled lane is
+        # visible in the same payload rather than needing a separate query.
+        "provider_progress": provider_progress(db, providers=providers, now=now) if providers else {},
     }
     if latest_age is None:
         details["reason"] = "no completed benchmark found"
