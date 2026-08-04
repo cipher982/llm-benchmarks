@@ -12,6 +12,8 @@ import dotenv
 import typer
 
 from llm_bench.models_db import load_provider_models
+from llm_bench.ops import desired_set
+from llm_bench.ops import invariants
 from llm_bench.scheduler import health
 from llm_bench.scheduler import policies
 from llm_bench.scheduler import queue
@@ -152,6 +154,51 @@ def run_liveness_watchdog(
             exit_process(1)
 
 
+def run_invariants_loop(
+    *,
+    stop_event: threading.Event,
+    snapshot_interval_seconds: int,
+    check_interval_seconds: int,
+    cadence_seconds: int,
+) -> None:
+    """Capture desired-set snapshots and evaluate invariants on a schedule.
+
+    Deliberately never acts on what it finds. Results land in bench_check_runs,
+    and the layer above — a Sauron job reading that ledger — is what alerts,
+    including when this loop stops producing rows at all. Each layer watches a
+    different failure domain: this one watches the pipeline, Sauron watches
+    this, and the external dead man watches Sauron.
+    """
+    last_snapshot = 0.0
+    last_check = 0.0
+    while not stop_event.wait(30):
+        now = time.monotonic()
+        try:
+            _, db_name = mongo_env()
+            client = mongo_client()
+            try:
+                db = client[db_name]
+                if now - last_snapshot >= snapshot_interval_seconds:
+                    captured = desired_set.capture(db)
+                    last_snapshot = now
+                    print(f"Desired-set snapshot: {captured.model_count} models", flush=True)
+                if now - last_check >= check_interval_seconds:
+                    results = invariants.evaluate(db, cadence_seconds=cadence_seconds)
+                    last_check = now
+                    failed = [r for r in results if not r.ok]
+                    if failed:
+                        print(
+                            "Invariant violations: " + "; ".join(r.summary for r in failed),
+                            flush=True,
+                        )
+            finally:
+                client.close()
+        except Exception as exc:  # noqa: BLE001
+            # Never take the daemon down over a check; the missing ledger rows
+            # are themselves the signal that this loop stopped working.
+            print(f"Invariant loop error: {type(exc).__name__}: {exc}", flush=True)
+
+
 @app.command()
 def daemon(
     providers: Optional[str] = typer.Option(
@@ -229,9 +276,21 @@ def daemon(
         name="liveness-watchdog",
         daemon=True,
     )
+    invariants_thread = threading.Thread(
+        target=run_invariants_loop,
+        kwargs={
+            "stop_event": stop_event,
+            "snapshot_interval_seconds": int(os.getenv("BENCHMARK_SNAPSHOT_INTERVAL_SECONDS", "3600")),
+            "check_interval_seconds": int(os.getenv("BENCHMARK_INVARIANT_INTERVAL_SECONDS", "900")),
+            "cadence_seconds": cadence_seconds,
+        },
+        name="invariants-loop",
+        daemon=True,
+    )
     scheduler_thread.start()
     reaper_thread.start()
     liveness_thread.start()
+    invariants_thread.start()
     workers = start_provider_workers(providers=selected, cadence_seconds=cadence_seconds, stop_event=stop_event)
 
     while not stop_event.is_set():
