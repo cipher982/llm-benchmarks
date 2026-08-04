@@ -6,6 +6,28 @@ Benchmark runner that calls LLM APIs and measures performance. Deployed as two i
 
 ---
 
+## Operating model
+
+**This site is meant to run itself.** The goal is a living system maintained by
+AI agents, not by David. He used to hand-curate the model catalogue; that is
+being retired because current models can do it continuously and cheaply.
+
+- **Gate on reversibility, not uncertainty.** Enabling or disabling a model,
+  requeuing jobs, adjusting concurrency, redeploying — reversible and logged.
+  Do them without asking.
+- **Spend inference, not human attention.** Ambiguity is resolved with more
+  model calls, not a review queue. Hundreds of calls a day is acceptable.
+- **Never build a queue that waits on David.** Routing low confidence to
+  "human review" is a design failure.
+- **Leave a trail.** Every mutation carries a reason and timestamp so a later
+  agent can audit and reverse it.
+- **Escalate only for** spending money and destroying published history — and
+  even then, notify and continue with everything else.
+
+Full context: `~/git/llmbench/AGENTS.md`. Roadmap: `docs/platform-plan.md`.
+
+---
+
 ## Repository Structure
 
 **Parent directory structure:**
@@ -36,15 +58,15 @@ Always `cd` into the specific subdirectory before git operations.
 | **clifford** | anthropic, cerebras, deepinfra, fireworks, groq, openai, together, vertex | Mongo-backed scheduler with isolated provider worker lanes |
 | **EC2** | bedrock | Needs AWS IAM role + MongoDB via HTTP bridge |
 
-**HTTP Ingest Bridge:** EC2 POSTs results to `https://bench-ingest.drose.io` (on clifford), which writes to MongoDB. `bench-ingest` is a manual app, not a Coolify app: tracked deploy state is in `~/git/me/mytech/infrastructure/manual-apps/bench-ingest/`, runtime secrets are on clifford at `/home/drose/manual-apps/bench-ingest/.env.secrets`, and deploys use `~/git/me/mytech/bin/manual-app deploy bench-ingest --repo-dir ~/git/llmbench/bench-ingest`.
+**HTTP Ingest Bridge:** EC2 POSTs results to `https://bench-ingest.drose.io` (on clifford), which writes to MongoDB. `bench-ingest` is a manual app, not a Coolify app: tracked deploy state is in `~/git/me/domains/mytech/infrastructure/manual-apps/bench-ingest/`, runtime secrets are on clifford at `/home/drose/manual-apps/bench-ingest/.env.secrets`, and deploys use `~/git/me/domains/mytech/bin/manual-app deploy bench-ingest --repo-dir ~/git/llmbench/bench-ingest`.
 
-**Configuration:** clifford scheduler config is set via Coolify env vars. `bench-ingest` config/secrets live in the manual-app remote `.env.secrets`. The RND Bedrock runner loads `/etc/bedrock-bench/runner.env`, but its model worklist comes from `bench-ingest` `/runner-config`, not from a static env var.
+**Configuration:** clifford scheduler config lives in the tracked manual-app compose at `~/git/me/domains/mytech/infrastructure/manual-apps/llm-bench-dashboard/compose.yaml` — not in this repo's `docker-compose.yml`, which is not what runs in production. `bench-ingest` config/secrets live in the manual-app remote `.env.secrets`. The RND Bedrock runner loads `/etc/bedrock-bench/runner.env`, but its model worklist comes from `bench-ingest` `/runner-config`, not from a static env var.
 
 ---
 
 ## MongoDB
 
-**Connection:** Use the service env on clifford/Coolify; do not ask the user for `MONGODB_URI`. The RND Bedrock runner must never receive MongoDB credentials.
+**Connection:** Use the service env on clifford; do not ask the user for `MONGODB_URI`. The RND Bedrock runner must never receive MongoDB credentials.
 
 **Key collections:**
 - `models` - Enabled models (provider, model_id, enabled, deprecated)
@@ -83,13 +105,12 @@ mongosh "$MONGODB_URI" --eval "db.models.updateOne({provider: 'X', model_id: 'Y'
 
 ## Deployment
 
-**clifford (via Coolify API):**
+**clifford (manual-app).** Coolify was retired from personal infra on 2026-06-26.
+This one command builds and deploys both the dashboard and the runner:
 ```bash
-# See ~/git/me/mytech/operations/coolify-api.md for token/UUID
-TOKEN=$(ssh clifford "sudo cat /var/lib/docker/data/coolify-api/token.env | cut -d= -f2")
-ssh clifford "curl -X POST -H 'Authorization: Bearer $TOKEN' -H 'Content-Type: application/json' \
-  -d '{\"uuid\": \"hg04gw08gwcc4c0400k848wc\"}' 'http://localhost:8000/api/v1/deploy'"
+~/git/me/domains/mytech/bin/manual-app deploy llm-bench-dashboard --repo-dir ~/git/llmbench
 ```
+The deploy gates on the commit being pushed to `origin/main`.
 
 **RND EC2 Bedrock runner (via AWS SSM):**
 ```bash
@@ -99,7 +120,7 @@ aws ssm start-session --target i-056bc81c58a387657 --region us-east-1 --profile 
 
 **Logs:**
 ```bash
-ssh clifford 'docker logs -f $(docker ps -qf "name=llm-bench-service")'
+ssh clifford 'docker logs -f llm-bench-api-service'   # fixed name, no hash suffix
 ```
 
 ---
@@ -113,7 +134,15 @@ ssh clifford 'docker logs -f $(docker ps -qf "name=llm-bench-service")'
 - **OpenAI:** o1/o3/o4 models auto-detected as reasoning models
 - **OpenAI-compatible hosted providers:** use provider-reported usage tokens; streamed text chunks can omit hidden/reasoning tokens
 - **Bedrock ingest bridge:** `bench-ingest.drose.io` must preserve additive metric fields; schema-v2 runner fields are lost if the bridge rejects or ignores extras.
-- **Avoid:** Guard models, compound models, embeddings, TTS, image models
+- **Avoid:** Guard models, compound models, embeddings, TTS, image models.
+  Do not rely on name patterns to detect these — two passes of that still let
+  through `veo`, `kling`, `vidu`, `ideogram`, `parakeet`. A real benchmark call
+  is the reliable classifier: a non-text model cannot return text tokens at a
+  measurable rate.
+- **Provider `/models` does not tell you what is benchmarkable.** Together
+  lists dedicated-endpoint-only models with normal pricing and `type: "chat"`,
+  and its `running` field is `false` for all 274 models including working ones.
+  Only a live call distinguishes them.
 
 **Commands:**
 ```bash
@@ -130,7 +159,13 @@ mongosh "$MONGODB_URI" --eval "db.models.updateOne({provider: 'groq', model_id: 
 
 **Sauron job:** `llm-bench-provider-discovery` (07:00 UTC daily)
 
-Fetches models from provider APIs → stores in `provider_catalog` → emails new models.
+Fetches models from provider APIs → stores in `provider_catalog`. Email
+reporting is disabled in `run()`; the agent digest owns notification.
+
+This job was registered `enabled=False` from ~2026-04-29 to 2026-08-04, so
+`provider_catalog` silently went three months stale while still looking like a
+live source. A disabled Sauron job is indistinguishable from a healthy one —
+check `curl http://127.0.0.1:8876/jobs` on clifford before trusting it.
 
 **Providers:** Groq, Together, Cerebras, OpenAI, Anthropic, Fireworks, DeepInfra
 
@@ -144,7 +179,8 @@ ssh clifford 'mongosh "$MONGODB_URI" --quiet --eval "db.provider_catalog.aggrega
 ## Related Docs
 
 - **Detailed troubleshooting:** `TROUBLESHOOTING.md` (create if complex patterns emerge)
-- **Dashboard:** `~/git/llmbench/llm-benchmarks-dashboard/backend/CLAUDE.md`
+- **Cross-repo context + operating model:** `~/git/llmbench/AGENTS.md`
+- **Roadmap and open questions:** `docs/platform-plan.md`
+- **Dashboard:** `~/git/llmbench/llm-benchmarks-dashboard/backend/`
 - **Sauron:** `~/git/sauron/AGENTS.md`
-- **Coolify API:** `~/git/me/mytech/operations/coolify-api.md`
 - **OpenAI Reasoning:** `REASONING_MODELS.md` (this repo)
