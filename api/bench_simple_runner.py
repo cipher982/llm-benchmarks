@@ -24,6 +24,7 @@ import dotenv
 import httpx
 from llm_bench.config import CloudConfig
 from llm_bench.http_output import log_http
+from llm_bench.http_output import log_http_error
 
 
 def get_current_timestamp() -> str:
@@ -163,30 +164,34 @@ def run_single_benchmark(provider: str, model: str, model_metadata: dict | None 
         "max_tokens": MAX_TOKENS,
     }
 
+    # Every failure below reports to the ingest bridge as well as the local log.
+    # This runner is on EC2 and its log file is not somewhere anyone reads, so a
+    # failure that only logged was a failure nobody could ever see.
+    def fail(message: str, *, stage: str, exc_type: str = "") -> bool:
+        logger.error(f"{message} for {provider}:{model}")
+        log_http_error(model_config, message=message, stage=stage, exc_type=exc_type)
+        return False
+
     # Load provider
     try:
         generate = _load_provider_func(provider)
     except ValueError as e:
-        logger.error(f"Failed to load provider: {e}")
-        return False
+        return fail(f"Failed to load provider: {e}", stage="load_provider", exc_type=type(e).__name__)
 
     # Execute benchmark
     try:
         metrics = generate(model_config, run_config)
     except Exception as e:
-        logger.error(f"Benchmark failed for {provider}:{model} - {type(e).__name__}: {e}")
         logger.debug(traceback.format_exc())
-        return False
+        return fail(f"{type(e).__name__}: {e}", stage="generate", exc_type=type(e).__name__)
 
     if not metrics:
-        logger.error(f"Empty metrics returned for {provider}:{model}")
-        return False
+        return fail("Empty metrics returned", stage="generate")
 
     # Basic validation
     valid, validation_error = _validate_metrics(provider, metrics)
     if not valid:
-        logger.error(f"{validation_error} for {provider}:{model}")
-        return False
+        return fail(str(validation_error), stage="validate")
     metrics.setdefault("validation_policy", _validation_policy(provider))
 
     # Post to ingest API
@@ -196,7 +201,9 @@ def run_single_benchmark(provider: str, model: str, model_metadata: dict | None 
             f"✅ Success {provider}:{model} (tps={metrics['tokens_per_second']:.2f}, out={metrics['output_tokens']})"
         )
     else:
-        logger.error(f"Failed to post results to ingest API for {provider}:{model}")
+        # A rejected or undelivered result is still a model with no data, so it
+        # is reported like any other failure rather than left to the log.
+        fail("Failed to post results to ingest API", stage="ingest")
 
     return success
 
