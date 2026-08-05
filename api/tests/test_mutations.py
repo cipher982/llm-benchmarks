@@ -149,3 +149,92 @@ class TestAudit:
         b.apply(now=NOW)
 
         assert db.models.find_one({"model_id": "m1"})["mutation_batch_id"] == b.batch_id
+
+
+class TestApplyIsAuditableAndIsolated:
+    """Found by a Hatch sol review: apply() did not honour its own contract."""
+
+    def _batch(self, db, n=3):
+        from llm_bench.ops import mutations
+
+        for i in range(n):
+            db.models.insert_one({"provider": "groq", "model_id": f"m{i}", "enabled": True})
+        batch = mutations.MutationBatch(db=db, reason="test", actor="test")
+        for i in range(n):
+            batch.set_model_fields(provider="groq", model_id=f"m{i}", enabled=False)
+        return batch
+
+    def test_the_record_exists_before_any_change_is_made(self, db):
+        """The record used to be written last.
+
+        A failure partway through left earlier changes applied with no record,
+        which is unrevertible — the one guarantee this class exists to make. A
+        DuplicateKeyError did exactly that in production.
+        """
+        from llm_bench.ops import mutations
+
+        db.models.insert_one({"provider": "groq", "model_id": "m0", "enabled": True})
+        batch = mutations.MutationBatch(db=db, reason="test", actor="test")
+        batch.set_model_fields(provider="groq", model_id="m0", enabled=False)
+
+        seen = {}
+        original = db.models.update_one
+
+        def explode(*args, **kwargs):
+            seen["record_present"] = db[mutations.batches_collection_name()].find_one({"_id": batch.batch_id})
+            return original(*args, **kwargs)
+
+        db.models.update_one = explode
+        try:
+            batch.apply()
+        finally:
+            db.models.update_one = original
+
+        assert seen["record_present"] is not None, "record must exist before the first mutation"
+
+    def test_one_failing_change_does_not_abort_the_others(self, db):
+        """A single bad row took out an entire admission pass."""
+        batch = self._batch(db, n=3)
+        # The middle change targets a document that does not exist.
+        batch.changes[1].model_id = "does-not-exist"
+
+        result = batch.apply()
+
+        assert result["applied"] == 2
+        assert len(result["failed"]) == 1
+        assert db.models.find_one({"model_id": "m0"})["enabled"] is False
+        assert db.models.find_one({"model_id": "m2"})["enabled"] is False
+
+    def test_a_change_that_matches_nothing_is_not_counted_as_applied(self, db):
+        from llm_bench.ops import mutations
+
+        batch = mutations.MutationBatch(db=db, reason="test", actor="test")
+        batch.set_model_fields(provider="groq", model_id="absent", enabled=False)
+
+        result = batch.apply()
+
+        assert result["applied"] == 0
+        assert result["failed"][0]["subject"] == "groq/absent"
+
+    def test_a_completed_batch_is_marked_applied(self, db):
+        from llm_bench.ops import mutations
+
+        batch = self._batch(db, n=2)
+        batch.apply()
+
+        record = db[mutations.batches_collection_name()].find_one({"_id": batch.batch_id})
+        assert record["status"] == "applied"
+        assert record["applied"] == 2
+
+    def test_a_partially_applied_batch_is_still_revertible(self, db):
+        from llm_bench.ops import mutations
+
+        batch = self._batch(db, n=3)
+        batch.changes[1].model_id = "does-not-exist"
+        batch.apply()
+
+        reverted = mutations.revert(db, batch_id=batch.batch_id)
+
+        assert reverted >= 2
+        assert db.models.find_one({"model_id": "m0"})["enabled"] is True
+        assert db.models.find_one({"model_id": "m2"})["enabled"] is True

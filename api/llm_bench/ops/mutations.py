@@ -128,11 +128,27 @@ class MutationBatch:
                 )
 
     def apply(self, *, now: datetime | None = None) -> dict[str, Any]:
-        """Capture before-images, apply every change, record the batch."""
+        """Record the batch, then apply every change, isolating failures.
+
+        The record is written before the first mutation, not after the last.
+        Writing it last meant a failure partway through left earlier changes
+        applied with no record of them — unrevertible, which is the one thing
+        this class exists to guarantee. A DuplicateKeyError did exactly that in
+        production, and the damage was invisible because the audit trail is what
+        was missing.
+
+        A failing change no longer aborts the ones behind it. One bad row used
+        to take out an entire admission pass, so a single case-variant duplicate
+        blocked every unrelated promotion in the same batch.
+
+        The returned count is what actually changed. It used to report
+        `len(changes)` unconditionally, so a change matching no document
+        reported as applied.
+        """
         now = now or utcnow()
         self._check_caps()
         if not self.changes:
-            return {"batch_id": self.batch_id, "applied": 0}
+            return {"batch_id": self.batch_id, "applied": 0, "failed": []}
 
         models = self.db[models_collection_name()]
         for change in self.changes:
@@ -144,12 +160,6 @@ class MutationBatch:
             )
             change.before = {key: (existing or {}).get(key) for key in change.set_fields}
 
-        for change in self.changes:
-            models.update_one(
-                {"provider": change.provider, "model_id": change.model_id},
-                {"$set": {**change.set_fields, "mutation_batch_id": self.batch_id}},
-            )
-
         self.db[batches_collection_name()].insert_one(
             {
                 "_id": self.batch_id,
@@ -157,6 +167,10 @@ class MutationBatch:
                 "reason": self.reason,
                 "actor": self.actor,
                 "reverted_at": None,
+                # Until every change lands this reads `applying`. A record stuck
+                # in that state is a crash mid-batch, and it is still revertible
+                # because the before-images are already here.
+                "status": "applying",
                 "changes": [
                     {
                         "provider": c.provider,
@@ -168,7 +182,28 @@ class MutationBatch:
                 ],
             }
         )
-        return {"batch_id": self.batch_id, "applied": len(self.changes)}
+
+        applied = 0
+        failed: list[dict[str, str]] = []
+        for change in self.changes:
+            try:
+                result = models.update_one(
+                    {"provider": change.provider, "model_id": change.model_id},
+                    {"$set": {**change.set_fields, "mutation_batch_id": self.batch_id}},
+                )
+            except Exception as exc:  # noqa: BLE001
+                failed.append({"subject": change.subject, "error": f"{type(exc).__name__}: {exc}"})
+                continue
+            if result.matched_count == 0:
+                failed.append({"subject": change.subject, "error": "no document matched"})
+            else:
+                applied += 1
+
+        self.db[batches_collection_name()].update_one(
+            {"_id": self.batch_id},
+            {"$set": {"status": "applied", "applied": applied, "failed": failed}},
+        )
+        return {"batch_id": self.batch_id, "applied": applied, "failed": failed}
 
 
 def revert(db: Database, *, batch_id: str, now: datetime | None = None) -> int:

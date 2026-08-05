@@ -280,6 +280,55 @@ def every_provider_is_progressing(ctx: Context) -> list[Violation]:
     ]
 
 
+def pending_work_is_being_decided(ctx: Context) -> list[Violation]:
+    """Nothing sits in a pending state past the deadline its own policy sets.
+
+    Four separate outages on this site were the same shape: a guard that was
+    correct in isolation became a permanent stop, and the symptom was silence.
+    `max_attempts` with no way back removed a model on every transient failure
+    and decayed coverage to 11.7%. A `[:limit]` slice meant twelve DeepInfra
+    models were never scheduled, always the same twelve. A mutation cap refused
+    an 87-change batch and applied nothing, every two hours, so 43 models that
+    had earned promotion could never reach the site. A duplicate key aborted a
+    batch mid-flight and one bad row blocked every other decision in it.
+
+    None of them raised anything a person saw, and every unit test passed
+    throughout, because each component worked. What they have in common is not
+    the refusal — two of them dropped work without any refusal at all — it is
+    that items entered a pool and never left it.
+
+    So the check is on the pool, not the guard: admission says a candidate is
+    decided within `ADMISSION_DEADLINE`, and a candidate older than that is
+    proof the decider is not deciding, whatever the reason. A saturated bound, a
+    silent truncation and a crash mid-pass are indistinguishable from here, and
+    they need the same response.
+    """
+    from llm_bench.ops import admission
+
+    # Generous slack over the policy deadline. One missed pass is not a jam;
+    # a candidate a full day past its own deadline is.
+    cutoff = ctx.now - (admission.ADMISSION_DEADLINE + timedelta(days=1))
+    stuck = [
+        doc
+        for doc in ctx.db[models_collection_name()].find(
+            {"status": admission.CANDIDATE_STATUS, "admission_started_at": {"$lt": cutoff}},
+            {"provider": 1, "model_id": 1, "admission_started_at": 1},
+        )
+    ]
+    return [
+        Violation(
+            subject=f"{doc['provider']}/{doc['model_id']}",
+            detail=(
+                f"still awaiting an admission decision, started "
+                f"{_as_utc(doc.get('admission_started_at'))}; the deadline is "
+                f"{admission.ADMISSION_DEADLINE.days}d, so the decider is not draining its pool"
+            ),
+            data={"provider": doc["provider"], "model_id": doc["model_id"]},
+        )
+        for doc in stuck
+    ]
+
+
 def _unmeasurable_by_profile(ctx: Context) -> set[tuple[str, str]]:
     """Models whose newest attempt exhausted the published profile's budget.
 
@@ -582,6 +631,11 @@ INVARIANTS: list[Invariant] = [
         "desired_models_are_being_measured",
         "Every model in the settled desired set has a recent successful measurement",
         desired_models_are_being_measured,
+    ),
+    Invariant(
+        "pending_work_is_being_decided",
+        "Nothing waits in a pending pool past the deadline its own policy sets",
+        pending_work_is_being_decided,
     ),
     Invariant(
         "models_measurable_by_the_published_profile",
