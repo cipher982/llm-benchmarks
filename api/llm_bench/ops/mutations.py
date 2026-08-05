@@ -87,6 +87,28 @@ class MutationBatch:
             return
         self.changes.append(Change(provider=provider, model_id=model_id, set_fields=fields))
 
+    def has_room_for(self, provider: str) -> bool:
+        """Whether one more change to this provider would still fit.
+
+        The caps bound how much a single pass may change. A caller that stages
+        everything it wants and then applies gets an all-or-nothing refusal,
+        which for a recurring pass is not a safety limit but a deadlock: the
+        backlog only grows, so the batch is refused again every time.
+
+        Admission hit exactly that. 43 candidates had earned promotion and 44
+        more had earned rejection; the pass staged 87 changes, exceeded the cap
+        of 40, applied none, and logged the same refusal every two hours. No
+        model could ever be promoted again, and each new one made it worse.
+
+        Asking first lets a pass fill one batch, apply it, and leave the rest
+        for the next run. The blast radius per pass is unchanged; the difference
+        is that work drains instead of jamming.
+        """
+        if len(self.changes) >= MAX_CHANGES_PER_BATCH:
+            return False
+        for_provider = sum(1 for change in self.changes if change.provider == provider)
+        return for_provider < MAX_CHANGES_PER_PROVIDER
+
     def _check_caps(self) -> None:
         if mutations_disabled():
             raise MutationRefused(f"{KILL_SWITCH_ENV} is set; refusing to mutate")

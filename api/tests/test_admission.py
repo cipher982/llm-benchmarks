@@ -226,17 +226,50 @@ class TestAdmissionIsReversibleAndBounded:
         doc = db.models.find_one({"model_id": "gone"})
         assert admission._as_utc(doc["recheck_after"]) > NOW
 
-    def test_a_mass_rejection_is_refused_rather_than_half_applied(self, db):
-        """A probe regression must not empty the candidate pool."""
+    def test_a_mass_rejection_is_bounded_per_pass(self, db):
+        """A probe regression must not empty the candidate pool in one go.
+
+        It must also not jam. This previously raised and applied nothing, which
+        looked like safety and was a deadlock: in production 87 due decisions
+        against a cap of 40 meant no model was ever promoted again, and every
+        new candidate made the batch larger.
+        """
         from llm_bench.ops import mutations
 
         for i in range(60):
             candidate(db, "deepinfra", f"c{i}", started=timedelta(days=5))
 
-        with pytest.raises(mutations.MutationRefused):
-            admission.evaluate_candidates(db, now=NOW)
+        admission.evaluate_candidates(db, now=NOW)
 
-        assert db.models.count_documents({"status": admission.CANDIDATE_STATUS}) == 60
+        remaining = db.models.count_documents({"status": admission.CANDIDATE_STATUS})
+        decided = 60 - remaining
+        assert 0 < decided <= mutations.MAX_CHANGES_PER_PROVIDER
+        assert remaining > 0, "one pass must not clear the whole pool"
+
+    def test_the_pool_drains_over_successive_passes(self, db):
+        """The cap bounds a pass, so repeated passes finish the backlog."""
+        for i in range(60):
+            candidate(db, "deepinfra", f"c{i}", started=timedelta(days=5))
+
+        for _ in range(10):
+            admission.evaluate_candidates(db, now=NOW)
+            if not db.models.count_documents({"status": admission.CANDIDATE_STATUS}):
+                break
+
+        assert db.models.count_documents({"status": admission.CANDIDATE_STATUS}) == 0
+
+    def test_a_promotion_is_not_crowded_out_by_pending_rejections(self, db):
+        """A model that earned its place must not wait behind dead ones."""
+        for i in range(50):
+            candidate(db, "deepinfra", f"dead{i}", started=timedelta(days=5))
+        candidate(db, "deepinfra", "earned")
+        probe_success(db, "deepinfra", "earned", ago=timedelta(hours=6))
+        probe_success(db, "deepinfra", "earned", ago=timedelta(hours=3))
+
+        promoted, _ = admission.evaluate_candidates(db, now=NOW)
+
+        assert "deepinfra/earned" in promoted
+        assert db.models.find_one({"model_id": "earned"})["enabled"] is True
 
 
 class TestDefinitiveFailures:

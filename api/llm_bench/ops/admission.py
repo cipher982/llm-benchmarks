@@ -263,22 +263,43 @@ def evaluate_candidates(db: Database, *, now: datetime | None = None) -> tuple[l
     """Promote candidates with enough spaced evidence; reject the exhausted.
 
     Every decision goes through one mutation batch, so a probe regression that
-    suddenly rejects everything hits the blast-radius cap and applies nothing,
-    and any pass can be inverted from its record rather than reconstructed.
+    suddenly rejects everything is bounded, and any pass can be inverted from
+    its record rather than reconstructed.
+
+    A pass takes only as many decisions as the caps allow and leaves the rest
+    for the next one. Staging everything and applying at the end turned the cap
+    into a deadlock: 87 staged changes against a cap of 40 meant nothing applied,
+    every two hours, with the backlog growing. Promotions are considered before
+    rejections, because a model that has earned its place on the site waiting
+    another two hours is worse than a dead one lingering.
     """
     now = now or utcnow()
     promoted, rejected = [], []
     batch = mutations.MutationBatch(db=db, reason="admission pass", actor="admission")
 
-    for doc in db[models_collection_name()].find(
-        {"status": CANDIDATE_STATUS},
-        {"provider": 1, "model_id": 1, "admission_started_at": 1},
-    ):
+    candidates = list(
+        db[models_collection_name()].find(
+            {"status": CANDIDATE_STATUS},
+            {"provider": 1, "model_id": 1, "admission_started_at": 1},
+        )
+    )
+    # Two passes over the same candidates so a large batch of rejections can
+    # never crowd out a promotion that is already due.
+    decisions: list[tuple[dict, list[datetime], int, bool]] = []
+    for doc in candidates:
+        successes = _probe_successes(db, provider=doc["provider"], model_id=doc["model_id"])
+        eligible = _windows_covered(successes) >= REQUIRED_SUCCESSES
+        definitive = 0 if eligible else _definitive_failures(db, provider=doc["provider"], model_id=doc["model_id"])
+        decisions.append((doc, successes, definitive, eligible))
+    decisions.sort(key=lambda item: not item[3])
+
+    for doc, successes, definitive, eligible in decisions:
         provider, model_id = doc["provider"], doc["model_id"]
         subject = f"{provider}/{model_id}"
-        successes = _probe_successes(db, provider=provider, model_id=model_id)
+        if not batch.has_room_for(provider):
+            continue
 
-        if _windows_covered(successes) >= REQUIRED_SUCCESSES:
+        if eligible:
             batch.set_model_fields(
                 provider=provider,
                 model_id=model_id,
@@ -295,7 +316,6 @@ def evaluate_candidates(db: Database, *, now: datetime | None = None) -> tuple[l
             promoted.append(subject)
             continue
 
-        definitive = _definitive_failures(db, provider=provider, model_id=model_id)
         started = _as_utc(doc.get("admission_started_at")) or now
         timed_out = now - started > ADMISSION_DEADLINE
 
