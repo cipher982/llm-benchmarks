@@ -26,7 +26,14 @@ ROOT = pathlib.Path(__file__).resolve().parents[1] / "llm_bench"
 
 # Modules that are entry points themselves — a human or a scheduler invokes
 # them directly, so nothing in-process imports them.
-ENTRY_POINTS = {"admission_cli", "invariants_cli", "reliability_cli", "catalog_quarantine"}
+ENTRY_POINTS = {
+    "admission_cli",
+    "invariants_cli",
+    "reliability_cli",
+    "catalog_quarantine",
+    # Run on a schedule from outside the process, by a human or a cron.
+    "checkback",
+}
 
 
 def _imported_names(path: pathlib.Path) -> set[str]:
