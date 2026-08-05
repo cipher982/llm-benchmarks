@@ -2,12 +2,19 @@
 """
 LLM-based error classification for llm-benchmarks.
 
-Classifies unique error fingerprints (not individual errors) using OpenAI models.
-This reduces LLM API calls by 100-1000x compared to per-error classification.
+`error_taxonomy.classify_error` keys on HTTP status alone and returns UNKNOWN
+for anything without one, on the understanding that this module resolves the
+rest. It had no caller anywhere — only the example in this docstring — so 946
+rollups sat unclassified, and `unknown` was a permanent state rather than a
+queue. It now runs on a loop in the daemon.
+
+Classifies unique error fingerprints rather than individual errors, which is
+what makes it affordable: a few hundred fingerprints stand in for hundreds of
+thousands of rows.
 
 Configuration:
-    LLM_CLASSIFIER_MODEL - OpenAI model to use (default: gpt-5-mini)
-    OPENAI_API_KEY - Required for classification
+    LLM_CLASSIFIER_MODEL - OpenRouter model (default: openai/gpt-5.6-luna)
+    OPENROUTER_API_KEY - Required for classification
 
 Usage:
     from llm_bench.ops.llm_error_classifier import classify_unclassified_rollups
@@ -25,22 +32,31 @@ import asyncio
 import json
 import os
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import datetime
+from datetime import timezone
+from typing import Any
+from typing import Optional
 
 import httpx
 from pymongo import MongoClient
 
 from llm_bench.ops.error_taxonomy import ErrorKind
 
-
-# Configuration
-OPENAI_MODEL = os.getenv("LLM_CLASSIFIER_MODEL", "gpt-5-mini")
+# Personal-funded OpenRouter, matching the identity normalizer and the standing
+# provider routing. This used to call api.openai.com with a work key.
+#
+# A non-reasoning model on purpose. This answers with one JSON line per error,
+# and a reasoning model handed a list-shaped answer spends its budget thinking
+# and returns empty content — the same failure that cost three attempts when the
+# identity consolidator was first written.
+CLASSIFIER_MODEL = os.getenv("LLM_CLASSIFIER_MODEL", "openai/gpt-5.6-luna")
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
 @dataclass
 class ClassificationResult:
     """Result of LLM classification."""
+
     fingerprint: str
     error_kind: ErrorKind
     confidence: float
@@ -50,7 +66,7 @@ class ClassificationResult:
 
 # Classification prompt template
 CLASSIFICATION_SYSTEM_PROMPT = """You are classifying LLM API errors. For each error, output a JSON line with:
-- kind: auth|billing|rate_limit|hard_model|hard_capability|transient_provider|network|unknown
+- kind: auth|billing|rate_limit|hard_model|hard_capability|transient_provider|network|budget_exhausted|unknown
 - confidence: 0.0-1.0
 - reasoning: Brief explanation (one sentence)
 
@@ -59,9 +75,12 @@ Categories:
 - billing: Payment issues (402, credits, invoices, payment required, inference prohibited)
 - rate_limit: Throttling (429, quota, too many requests, rate limit)
 - hard_model: Model doesn't exist (404 model not found, deprecated, removed, no endpoints)
-- hard_capability: Wrong API/parameters (unsupported features, wrong endpoint, parameter mismatch, "use responses API", "not a chat model", max_output_tokens vs max_completion_tokens)
+- hard_capability: Wrong API/parameters (unsupported features, wrong endpoint, parameter mismatch,
+  "use responses API", "not a chat model", max_output_tokens vs max_completion_tokens)
 - transient_provider: Server errors (5xx, internal server error, service unavailable)
 - network: Connection issues (timeout, DNS, connection reset, temporarily unavailable, connection error)
+- budget_exhausted: The model answered but spent the whole output budget on reasoning before
+  emitting any visible text. Nothing is broken; the benchmark profile cannot measure this model.
 - unknown: Cannot determine from the error message
 
 Important:
@@ -94,6 +113,7 @@ def build_classification_prompt(errors: list[dict]) -> str:
 @dataclass
 class LLMUsage:
     """Track LLM API usage for cost monitoring."""
+
     model: str
     input_tokens: int
     output_tokens: int
@@ -118,41 +138,34 @@ class LLMUsage:
 
 
 async def call_openai_classifier(prompt: str, system_prompt: str) -> tuple[list[dict], LLMUsage]:
-    """Call OpenAI for classification. Returns (classifications, usage)."""
-    api_key = os.getenv("OPENAI_API_KEY")
+    """Ask the classifier model. Returns (classifications, usage)."""
+    api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
-        raise ValueError("OPENAI_API_KEY not set")
+        raise ValueError("OPENROUTER_API_KEY not set")
 
     request_body = {
-        "model": OPENAI_MODEL,
+        "model": CLASSIFIER_MODEL,
         "temperature": 0,
         "max_tokens": 4096,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt}
-        ]
+        "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
     }
 
-    async with httpx.AsyncClient(timeout=120) as client:
+    async with httpx.AsyncClient(timeout=180) as client:
         response = await client.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            },
-            json=request_body
+            OPENROUTER_URL,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=request_body,
         )
         response.raise_for_status()
         result = response.json()
 
-        text = result["choices"][0]["message"]["content"]
+        text = result["choices"][0]["message"].get("content") or ""
 
-        # Extract usage (includes reasoning_tokens for o1/o3 models)
         usage_data = result.get("usage", {})
         reasoning_tokens = usage_data.get("completion_tokens_details", {}).get("reasoning_tokens", 0)
 
         usage = LLMUsage(
-            model=result.get("model", OPENAI_MODEL),
+            model=result.get("model", CLASSIFIER_MODEL),
             input_tokens=usage_data.get("prompt_tokens", 0),
             output_tokens=usage_data.get("completion_tokens", 0),
             reasoning_tokens=reasoning_tokens,
@@ -186,29 +199,15 @@ def parse_classification_response(text: str) -> list[dict]:
     return results
 
 
-async def classify_batch(
-    rollups: list[dict],
-    prefer_anthropic: bool = False  # Always use OpenAI
-) -> tuple[list[dict], Optional[LLMUsage]]:
-    """Classify a batch of error rollups using LLM. Returns (classifications, usage)."""
+async def classify_batch(rollups: list[dict]) -> tuple[list[dict], Optional[LLMUsage]]:
+    """Classify a batch of error rollups. Returns (classifications, usage)."""
     if not rollups:
         return [], None
-
-    prompt = build_classification_prompt(rollups)
-
-    # Always use OpenAI
-    if os.getenv("OPENAI_API_KEY"):
-        return await call_openai_classifier(prompt, CLASSIFICATION_SYSTEM_PROMPT)
-
-    raise ValueError("OPENAI_API_KEY not set")
+    return await call_openai_classifier(build_classification_prompt(rollups), CLASSIFICATION_SYSTEM_PROMPT)
 
 
 def update_rollups_with_classifications(
-    client: MongoClient,
-    db_name: str,
-    rollups_collection: str,
-    rollups: list[dict],
-    classifications: list[dict]
+    client: MongoClient, db_name: str, rollups_collection: str, rollups: list[dict], classifications: list[dict]
 ) -> dict[str, int]:
     """Update rollups collection with LLM classifications."""
     stats = {"updated": 0, "skipped": 0, "errors": 0}
@@ -244,9 +243,9 @@ def update_rollups_with_classifications(
                         "classification_confidence": confidence,
                         "classification_reasoning": reasoning,
                         "classified_at": now,
-                        "classified_by": "llm"
+                        "classified_by": "llm",
                     }
-                }
+                },
             )
             stats["updated"] += 1
         except Exception as e:
@@ -259,7 +258,6 @@ def update_rollups_with_classifications(
 async def classify_unclassified_rollups(
     batch_size: int = 50,
     max_rollups: Optional[int] = None,
-    prefer_anthropic: bool = True
 ) -> dict[str, Any]:
     """
     Find and classify unclassified error rollups via LLM.
@@ -267,7 +265,6 @@ async def classify_unclassified_rollups(
     Args:
         batch_size: Number of rollups to classify per LLM call
         max_rollups: Maximum total rollups to process (None = unlimited)
-        prefer_anthropic: Try Anthropic first, fall back to OpenAI
 
     Returns:
         Statistics about the classification run
@@ -286,13 +283,7 @@ async def classify_unclassified_rollups(
         collection = client[db_name][rollups_collection]
 
         # Find unclassified rollups (error_kind is null or "unknown")
-        query = {
-            "$or": [
-                {"error_kind": {"$exists": False}},
-                {"error_kind": None},
-                {"error_kind": "unknown"}
-            ]
-        }
+        query = {"$or": [{"error_kind": {"$exists": False}}, {"error_kind": None}, {"error_kind": "unknown"}]}
 
         # Limit if requested
         cursor = collection.find(query).sort("count", -1)  # Process most frequent first
@@ -308,7 +299,7 @@ async def classify_unclassified_rollups(
                 "processed": 0,
                 "updated": 0,
                 "skipped": 0,
-                "errors": 0
+                "errors": 0,
             }
 
         print(f"Found {len(unclassified)} unclassified rollups")
@@ -325,14 +316,12 @@ async def classify_unclassified_rollups(
         }
 
         for i in range(0, len(unclassified), batch_size):
-            batch = unclassified[i:i + batch_size]
+            batch = unclassified[i : i + batch_size]
             print(f"Processing batch {i // batch_size + 1} ({len(batch)} rollups)...")
 
             try:
-                classifications, usage = await classify_batch(batch, prefer_anthropic)
-                stats = update_rollups_with_classifications(
-                    client, db_name, rollups_collection, batch, classifications
-                )
+                classifications, usage = await classify_batch(batch)
+                stats = update_rollups_with_classifications(client, db_name, rollups_collection, batch, classifications)
 
                 total_stats["updated"] += stats["updated"]
                 total_stats["skipped"] += stats["skipped"]
@@ -381,7 +370,6 @@ async def main_async():
     results = await classify_unclassified_rollups(
         batch_size=args.batch_size,
         max_rollups=args.max_rollups,
-        prefer_anthropic=not args.use_openai
     )
 
     print("\nClassification complete:")

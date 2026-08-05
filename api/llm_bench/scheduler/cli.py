@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import signal
 import threading
@@ -15,6 +16,7 @@ from llm_bench.models_db import load_provider_models
 from llm_bench.ops import admission
 from llm_bench.ops import desired_set
 from llm_bench.ops import invariants
+from llm_bench.ops import llm_error_classifier
 from llm_bench.scheduler import health
 from llm_bench.scheduler import policies
 from llm_bench.scheduler import queue
@@ -241,6 +243,35 @@ def run_admission_loop(*, stop_event: threading.Event, interval_seconds: int) ->
             print(f"Admission loop error: {type(exc).__name__}: {exc}", flush=True)
 
 
+def run_classifier_loop(*, stop_event: threading.Event, interval_seconds: int) -> None:
+    """Resolve error fingerprints the deterministic taxonomy could not.
+
+    `classify_error` keys on HTTP status and returns `unknown` for everything
+    else, on the understanding that a later pass resolves it. That pass existed
+    but had no caller, so `unknown` was terminal rather than provisional and 946
+    fingerprints accumulated in it — including models the provider had deleted
+    and models that simply could not be measured in 64 tokens, which need
+    opposite responses.
+
+    Fingerprints, not rows, so a few hundred calls cover hundreds of thousands
+    of errors. Hourly is far more often than new fingerprints appear; the cost
+    of a pass with nothing to do is one Mongo query.
+    """
+    while not stop_event.wait(interval_seconds):
+        try:
+            stats = asyncio.run(
+                llm_error_classifier.classify_unclassified_rollups(
+                    max_rollups=int(os.getenv("BENCHMARK_CLASSIFIER_MAX_ROLLUPS", "200"))
+                )
+            )
+            if stats.get("updated"):
+                print(f"Classifier resolved {stats['updated']} error fingerprints", flush=True)
+        except Exception as exc:  # noqa: BLE001
+            # Never kill the daemon over this. An unclassified error is a worse
+            # report, not a broken benchmark.
+            print(f"Classifier loop error: {type(exc).__name__}: {exc}", flush=True)
+
+
 @app.command()
 def daemon(
     providers: Optional[str] = typer.Option(
@@ -339,11 +370,21 @@ def daemon(
         name="admission-loop",
         daemon=True,
     )
+    classifier_thread = threading.Thread(
+        target=run_classifier_loop,
+        kwargs={
+            "stop_event": stop_event,
+            "interval_seconds": int(os.getenv("BENCHMARK_CLASSIFIER_INTERVAL_SECONDS", "3600")),
+        },
+        name="classifier-loop",
+        daemon=True,
+    )
     scheduler_thread.start()
     reaper_thread.start()
     liveness_thread.start()
     invariants_thread.start()
     admission_thread.start()
+    classifier_thread.start()
     workers = start_provider_workers(providers=selected, cadence_seconds=cadence_seconds, stop_event=stop_event)
 
     while not stop_event.is_set():
