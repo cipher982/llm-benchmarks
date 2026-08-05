@@ -17,6 +17,7 @@ from llm_bench.ops import admission
 from llm_bench.ops import desired_set
 from llm_bench.ops import invariants
 from llm_bench.ops import llm_error_classifier
+from llm_bench.ops import vertex_discovery
 from llm_bench.scheduler import health
 from llm_bench.scheduler import policies
 from llm_bench.scheduler import queue
@@ -272,6 +273,27 @@ def run_classifier_loop(*, stop_event: threading.Event, interval_seconds: int) -
             print(f"Classifier loop error: {type(exc).__name__}: {exc}", flush=True)
 
 
+def run_vertex_discovery_loop(*, stop_event: threading.Event, interval_seconds: int) -> None:
+    """Keep Vertex's catalogue current from inside the process that has its keys.
+
+    Every other provider is discovered by a Sauron job. Sauron holds no GCP
+    credentials, so Vertex had no discovery at all and
+    `discovery_completed_recently` was permanently red for it. This daemon
+    already authenticates to Vertex in order to benchmark it.
+    """
+    while not stop_event.wait(interval_seconds):
+        try:
+            _, db_name = mongo_env()
+            client = mongo_client()
+            try:
+                result = vertex_discovery.refresh_catalog(client[db_name])
+                print(f"Vertex discovery: {result}", flush=True)
+            finally:
+                client.close()
+        except Exception as exc:  # noqa: BLE001
+            print(f"Vertex discovery loop error: {type(exc).__name__}: {exc}", flush=True)
+
+
 @app.command()
 def daemon(
     providers: Optional[str] = typer.Option(
@@ -379,12 +401,24 @@ def daemon(
         name="classifier-loop",
         daemon=True,
     )
+    vertex_discovery_thread = threading.Thread(
+        target=run_vertex_discovery_loop,
+        kwargs={
+            "stop_event": stop_event,
+            # Well inside the 48h the discovery invariant allows, so one failed
+            # pass is not a violation.
+            "interval_seconds": int(os.getenv("BENCHMARK_VERTEX_DISCOVERY_INTERVAL_SECONDS", "43200")),
+        },
+        name="vertex-discovery-loop",
+        daemon=True,
+    )
     scheduler_thread.start()
     reaper_thread.start()
     liveness_thread.start()
     invariants_thread.start()
     admission_thread.start()
     classifier_thread.start()
+    vertex_discovery_thread.start()
     workers = start_provider_workers(providers=selected, cadence_seconds=cadence_seconds, stop_event=stop_event)
 
     while not stop_event.is_set():
