@@ -311,3 +311,48 @@ class TestDefinitiveFailures:
         self._dead_probe(db, "together", "slow", kind="timeout", n=4)
         promoted, rejected = admission.evaluate_candidates(db, now=NOW)
         assert (promoted, rejected) == ([], [])
+
+
+class TestCaseDuplicates:
+    def test_a_case_variant_of_an_enabled_model_is_rejected_not_promoted(self, db):
+        """Promoting it writes a second enabled row for one endpoint.
+
+        The case-insensitive unique index refuses that, and the refusal aborted
+        the entire batch — so one duplicate blocked every other promotion in the
+        pass. Providers spell their own IDs inconsistently across surfaces, so
+        this is not rare: 18 candidates were in this state in production.
+        """
+        db.models.insert_one({"provider": "deepinfra", "model_id": "minimaxai/minimax-m3", "enabled": True})
+        candidate(db, "deepinfra", "MiniMaxAI/MiniMax-M3")
+        probe_success(db, "deepinfra", "MiniMaxAI/MiniMax-M3", ago=timedelta(hours=6))
+        probe_success(db, "deepinfra", "MiniMaxAI/MiniMax-M3", ago=timedelta(hours=3))
+
+        promoted, rejected = admission.evaluate_candidates(db, now=NOW)
+
+        assert promoted == []
+        assert any("duplicate spelling" in reason for _, reason in rejected)
+        doc = db.models.find_one({"model_id": "MiniMaxAI/MiniMax-M3"})
+        assert doc["enabled"] is False
+        assert doc["disabled_class"] == "duplicate_spelling"
+
+    def test_one_duplicate_does_not_block_other_promotions(self, db):
+        db.models.insert_one({"provider": "deepinfra", "model_id": "minimaxai/minimax-m3", "enabled": True})
+        candidate(db, "deepinfra", "MiniMaxAI/MiniMax-M3")
+        candidate(db, "groq", "genuinely-new")
+        probe_success(db, "groq", "genuinely-new", ago=timedelta(hours=6))
+        probe_success(db, "groq", "genuinely-new", ago=timedelta(hours=3))
+
+        promoted, _ = admission.evaluate_candidates(db, now=NOW)
+
+        assert "groq/genuinely-new" in promoted
+
+    def test_the_exact_same_spelling_is_not_treated_as_a_duplicate(self, db):
+        """Only a different spelling of the same endpoint is a duplicate."""
+        candidate(db, "groq", "same")
+        db.models.update_one({"model_id": "same"}, {"$set": {"enabled": False}})
+        probe_success(db, "groq", "same", ago=timedelta(hours=6))
+        probe_success(db, "groq", "same", ago=timedelta(hours=3))
+
+        promoted, _ = admission.evaluate_candidates(db, now=NOW)
+
+        assert "groq/same" in promoted

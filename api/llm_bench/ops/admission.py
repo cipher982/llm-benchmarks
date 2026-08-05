@@ -171,6 +171,17 @@ def register_candidates(
     return registered
 
 
+def enabled_spellings(db: Database) -> dict[tuple[str, str], str]:
+    """Case-folded key -> the spelling already enabled for it."""
+    return {
+        (doc["provider"].lower(), str(doc["model_id"]).lower()): doc["model_id"]
+        for doc in db[models_collection_name()].find(
+            {"enabled": True, "deprecated": {"$ne": True}},
+            {"provider": 1, "model_id": 1},
+        )
+    }
+
+
 def _probe_job_id(provider: str, model_id: str, now: datetime) -> str:
     return f"probe:{provider}:{model_id}:{now.strftime('%Y%m%dT%H%M%S')}"
 
@@ -293,10 +304,32 @@ def evaluate_candidates(db: Database, *, now: datetime | None = None) -> tuple[l
         decisions.append((doc, successes, definitive, eligible))
     decisions.sort(key=lambda item: not item[3])
 
+    already_enabled = enabled_spellings(db)
+
     for doc, successes, definitive, eligible in decisions:
         provider, model_id = doc["provider"], doc["model_id"]
         subject = f"{provider}/{model_id}"
         if not batch.has_room_for(provider):
+            continue
+
+        # A candidate that differs from an enabled model only in case is that
+        # model, not a new one. Promoting it means writing a second enabled row
+        # for one endpoint, which the case-insensitive unique index refuses —
+        # and that refusal aborted the whole batch, so a single duplicate
+        # blocked every other promotion in the pass. Providers spell their own
+        # IDs inconsistently across surfaces, so this is not rare.
+        existing = already_enabled.get((provider.lower(), str(model_id).lower()))
+        if existing is not None and existing != model_id:
+            batch.set_model_fields(
+                provider=provider,
+                model_id=model_id,
+                enabled=False,
+                status=REJECTED_STATUS,
+                disabled_class="duplicate_spelling",
+                disabled_reason=f"same endpoint as the enabled {provider}/{existing}, differing only in case",
+                disabled_at=now,
+            )
+            rejected.append((subject, f"duplicate spelling of {existing}"))
             continue
 
         if eligible:
