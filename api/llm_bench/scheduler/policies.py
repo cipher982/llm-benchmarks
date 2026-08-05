@@ -90,6 +90,11 @@ def should_retry(
     # bounded, so a permanently broken model cannot cycle forever.
     if is_retryable_failure(error_kind, error_message):
         return attempt < MAX_RETRY_ATTEMPTS
+    # The model worked and the profile could not measure it. Retrying spends
+    # money to reproduce the same result, because nothing about the next
+    # attempt is different — same model, same 64-token budget.
+    if error_kind == "budget_exhausted":
+        return False
     if attempt >= max_attempts:
         return False
     if not error_kind:

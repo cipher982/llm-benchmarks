@@ -20,6 +20,7 @@ can tell a check that passed from a check that never ran.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import field
@@ -37,13 +38,24 @@ from llm_bench.scheduler.mongo import metrics_collection_name
 from llm_bench.scheduler.mongo import models_collection_name
 
 # Thresholds are versioned so a check run records which rules produced it.
-THRESHOLD_VERSION = 2
+THRESHOLD_VERSION = 3
 
 # Discovery runs daily; two missed runs is a signal, one is a blip.
 DISCOVERY_MAX_AGE = timedelta(hours=48)
 # A lane that has written nothing this long is not merely between jobs.
 PROVIDER_PROGRESS_MAX_AGE = timedelta(hours=2)
-# How far past the sampling cadence a model may fall before it counts as starved.
+# How often a model's turn actually comes around. This is not the invariant
+# loop's cadence, which is how often we *look* — an unrelated number that the
+# first version of this check multiplied by mistake, giving a one-hour horizon
+# and reporting thirteen perfectly healthy models as starved.
+#
+# Measured on clifford 2026-08-05 over 12h and 3355 intervals: the scheduler
+# round-robins the catalogue every 45 minutes, with p50 through p95 all inside
+# one minute of each other and a p99 of 63.
+MODEL_MEASUREMENT_PERIOD = timedelta(minutes=int(os.getenv("BENCHMARK_MODEL_PERIOD_MINUTES", "45")))
+# Four turns missed in a row. Wide enough that ordinary jitter and a slow
+# provider lane never fire it, narrow enough that a model which has genuinely
+# stopped is named within a few hours.
 MODEL_STALENESS_MULTIPLIER = 4
 # Work that has sat unclaimed this long means the lane is not draining.
 MAX_QUEUE_AGE = timedelta(hours=6)
@@ -277,7 +289,7 @@ def desired_models_are_being_measured(ctx: Context) -> list[Violation]:
     the shrinkage is visible in the same result rather than hidden by it.
     """
     desired = ctx.desired
-    horizon = ctx.now - timedelta(seconds=ctx.cadence_seconds * MODEL_STALENESS_MULTIPLIER)
+    horizon = ctx.now - MODEL_MEASUREMENT_PERIOD * MODEL_STALENESS_MULTIPLIER
     fresh = set(ctx.db[metrics_collection_name()].distinct("model_name", {"run_ts": {"$gte": horizon}}))
     still_enabled = set(desired_set_module.capture_view(ctx.db))
 

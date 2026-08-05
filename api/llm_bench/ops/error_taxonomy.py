@@ -16,6 +16,13 @@ class ErrorKind(str, Enum):
     TRANSIENT_PROVIDER = "transient_provider"
     NETWORK = "network"
     TIMEOUT = "timeout"
+    # The model answered; the 64-token budget was spent on reasoning before it
+    # emitted anything visible. Nothing is broken — the profile cannot measure
+    # this model. Kept apart from UNKNOWN because they call for opposite
+    # responses: an unknown error wants investigation, this wants a decision
+    # about the benchmark profile, and mixing them buried the second inside
+    # 279 dead letters that also included models the provider had deleted.
+    BUDGET_EXHAUSTED = "budget_exhausted"
     UNKNOWN = "unknown"
 
 
@@ -94,6 +101,18 @@ def classify_error(*, message: str, exc_type: str = "") -> ClassifiedError:
     # Together "model not available as serverless" — provider removed serverless access
     if "'code': 'model_not_available'" in raw or '"code": "model_not_available"' in raw:
         return ClassifiedError(kind=ErrorKind.HARD_MODEL, normalized_message=normalized, http_status=http_status)
+
+    # Together and Fireworks answer 400 for a model that exists but is only
+    # reachable through a dedicated endpoint. The account cannot call it, which
+    # is the same practical outcome as a 404 — and leaving it UNKNOWN means it
+    # is retried on every pass forever.
+    if "dedicated endpoint" in normalized:
+        return ClassifiedError(kind=ErrorKind.HARD_MODEL, normalized_message=normalized, http_status=http_status)
+
+    # Our own validator's message, not a provider's. No LLM is needed to
+    # recognize a string this repository writes.
+    if "token budget was exhausted" in normalized:
+        return ClassifiedError(kind=ErrorKind.BUDGET_EXHAUSTED, normalized_message=normalized, http_status=http_status)
 
     # Everything else is UNKNOWN - LLM will classify later
     return ClassifiedError(kind=ErrorKind.UNKNOWN, normalized_message=normalized, http_status=http_status)
