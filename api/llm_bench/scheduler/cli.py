@@ -15,9 +15,11 @@ import typer
 from llm_bench.models_db import load_provider_models
 from llm_bench.ops import admission
 from llm_bench.ops import desired_set
+from llm_bench.ops import identity
 from llm_bench.ops import invariants
 from llm_bench.ops import llm_error_classifier
 from llm_bench.ops import reasoning_shadow
+from llm_bench.ops import reconciler
 from llm_bench.ops import vertex_discovery
 from llm_bench.scheduler import health
 from llm_bench.scheduler import policies
@@ -289,6 +291,48 @@ def run_classifier_loop(*, stop_event: threading.Event, interval_seconds: int) -
             print(f"Classifier loop error: {type(exc).__name__}: {exc}", flush=True)
 
 
+def run_reconciler_loop(*, stop_event: threading.Event, interval_seconds: int) -> None:
+    """Keep chart lines from splitting as the catalogue changes.
+
+    Two providers share a chart line only when their display names match
+    character for character. `claude-haiku-4.5` and `claude-haiku-4-5` were the
+    same model at three providers drawn as two lines, and nothing noticed for
+    months because both lines looked fine on their own.
+
+    Every model that arrives is a new chance to diverge, and admission adds them
+    continuously. Running this once by hand fixed the backlog and would have let
+    it rebuild from zero — which is how the site got into that state the first
+    time.
+
+    Order matters. Resolve identities for endpoints that have none, consolidate
+    groups that arrival order split under two names, then unify display names
+    inside each group. Unifying before consolidating would leave the two halves
+    of a split group with different names and nothing to join them.
+    """
+    while not stop_event.wait(interval_seconds):
+        try:
+            _, db_name = mongo_env()
+            client = mongo_client()
+            try:
+                db = client[db_name]
+                resolved = reconciler.resolve_missing_identities(db, call_llm=identity.call_openrouter)
+                if resolved:
+                    print(f"Identity resolved {len(resolved)} new endpoints", flush=True)
+
+                merges = reconciler.consolidate(db, dry_run=False)
+                for merge in merges:
+                    print(f"Consolidated {merge['absorb']} into {merge['keep']}", flush=True)
+
+                for change in reconciler.unify_display_names(db, dry_run=False):
+                    print(f"Renamed {change['provider']}/{change['model_id']} to {change['to']}", flush=True)
+            finally:
+                client.close()
+        except Exception as exc:  # noqa: BLE001
+            # Naming drift is a display problem. It must never be able to stop
+            # the machine from measuring.
+            print(f"Reconciler loop error: {type(exc).__name__}: {exc}", flush=True)
+
+
 def run_shadow_loop(*, stop_event: threading.Event, interval_seconds: int) -> None:
     """Measure models the default profile cannot measure.
 
@@ -442,6 +486,17 @@ def daemon(
         name="classifier-loop",
         daemon=True,
     )
+    reconciler_thread = threading.Thread(
+        target=run_reconciler_loop,
+        kwargs={
+            "stop_event": stop_event,
+            # Naming drift only matters when the catalogue changes, and each pass
+            # costs LLM calls, so this is deliberately slow.
+            "interval_seconds": int(os.getenv("BENCHMARK_RECONCILER_INTERVAL_SECONDS", "21600")),
+        },
+        name="reconciler-loop",
+        daemon=True,
+    )
     shadow_thread = threading.Thread(
         target=run_shadow_loop,
         kwargs={
@@ -470,6 +525,7 @@ def daemon(
     classifier_thread.start()
     vertex_discovery_thread.start()
     shadow_thread.start()
+    reconciler_thread.start()
     workers = start_provider_workers(providers=selected, cadence_seconds=cadence_seconds, stop_event=stop_event)
 
     while not stop_event.is_set():
