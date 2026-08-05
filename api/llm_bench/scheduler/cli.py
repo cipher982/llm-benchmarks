@@ -17,6 +17,7 @@ from llm_bench.ops import admission
 from llm_bench.ops import desired_set
 from llm_bench.ops import invariants
 from llm_bench.ops import llm_error_classifier
+from llm_bench.ops import reasoning_shadow
 from llm_bench.ops import vertex_discovery
 from llm_bench.scheduler import health
 from llm_bench.scheduler import policies
@@ -267,10 +268,50 @@ def run_classifier_loop(*, stop_event: threading.Event, interval_seconds: int) -
             )
             if stats.get("updated"):
                 print(f"Classifier resolved {stats['updated']} error fingerprints", flush=True)
+            # A verdict nothing reads is not a verdict. Retry policy and the
+            # catalogue tools read the job's own field, so the resolved kind is
+            # copied onto the rows and jobs that actually decide with it.
+            _, db_name = mongo_env()
+            client = mongo_client()
+            try:
+                moved = llm_error_classifier.propagate_classifications(client, db_name)
+                if moved["errors_updated"] or moved["jobs_updated"]:
+                    print(
+                        f"Classifier propagated: {moved['errors_updated']} error rows, "
+                        f"{moved['jobs_updated']} dead letters",
+                        flush=True,
+                    )
+            finally:
+                client.close()
         except Exception as exc:  # noqa: BLE001
             # Never kill the daemon over this. An unclassified error is a worse
             # report, not a broken benchmark.
             print(f"Classifier loop error: {type(exc).__name__}: {exc}", flush=True)
+
+
+def run_shadow_loop(*, stop_event: threading.Event, interval_seconds: int) -> None:
+    """Measure models the default profile cannot measure.
+
+    Nine enabled models have no data because a reasoning model spends the whole
+    64-token budget on hidden reasoning and emits nothing visible. These run
+    under `cloud-reasoning-v1` as shadow samples, which write to the probe
+    collection, never reach the site and never count as freshness.
+
+    Raising the budget for everything would change what every published number
+    means. Getting numbers for models that currently have none does not.
+    """
+    while not stop_event.wait(interval_seconds):
+        try:
+            _, db_name = mongo_env()
+            client = mongo_client()
+            try:
+                queued = reasoning_shadow.enqueue_shadow_samples(client[db_name])
+                if queued:
+                    print(f"Shadow profile queued {len(queued)}: {', '.join(queued)}", flush=True)
+            finally:
+                client.close()
+        except Exception as exc:  # noqa: BLE001
+            print(f"Shadow loop error: {type(exc).__name__}: {exc}", flush=True)
 
 
 def run_vertex_discovery_loop(*, stop_event: threading.Event, interval_seconds: int) -> None:
@@ -401,6 +442,15 @@ def daemon(
         name="classifier-loop",
         daemon=True,
     )
+    shadow_thread = threading.Thread(
+        target=run_shadow_loop,
+        kwargs={
+            "stop_event": stop_event,
+            "interval_seconds": int(os.getenv("BENCHMARK_SHADOW_INTERVAL_SECONDS", "3600")),
+        },
+        name="shadow-loop",
+        daemon=True,
+    )
     vertex_discovery_thread = threading.Thread(
         target=run_vertex_discovery_loop,
         kwargs={
@@ -419,6 +469,7 @@ def daemon(
     admission_thread.start()
     classifier_thread.start()
     vertex_discovery_thread.start()
+    shadow_thread.start()
     workers = start_provider_workers(providers=selected, cadence_seconds=cadence_seconds, stop_event=stop_event)
 
     while not stop_event.is_set():

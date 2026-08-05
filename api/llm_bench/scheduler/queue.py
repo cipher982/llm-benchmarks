@@ -19,7 +19,9 @@ TERMINAL_RETRYABLE_STATUSES = {"success", "failed", "timeout"}
 
 # Sample roles whose work is deliberately not published. Kept here rather than
 # imported from the runner so the queue does not pull in every provider module.
-NON_PUBLISHING_SAMPLE_ROLES = frozenset({"probe", "shadow"})
+SAMPLE_ROLE_PROBE = "probe"
+SAMPLE_ROLE_SHADOW = "shadow"
+NON_PUBLISHING_SAMPLE_ROLES = frozenset({SAMPLE_ROLE_PROBE, SAMPLE_ROLE_SHADOW})
 
 
 def utcnow() -> datetime:
@@ -232,11 +234,18 @@ def claim_next_job(
 def is_model_eligible(db: Database, *, provider: str, model_id: Any, sample_role: str = "published") -> bool:
     """True when the catalogue still wants this work done.
 
-    Published work requires an enabled model. Probe and shadow work requires the
-    opposite — a candidate under admission is deliberately not enabled yet, and
-    refusing to run its probe would make probe-before-promote impossible. The
-    `probing` status is what separates "not enabled because we are still
-    deciding" from "not enabled because we decided no".
+    Published work requires an enabled model.
+
+    A probe requires the opposite: a candidate under admission is deliberately
+    not enabled yet, and refusing to run its probe would make probe-before-
+    promote impossible. `probing` is what separates "not enabled because we are
+    still deciding" from "not enabled because we decided no".
+
+    A shadow sample is neither. It re-measures a model the site already wants
+    under a different benchmark profile, so it is legitimate for an enabled
+    model and for a candidate — the reasoning profile exists precisely to get
+    numbers for enabled models the default profile cannot measure. Requiring
+    `probing` here would have cancelled every one of those jobs as ineligible.
     """
     if not model_id:
         return False
@@ -246,8 +255,10 @@ def is_model_eligible(db: Database, *, provider: str, model_id: Any, sample_role
     )
     if not doc or doc.get("deprecated"):
         return False
-    if sample_role in NON_PUBLISHING_SAMPLE_ROLES:
+    if sample_role == SAMPLE_ROLE_PROBE:
         return doc.get("status") == "probing"
+    if sample_role in NON_PUBLISHING_SAMPLE_ROLES:
+        return bool(doc.get("enabled")) or doc.get("status") == "probing"
     return bool(doc.get("enabled"))
 
 

@@ -177,6 +177,30 @@ NON_PUBLISHING_ROLES = frozenset({SAMPLE_ROLE_PROBE, SAMPLE_ROLE_SHADOW})
 PROTOCOL_VERSION = 1
 DEFAULT_PROFILE_ID = "cloud-default-v1"
 
+# Profiles differ only in what they ask for. Which profile produced a row is
+# recorded on the row, so rows measured under different rules are never
+# averaged together by accident.
+#
+# `cloud-reasoning-v1` exists because a reasoning model spends the 64-token
+# budget on hidden reasoning and emits nothing visible, so the default profile
+# cannot measure it at all — nine models currently have no data for that reason.
+# It runs as a shadow sample, which writes to the probe collection and never
+# reaches the site. Whether these belong on the same chart as 64-token rows is a
+# publication decision; collecting the numbers is not.
+BENCHMARK_PROFILES: dict[str, dict[str, Any]] = {
+    DEFAULT_PROFILE_ID: {"max_tokens": MAX_TOKENS},
+    "cloud-reasoning-v1": {"max_tokens": int(os.getenv("BENCHMARK_REASONING_MAX_TOKENS", "2048"))},
+}
+
+
+def profile_max_tokens(profile_id: str) -> int:
+    """The token budget a profile asks for, falling back to the default.
+
+    An unknown profile id must not silently become a different measurement, so
+    it resolves to the default rather than to zero or to whatever it names.
+    """
+    return int(BENCHMARK_PROFILES.get(profile_id, BENCHMARK_PROFILES[DEFAULT_PROFILE_ID])["max_tokens"])
+
 
 def log_success_mongo(config: CloudConfig, metrics: dict[str, Any], *, sample_role: str) -> None:
     """Write one sample to the collection its role belongs in."""
@@ -203,6 +227,8 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
         return RunnerResult(status="success")
 
     sample_role = str(job.get("sample_role") or SAMPLE_ROLE_PUBLISHED)
+    profile_id = str(job.get("benchmark_profile_id") or DEFAULT_PROFILE_ID)
+    max_tokens = profile_max_tokens(profile_id)
     run_ts = get_current_timestamp()
     model_config = CloudConfig(
         provider=provider,
@@ -213,7 +239,7 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
     )
     run_config = {
         "query": QUERY_TEXT,
-        "max_tokens": MAX_TOKENS,
+        "max_tokens": max_tokens,
     }
 
     try:
@@ -238,7 +264,7 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
         print(f"Error {provider}:{model_id} - {msg}", flush=True)
         return RunnerResult(status="error", error_kind=error_kind, error_message=msg)
 
-    ok, why = validate_metrics(provider, metrics, MAX_TOKENS)
+    ok, why = validate_metrics(provider, metrics, max_tokens)
     if not ok:
         error_kind = log_error_mongo(provider=provider, model_id=model_id, stage="validate", message=str(why))
         print(f"Error {provider}:{model_id} - {why}", flush=True)
@@ -250,7 +276,8 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
     # spike found 975 of 1,182 Together rows came from multi-attempt retries
     # with no way to tell from the row itself.
     metrics["sample_role"] = sample_role
-    metrics["benchmark_profile_id"] = str(job.get("benchmark_profile_id") or DEFAULT_PROFILE_ID)
+    metrics["benchmark_profile_id"] = profile_id
+    metrics["requested_max_tokens"] = max_tokens
     metrics["protocol_version"] = PROTOCOL_VERSION
     metrics["attempt_group"] = str(job.get("_id"))
     metrics["attempt"] = int(job.get("attempt") or 1)

@@ -355,6 +355,73 @@ async def classify_unclassified_rollups(
         client.close()
 
 
+def propagate_classifications(client: MongoClient, db_name: str) -> dict[str, int]:
+    """Copy resolved kinds onto the error rows and jobs that act on them.
+
+    The classifier writes its verdict on a rollup, keyed by fingerprint. Nothing
+    reads rollups. Retry policy reads `last_attempt_error_kind` on the job, the
+    catalogue tools read the same field, and the error history is read per row.
+    So a model could be correctly diagnosed as permanently gone and still be
+    retried forever, because the diagnosis and the decision were looking at
+    different documents.
+
+    A job is only adopted from the newest error recorded for that model, and
+    only when the job still says `unknown`. Matching on anything older would let
+    a stale fingerprint overwrite a newer, different failure — which is worse
+    than leaving it unknown, because it would look authoritative.
+    """
+    # Canonical helpers, not hand-written env names. Inventing
+    # `MONGODB_COLLECTION_JOBS` here read a different variable from the one the
+    # scheduler uses, so this silently updated nothing while reporting success.
+    from llm_bench.scheduler.mongo import error_rollups_collection_name
+    from llm_bench.scheduler.mongo import errors_collection_name
+    from llm_bench.scheduler.mongo import jobs_collection_name
+
+    db = client[db_name]
+    rollups = db[error_rollups_collection_name()]
+    errors = db[errors_collection_name()]
+    jobs = db[jobs_collection_name()]
+
+    resolved = {
+        row["fingerprint"]: row["error_kind"]
+        for row in rollups.find(
+            {"classified_by": "llm", "error_kind": {"$nin": [None, "unknown"]}},
+            {"fingerprint": 1, "error_kind": 1},
+        )
+        if row.get("fingerprint")
+    }
+    if not resolved:
+        return {"errors_updated": 0, "jobs_updated": 0}
+
+    stats = {"errors_updated": 0, "jobs_updated": 0}
+    for fingerprint, kind in resolved.items():
+        result = errors.update_many(
+            {"fingerprint": fingerprint, "error_kind": {"$in": [None, "unknown"]}},
+            {"$set": {"error_kind": kind, "reclassified_by": "llm"}},
+        )
+        stats["errors_updated"] += result.modified_count
+
+    for job in jobs.find(
+        {"status": "dead_letter", "last_attempt_error_kind": "unknown"},
+        {"provider": 1, "model_id": 1},
+    ):
+        newest = errors.find_one(
+            {"provider": job["provider"], "model_name": job["model_id"]},
+            {"fingerprint": 1},
+            sort=[("ts", -1)],
+        )
+        kind = resolved.get((newest or {}).get("fingerprint"))
+        if not kind:
+            continue
+        jobs.update_one(
+            {"_id": job["_id"]},
+            {"$set": {"last_attempt_error_kind": kind, "reclassified_by": "llm"}},
+        )
+        stats["jobs_updated"] += 1
+
+    return stats
+
+
 # CLI interface
 async def main_async():
     """Main entry point for CLI usage."""
