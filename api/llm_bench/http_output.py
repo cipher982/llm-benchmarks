@@ -21,6 +21,54 @@ def _error_url() -> str:
     return f"{base}/error" if base else ""
 
 
+def _catalog_url() -> str:
+    override = os.getenv("INGEST_CATALOG_URL")
+    if override:
+        return override
+    base = (os.getenv("INGEST_API_URL") or "").rstrip("/")
+    return f"{base}/catalog" if base else ""
+
+
+def post_catalog(
+    provider: str,
+    models: list[dict],
+    *,
+    pagination_complete: bool = True,
+    started_at: str | None = None,
+    timeout: float = 60.0,
+) -> bool:
+    """Send a completed catalogue read to the ingest bridge.
+
+    Providers are normally discovered by a Sauron job on clifford, which reads a
+    /models endpoint with a bearer token. Bedrock cannot be discovered that way:
+    it is listed under this instance's IAM role and clifford holds no AWS
+    credentials for it, so `discovery_completed_recently` had no way to ever pass
+    for Bedrock. The runner that already holds the role does the read instead.
+    """
+    url = _catalog_url()
+    api_key = os.getenv("INGEST_API_KEY")
+    if not url or not api_key:
+        logger.error("Cannot post catalog: INGEST_API_URL/INGEST_API_KEY not set")
+        return False
+
+    payload = {
+        "provider": provider,
+        "models": models,
+        "pagination_complete": pagination_complete,
+        "started_at": started_at,
+    }
+    try:
+        response = httpx.post(
+            url, json=payload, headers={"X-API-Key": api_key, "Content-Type": "application/json"}, timeout=timeout
+        )
+        response.raise_for_status()
+        logger.info(f"Posted {len(models)} {provider} catalog entries")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"Failed to post {provider} catalog: {exc}")
+        return False
+
+
 def log_http_error(config, *, message: str, stage: str = "generate", exc_type: str = "") -> bool:
     """POST a failed attempt to the remote ingest API.
 

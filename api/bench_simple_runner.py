@@ -25,6 +25,7 @@ import httpx
 from llm_bench.config import CloudConfig
 from llm_bench.http_output import log_http
 from llm_bench.http_output import log_http_error
+from llm_bench.http_output import post_catalog as log_catalog
 
 
 def get_current_timestamp() -> str:
@@ -206,6 +207,66 @@ def run_single_benchmark(provider: str, model: str, model_metadata: dict | None 
         fail("Failed to post results to ingest API", stage="ingest")
 
     return success
+
+
+# How often to re-read the provider's catalogue. Well inside the 48h the
+# discovery invariant allows, so one failed read is not a violation.
+CATALOG_SYNC_INTERVAL_SECONDS = int(os.getenv("RUNNER_CATALOG_INTERVAL_SECONDS", str(12 * 60 * 60)))
+_last_catalog_sync = 0.0
+
+
+def sync_provider_catalog(provider: str) -> bool:
+    """Read the provider's model list and post it to the ingest bridge.
+
+    Only Bedrock, because only Bedrock has this problem: every other provider is
+    discovered by a Sauron job on clifford, and Bedrock's listing needs the IAM
+    role this instance runs under.
+
+    A failure is logged and swallowed. Discovery going stale is a reporting
+    problem; it must not stop the machine from benchmarking.
+    """
+    if provider != "bedrock":
+        return False
+
+    started_at = get_current_timestamp()
+    try:
+        import boto3
+
+        client = boto3.client("bedrock", region_name=os.getenv("AWS_REGION", "us-east-1"))
+        # list_foundation_models is a single unpaginated response; if that ever
+        # changes, this reports incomplete rather than pretending otherwise.
+        response = client.list_foundation_models()
+        summaries = response.get("modelSummaries") or []
+        complete = "nextToken" not in response
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"Bedrock catalog read failed: {type(exc).__name__}: {exc}")
+        return False
+
+    models = [
+        {
+            "model_id": row["modelId"],
+            "name": row.get("modelName") or row["modelId"],
+            "raw": {
+                "providerName": row.get("providerName"),
+                "outputModalities": row.get("outputModalities"),
+                "inferenceTypesSupported": row.get("inferenceTypesSupported"),
+                "modelLifecycle": row.get("modelLifecycle"),
+            },
+        }
+        for row in summaries
+        if row.get("modelId")
+    ]
+    return log_catalog(provider, models, pagination_complete=complete, started_at=started_at)
+
+
+def maybe_sync_catalog(provider: str) -> None:
+    """Sync at startup and then on an interval."""
+    global _last_catalog_sync
+    now = time.monotonic()
+    if _last_catalog_sync and now - _last_catalog_sync < CATALOG_SYNC_INTERVAL_SECONDS:
+        return
+    if sync_provider_catalog(provider):
+        _last_catalog_sync = now
 
 
 def parse_models_arg(models_str: str) -> List[str]:
@@ -433,6 +494,10 @@ def main():
                 logger.info(f"Next config attempt in {interval_minutes} minutes...")
                 time.sleep(interval_seconds)
                 continue
+
+            # Before the cycle, so a catalogue read failing cannot be mistaken
+            # for the benchmark cycle failing.
+            maybe_sync_catalog(args.provider)
 
             logger.info(f"Models ({cycle_config.source}): {models}")
             logger.info("=== Starting benchmark cycle ===")

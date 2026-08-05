@@ -125,3 +125,79 @@ class _ok:
 
     def raise_for_status(self):
         return None
+
+
+def test_bedrock_catalog_sync_posts_the_listing():
+    """Bedrock is the one provider Sauron cannot discover.
+
+    Its listing needs the EC2 instance's IAM role, and clifford holds no AWS
+    credentials for it, so `discovery_completed_recently` could never pass for
+    Bedrock until the runner did the read itself.
+    """
+    listing = {
+        "modelSummaries": [
+            {
+                "modelId": "us.anthropic.claude-opus-4-7",
+                "modelName": "Claude Opus 4.7",
+                "providerName": "Anthropic",
+                "outputModalities": ["TEXT"],
+            },
+            {"modelId": "amazon.nova-pro-v1:0", "modelName": "Nova Pro"},
+        ]
+    }
+    posted = {}
+
+    class FakeBedrock:
+        def list_foundation_models(self):
+            return listing
+
+    fake_boto3 = type("boto3", (), {"client": staticmethod(lambda *a, **k: FakeBedrock())})
+
+    with (
+        patch.dict("sys.modules", {"boto3": fake_boto3}),
+        patch.object(
+            runner, "log_catalog", side_effect=lambda p, m, **kw: posted.update({"p": p, "m": m, **kw}) or True
+        ),
+    ):
+        assert runner.sync_provider_catalog("bedrock") is True
+
+    assert posted["p"] == "bedrock"
+    assert [m["model_id"] for m in posted["m"]] == ["us.anthropic.claude-opus-4-7", "amazon.nova-pro-v1:0"]
+    # No nextToken in the response, so the read was complete.
+    assert posted["pagination_complete"] is True
+
+
+def test_a_paginated_bedrock_listing_reports_incomplete():
+    """A partial read must never look like a complete one; deprecation
+    decisions are downstream of this flag."""
+
+    class FakeBedrock:
+        def list_foundation_models(self):
+            return {"modelSummaries": [{"modelId": "a"}], "nextToken": "more"}
+
+    fake_boto3 = type("boto3", (), {"client": staticmethod(lambda *a, **k: FakeBedrock())})
+    posted = {}
+
+    with (
+        patch.dict("sys.modules", {"boto3": fake_boto3}),
+        patch.object(runner, "log_catalog", side_effect=lambda p, m, **kw: posted.update(kw) or True),
+    ):
+        runner.sync_provider_catalog("bedrock")
+
+    assert posted["pagination_complete"] is False
+
+
+def test_catalog_sync_is_bedrock_only():
+    assert runner.sync_provider_catalog("openai") is False
+
+
+def test_a_failed_catalog_read_does_not_stop_benchmarking():
+    """Discovery going stale is a reporting problem, not a reason to stop
+    measuring."""
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("no credentials")
+
+    fake_boto3 = type("boto3", (), {"client": staticmethod(explode)})
+    with patch.dict("sys.modules", {"boto3": fake_boto3}):
+        assert runner.sync_provider_catalog("bedrock") is False
