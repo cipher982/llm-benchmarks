@@ -82,14 +82,31 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
         selected = _selected_providers(providers, provider_models)
         health.refresh_all_model_docs(db, cadence_seconds=cadence_seconds, now=now)
         for provider in selected:
-            models = provider_models.get(provider, [])[:limit]
-            for model_id in models:
+            # Every model is considered; the cap bounds how much work one pass
+            # creates, not which models are allowed to exist.
+            #
+            # This used to slice the model list — `models[:limit]` — which with
+            # 112 DeepInfra models and a limit of 100 meant twelve of them were
+            # never scheduled at all. Always the same twelve, because the order
+            # is stable, and one more each time a model was added. They had run
+            # successfully months earlier and then simply stopped, with no
+            # error, no dead letter and nothing disabled. Admission adds models
+            # continuously, so the slice was a coverage leak that widened on its
+            # own.
+            candidates = []
+            for model_id in provider_models.get(provider, []):
                 doc = health.health_collection(db).find_one({"provider": provider, "model_id": model_id})
                 if not doc:
                     continue
                 if doc.get("freshness_status") not in {"stale", "critical", "never_run"}:
                     continue
-                priority = _freshness_priority(doc, cadence_seconds)
+                candidates.append((_freshness_priority(doc, cadence_seconds), model_id))
+
+            # Stalest first, so a pass that cannot cover everything covers what
+            # has waited longest. A model starved by one pass is at the front of
+            # the next, which a fixed slice could never do.
+            candidates.sort(key=lambda item: -item[0])
+            for priority, model_id in candidates[:limit]:
                 if queue.enqueue_scheduled_job(db, provider=provider, model_id=model_id, priority=priority, now=now):
                     enqueued += 1
         health.heartbeat(
