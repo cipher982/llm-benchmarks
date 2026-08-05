@@ -224,3 +224,25 @@ Categories: `gotcha`, `pattern`, `deploy`, `perf`, `data`.
   Two guards matter: only unify across providers, and never rename onto a name
   the same provider already publishes — both merge deployments instead of
   adding a provider.
+- (2026-08-05) [gotcha] A bounded list is a coverage leak when the bound is
+  applied to *which* items are considered rather than how much work one pass
+  creates. `scheduler_pass` sliced each provider's models at `--limit` (100);
+  DeepInfra had 112, so the same twelve were never scheduled — no error, no
+  dead letter, nothing disabled — and one more fell off every time admission
+  added a model. Cap the work, order by staleness, never slice the population.
+- (2026-08-05) [pattern] A permanently red check is as useless as no check.
+  The staleness horizon multiplied the invariant loop's cadence (how often we
+  look) instead of the measurement period (how often a model's turn comes
+  around, measured at 45 min), so thirteen healthy models were reported starved
+  on every run. Measure the real period before setting a threshold against it.
+- (2026-08-05) [data] `unknown` was carrying three verdicts: deleted models,
+  dedicated-endpoint refusals (Together/Fireworks answer 400, not 404), and
+  reasoning models that spend the whole 64-token budget before emitting
+  anything visible. The last is not a failure — it is the profile failing to
+  measure the model — and is now `budget_exhausted`, terminal without
+  quarantine. `llm_error_classifier.py` has no caller anywhere, so nothing ever
+  resolves what is left in `unknown`.
+- (2026-08-05) [gotcha] `invariants.evaluate` writes to `bench_check_runs` by
+  default. Pass `record=False` for any exploratory or fault-injection run: the
+  watchdog endpoint and the external dead man both read the newest row, so a
+  deliberate failure written there pages for a fault that is already gone.
