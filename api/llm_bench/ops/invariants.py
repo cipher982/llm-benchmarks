@@ -38,7 +38,7 @@ from llm_bench.scheduler.mongo import metrics_collection_name
 from llm_bench.scheduler.mongo import models_collection_name
 
 # Thresholds are versioned so a check run records which rules produced it.
-THRESHOLD_VERSION = 3
+THRESHOLD_VERSION = 4
 
 # Discovery runs daily; two missed runs is a signal, one is a blip.
 DISCOVERY_MAX_AGE = timedelta(hours=48)
@@ -280,6 +280,52 @@ def every_provider_is_progressing(ctx: Context) -> list[Violation]:
     ]
 
 
+def _unmeasurable_by_profile(ctx: Context) -> set[tuple[str, str]]:
+    """Models whose newest attempt exhausted the published profile's budget.
+
+    Read from what the runner recorded, not from a list of model names. A model
+    that starts fitting inside the budget stops qualifying on its own.
+    """
+    return {
+        (job["provider"], job["model_id"])
+        for job in ctx.db[jobs_collection_name()].find(
+            {"last_attempt_error_kind": "budget_exhausted"},
+            {"provider": 1, "model_id": 1},
+        )
+    }
+
+
+def models_measurable_by_the_published_profile(ctx: Context) -> list[Violation]:
+    """Every enabled model can actually be measured by the profile we publish.
+
+    Ten enabled models cannot. They answer correctly and quickly; the 64-token
+    budget is spent on hidden reasoning before they emit anything visible, so
+    they produce no publishable row however often they are scheduled.
+
+    This is reported separately from starvation because the two need opposite
+    responses. A starved model is a scheduling fault and someone should fix the
+    scheduler. A model the profile cannot measure is a measurement-design
+    question, and scheduling it harder only spends money.
+
+    It is a violation rather than a silent exemption because the site claims to
+    measure these models and does not. The shadow profile is collecting real
+    numbers for them; the open question is whether those numbers may be
+    published alongside 64-token rows.
+    """
+    unmeasurable = _unmeasurable_by_profile(ctx)
+    if not unmeasurable:
+        return []
+    enabled = set(desired_set_module.capture_view(ctx.db))
+    return [
+        Violation(
+            subject=f"{provider}/{model_id}",
+            detail="enabled, but the published 64-token profile cannot produce a visible-token measurement",
+            data={"provider": provider, "model_id": model_id},
+        )
+        for provider, model_id in sorted(unmeasurable & enabled)
+    ]
+
+
 def desired_models_are_being_measured(ctx: Context) -> list[Violation]:
     """Every model the system intended to measure has recent data.
 
@@ -287,15 +333,25 @@ def desired_models_are_being_measured(ctx: Context) -> list[Violation]:
     starved model does not retroactively make this pass. A model that has since
     been removed from the catalogue is still reported, tagged with that fact, so
     the shrinkage is visible in the same result rather than hidden by it.
+
+    A model the published profile cannot measure is not starved. A reasoning
+    model spends the whole 64-token budget on hidden reasoning and emits nothing
+    visible, so it will never produce a published row no matter how often it is
+    scheduled. Counting those here would make this check permanently red for a
+    reason no amount of scheduling can fix, and a check that can never go green
+    is one people stop reading — which is how the eight-day outage stayed
+    invisible. They are reported by `models_measurable_by_the_published_profile`
+    instead, where the number means something that can be acted on.
     """
     desired = ctx.desired
     horizon = ctx.now - MODEL_MEASUREMENT_PERIOD * MODEL_STALENESS_MULTIPLIER
     fresh = set(ctx.db[metrics_collection_name()].distinct("model_name", {"run_ts": {"$gte": horizon}}))
     still_enabled = set(desired_set_module.capture_view(ctx.db))
+    unmeasurable = _unmeasurable_by_profile(ctx)
 
     violations = []
     for provider, model_id in desired.models:
-        if model_id in fresh:
+        if model_id in fresh or (provider, model_id) in unmeasurable:
             continue
         removed = (provider, model_id) not in still_enabled
         violations.append(
@@ -526,6 +582,11 @@ INVARIANTS: list[Invariant] = [
         "desired_models_are_being_measured",
         "Every model in the settled desired set has a recent successful measurement",
         desired_models_are_being_measured,
+    ),
+    Invariant(
+        "models_measurable_by_the_published_profile",
+        "Every enabled model can produce a publishable measurement under the published profile",
+        models_measurable_by_the_published_profile,
     ),
     Invariant(
         "desired_set_is_not_silently_shrinking",
