@@ -33,6 +33,19 @@ def test_a_dedicated_endpoint_refusal_is_a_hard_model():
     assert classify_error(message=message).kind is ErrorKind.HARD_MODEL
 
 
+def test_a_retired_bedrock_version_is_a_hard_model():
+    """Bedrock answers ResourceNotFoundException with no status to key on.
+
+    All three Bedrock models that had gone quiet turned out to be saying this,
+    and nobody could see it because the runner had no way to report a failure.
+    """
+    message = (
+        "ResourceNotFoundException: An error occurred (ResourceNotFoundException) when calling the "
+        "ConverseStream operation: This model version has reached the end of its life."
+    )
+    assert classify_error(message=message).kind is ErrorKind.HARD_MODEL
+
+
 def test_a_deleted_model_is_still_unknown_here():
     """OpenAI's 400 for a deleted model has no status signal to key on.
 

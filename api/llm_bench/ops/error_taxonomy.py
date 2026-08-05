@@ -102,6 +102,12 @@ def classify_error(*, message: str, exc_type: str = "") -> ClassifiedError:
     if "'code': 'model_not_available'" in raw or '"code": "model_not_available"' in raw:
         return ClassifiedError(kind=ErrorKind.HARD_MODEL, normalized_message=normalized, http_status=http_status)
 
+    # Bedrock retires model versions and answers ResourceNotFoundException with
+    # this phrase and no HTTP status to key on. As terminal as a 404 — the
+    # version is gone and no retry brings it back.
+    if "reached the end of its life" in normalized:
+        return ClassifiedError(kind=ErrorKind.HARD_MODEL, normalized_message=normalized, http_status=http_status)
+
     # Together and Fireworks answer 400 for a model that exists but is only
     # reachable through a dedicated endpoint. The account cannot call it, which
     # is the same practical outcome as a 404 — and leaving it UNKNOWN means it
