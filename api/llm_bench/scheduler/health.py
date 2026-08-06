@@ -55,6 +55,18 @@ def ensure_indexes(db: Database) -> None:
         [("provider", 1), ("model_name", 1), ("run_ts", -1)],
         background=True,
     )
+    # liveness_status() asks for the newest completed benchmark across the
+    # configured providers, sorting on gen_ts then run_ts. No index above serves
+    # that sort: gen_ts only ever appears behind model_name, so Mongo fetched
+    # every document for the provider and sorted them in memory -- 426,588 docs
+    # examined to return 1, about 1.6s per provider. The container healthcheck
+    # runs that on all eight every 60s, which is why the probe took 9.5s against
+    # a 10s timeout and flapped the container unhealthy while it was fine.
+    # Matching the full sort key takes it to 1 document examined.
+    db[metrics_collection_name()].create_index(
+        [("provider", 1), ("gen_ts", -1), ("run_ts", -1)],
+        background=True,
+    )
     db[errors_collection_name()].create_index(
         [("provider", 1), ("model_name", 1), ("ts", -1), ("error_kind", 1)],
         background=True,
