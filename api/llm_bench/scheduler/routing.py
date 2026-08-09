@@ -145,7 +145,8 @@ class RouteDecision:
 
         fields = self.as_dict()
         fields.pop("reason", None)
-        fields["transport_attempt"] = self.transport_provider
+        fields["route_state"] = fields.pop("state")
+        fields["transport_attempt"] = "route" if self.transport_provider == OPENROUTER_TRANSPORT else DIRECT_TRANSPORT
         fields["route_reason"] = self.reason
         return fields
 

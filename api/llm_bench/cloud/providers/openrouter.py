@@ -66,8 +66,9 @@ def _route_options(config: CloudConfig) -> dict[str, Any]:
 
 
 def _request_stream(client: OpenAI, config: CloudConfig, run_config: dict[str, Any]):
+    model_id = config.transport_model_id or config.model_name
     kwargs: dict[str, Any] = {
-        "model": config.model_name,
+        "model": model_id,
         "messages": [{"role": "user", "content": run_config["query"]}],
         "max_tokens": run_config["max_tokens"],
         "stream": True,
@@ -152,7 +153,9 @@ def _observed_provider(metadata: Mapping[str, Any] | None) -> tuple[str | None, 
 def generate(config: CloudConfig, run_config: dict) -> dict:
     """Run OpenRouter inference and return usage-backed metrics."""
 
-    assert config.provider == "openrouter", "provider must be 'openrouter'"
+    assert (
+        config.provider == "openrouter" or config.transport_provider == "openrouter"
+    ), "provider or transport_provider must be 'openrouter'"
     assert "query" in run_config, "query must be in run_config"
     assert "max_tokens" in run_config, "max_tokens must be in run_config"
 

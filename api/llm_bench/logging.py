@@ -66,6 +66,7 @@ OPTIONAL_METRIC_FIELDS = (
     "fallback_reason",
     "route_reason",
     "provider_metadata_verified",
+    "route_state",
 )
 
 
@@ -113,10 +114,12 @@ def insert_into_benchmark_metrics(data: dict, collection: Collection) -> None:
 
 def log_json(model_type: str, config: Union[ModelConfig, CloudConfig], metrics: Dict[str, Any], file_path: str) -> None:
     """Logs the metrics to a JSON file for a model run."""
+    source_model_id = getattr(config, "source_model_id", config.model_name)
+    source_provider = getattr(config, "source_provider", getattr(config, "provider", None))
     log_entry = {
         "timestamp": get_current_timestamp(),
         "model_type": model_type,
-        "model_name": config.model_name,
+        "model_name": source_model_id,
         "temperature": config.temperature,
         "requested_tokens": metrics["requested_tokens"],
         "output_tokens": metrics["output_tokens"],
@@ -141,7 +144,7 @@ def log_json(model_type: str, config: Union[ModelConfig, CloudConfig], metrics: 
         assert isinstance(config, CloudConfig)
         log_entry.update(
             {
-                "provider": config.provider,
+                "provider": source_provider,
                 "time_to_first_token": metrics["time_to_first_token"],
                 "times_between_tokens": metrics["times_between_tokens"],
             }
@@ -206,6 +209,8 @@ def log_mongo(
     logger.info(f"Logging metrics to MongoDB for {model_type} model {config.model_name}")
     try:
         collection = setup_database(uri, db_name, collection_name)
+        source_model_id = getattr(config, "source_model_id", config.model_name)
+        source_provider = getattr(config, "source_provider", getattr(config, "provider", None))
 
         # Settimestamps correctly
         run_ts_utc = datetime.strptime(config.run_ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.UTC)
@@ -213,7 +218,7 @@ def log_mongo(
 
         data = {
             "run_ts": run_ts_utc,
-            "model_name": config.model_name,
+            "model_name": source_model_id,
             "temperature": config.temperature,
             "gen_ts": gen_ts_utc,
             "requested_tokens": metrics["requested_tokens"],
@@ -239,7 +244,7 @@ def log_mongo(
             assert isinstance(config, CloudConfig)
             data.update(
                 {
-                    "provider": config.provider,
+                    "provider": source_provider,
                     "time_to_first_token": metrics["time_to_first_token"],
                     "times_between_tokens": metrics["times_between_tokens"],
                 }

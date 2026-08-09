@@ -2,6 +2,7 @@ from datetime import datetime
 from datetime import timezone
 
 import mongomock
+from llm_bench import logging as benchmark_logging
 from llm_bench.scheduler import queue
 from llm_bench.scheduler.routing import DIRECT_TRANSPORT
 from llm_bench.scheduler.routing import OPENROUTER_TRANSPORT
@@ -116,3 +117,38 @@ def test_queue_persists_a_frozen_route_snapshot():
     saved = db.bench_jobs.find_one({"provider": "deepinfra"})
     assert saved["route_snapshot"]["state"] == "active"
     assert saved["route_snapshot"]["queued_at"] == "2026-08-09T00:00:00+00:00"
+
+
+def test_metric_writer_keeps_source_identity_for_routed_config(monkeypatch):
+    inserted = {}
+
+    class Collection:
+        def insert_one(self, data):
+            inserted.update(data)
+
+    monkeypatch.setattr(benchmark_logging, "setup_database", lambda *args: Collection())
+    config = benchmark_logging.CloudConfig(
+        provider="deepinfra",
+        model_name="Qwen/Qwen3-32B",
+        run_ts="2026-08-09 00:00:00",
+        temperature=0.1,
+        transport_provider="openrouter",
+        transport_model_id="qwen/qwen3-32b",
+    )
+    metrics = {
+        "gen_ts": "2026-08-09 00:00:01",
+        "requested_tokens": 64,
+        "output_tokens": 64,
+        "generate_time": 1.0,
+        "tokens_per_second": 64.0,
+        "time_to_first_token": 0.1,
+        "times_between_tokens": [],
+        "transport_provider": "openrouter",
+        "route_model_id": "qwen/qwen3-32b",
+    }
+
+    benchmark_logging.log_mongo("cloud", config, metrics, "mongodb://test", "db", "metrics")
+
+    assert inserted["provider"] == "deepinfra"
+    assert inserted["model_name"] == "Qwen/Qwen3-32B"
+    assert inserted["transport_provider"] == "openrouter"

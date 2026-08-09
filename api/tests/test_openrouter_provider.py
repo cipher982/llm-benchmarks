@@ -63,6 +63,29 @@ def test_route_request_is_pinned_and_fallbacks_are_disabled(monkeypatch):
     assert metrics["token_source"] == "provider_usage_completion_tokens"
 
 
+def test_transport_model_id_is_used_without_changing_source_identity(monkeypatch):
+    usage = SimpleNamespace(completion_tokens=4, prompt_tokens=3, total_tokens=7, completion_tokens_details=None)
+    client = FakeClient([_chunk("answer", finish_reason="stop"), _chunk(usage=usage)])
+    monkeypatch.setattr(openrouter, "OpenAI", lambda **kwargs: client)
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "https://openrouter.example/v1")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    config = CloudConfig(
+        provider="deepinfra",
+        model_name="Qwen/Qwen3-32B",
+        run_ts="2026-08-09 00:00:00",
+        temperature=0.1,
+        transport_provider="openrouter",
+        transport_model_id="qwen/qwen3-32b",
+        misc={"route_provider_slug": "deepinfra"},
+    )
+
+    openrouter.generate(config, {"query": "hi", "max_tokens": 64})
+
+    assert client.completions.calls[0]["model"] == "qwen/qwen3-32b"
+    assert config.source_provider == "deepinfra"
+    assert config.source_model_id == "Qwen/Qwen3-32B"
+
+
 def test_stream_chunks_are_not_counted_as_tokens(monkeypatch):
     client = FakeClient([_chunk("a"), _chunk("b"), _chunk("c", finish_reason="stop")])
     monkeypatch.setattr(openrouter, "OpenAI", lambda **kwargs: client)
