@@ -116,3 +116,37 @@ def test_route_metadata_and_response_id_are_preserved(monkeypatch):
     assert metrics["observed_provider"] == "DeepInfra"
     assert metrics["observed_provider_slug"] == "deepinfra"
     assert metrics["openrouter_response_id"] == "resp-1"
+
+
+def test_selected_endpoint_metadata_and_timeout_are_parsed(monkeypatch):
+    usage = SimpleNamespace(completion_tokens=4, prompt_tokens=3, total_tokens=7, completion_tokens_details=None)
+    client = FakeClient(
+        [
+            _chunk(
+                "answer",
+                finish_reason="stop",
+                metadata={
+                    "endpoints": {"available": [{"selected": True, "provider": "DeepInfra", "slug": "deepinfra"}]}
+                },
+            ),
+            _chunk(usage=usage),
+        ]
+    )
+    observed = {}
+
+    def make_client(**kwargs):
+        observed.update(kwargs)
+        return client
+
+    monkeypatch.setattr(openrouter, "OpenAI", make_client)
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "https://openrouter.example/v1")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    config = _config(route_provider_slug="deepinfra")
+    config.misc["timeout_seconds"] = 17
+
+    metrics = openrouter.generate(config, {"query": "hi", "max_tokens": 64})
+
+    assert observed["timeout"] == 17
+    assert metrics["observed_provider"] == "DeepInfra"
+    assert metrics["observed_provider_slug"] == "deepinfra"
+    assert metrics["provider_metadata_verified"] is True

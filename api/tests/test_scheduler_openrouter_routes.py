@@ -16,6 +16,10 @@ def active_snapshot(**overrides):
         "provider_metadata_verified": True,
         "route_snapshot_at": "2026-08-09T00:00:00+00:00",
         "route_probe_id": "probe-1",
+        "canary_id": "canary-1",
+        "canary_state": "passed",
+        "canary_successes": 2,
+        "canary_required_successes": 2,
     }
     value.update(overrides)
     return value
@@ -73,11 +77,37 @@ def test_active_route_is_opt_in_and_preserves_source_identity(monkeypatch):
     assert calls == ["openrouter"]
     assert configs[0].provider == "openrouter"
     assert configs[0].model_name == "qwen/qwen3-32b"
+    assert configs[0].misc["timeout_seconds"] == 40
     assert configs[0].source_provider == "deepinfra"
     assert configs[0].source_model_id == "Qwen/Qwen3-32B"
     assert written["metrics"]["source_provider"] == "deepinfra"
     assert written["metrics"]["transport_provider"] == "openrouter"
     assert written["metrics"]["route_model_id"] == "qwen/qwen3-32b"
+
+
+def test_completed_request_provider_identity_wins_over_snapshot(monkeypatch):
+    written = {}
+
+    def load(provider):
+        return lambda config, run_config: metrics(
+            observed_provider="Actual DeepInfra",
+            observed_provider_slug="deepinfra",
+            provider_metadata_verified=True,
+        )
+
+    monkeypatch.setenv("OPENROUTER_ROUTING_ENABLED", "1")
+    monkeypatch.setattr(runner, "load_provider_func", load)
+    monkeypatch.setattr(
+        runner,
+        "log_success_mongo",
+        lambda config, metrics, *, sample_role: written.update(metrics=metrics),
+    )
+
+    result = runner.run_benchmark_job(job())
+
+    assert result.status == "success"
+    assert written["metrics"]["observed_provider"] == "Actual DeepInfra"
+    assert written["metrics"]["observed_provider_slug"] == "deepinfra"
 
 
 def test_route_snapshot_stays_direct_when_activation_is_disabled(monkeypatch):
@@ -138,6 +168,8 @@ def test_route_failure_gets_a_separate_direct_recovery_attempt(monkeypatch):
     assert result.fallback_reason == "RuntimeError: route unavailable"
     assert calls == ["openrouter", "deepinfra"]
     assert errors[0]["stage"] == "route_generate"
+    assert errors[0]["provenance"]["route_model_id"] == "qwen/qwen3-32b"
+    assert errors[0]["provenance"]["route_provider_slug"] == "deepinfra"
     assert written["metrics"]["transport_provider"] == "direct"
     assert written["metrics"]["fallback_reason"] == "RuntimeError: route unavailable"
     assert written["config"].source_provider == "deepinfra"

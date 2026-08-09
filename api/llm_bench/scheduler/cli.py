@@ -26,6 +26,7 @@ from llm_bench.scheduler import policies
 from llm_bench.scheduler import queue
 from llm_bench.scheduler.mongo import mongo_client
 from llm_bench.scheduler.mongo import mongo_env
+from llm_bench.scheduler.mongo import route_snapshot
 from llm_bench.scheduler.reaper import run_reaper_loop
 from llm_bench.scheduler.reaper import run_reaper_pass
 from llm_bench.scheduler.runner import PROVIDER_MODULES
@@ -113,7 +114,14 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
             # the next, which a fixed slice could never do.
             candidates.sort(key=lambda item: -item[0])
             for priority, model_id in candidates[:limit]:
-                if queue.enqueue_scheduled_job(db, provider=provider, model_id=model_id, priority=priority, now=now):
+                if queue.enqueue_scheduled_job(
+                    db,
+                    provider=provider,
+                    model_id=model_id,
+                    priority=priority,
+                    now=now,
+                    route_snapshot=route_snapshot(db, provider=provider, model_id=model_id),
+                ):
                     enqueued += 1
         health.heartbeat(
             db,

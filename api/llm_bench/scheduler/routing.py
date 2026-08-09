@@ -57,6 +57,10 @@ class RouteDecision:
     route_snapshot_at: str | None = None
     route_probe_id: str | None = None
     route_decision_version: str = ROUTE_DECISION_VERSION
+    route_canary_id: str | None = None
+    route_canary_state: str | None = None
+    route_canary_successes: int | None = None
+    route_canary_required_successes: int | None = None
     state: str = "direct"
     reason: str = "missing-route-snapshot"
 
@@ -99,6 +103,20 @@ class RouteDecision:
             return cls.direct(source_provider, source_model_id, reason="invalid-route-transport")
         if snapshot.get("route_policy") != PINNED_PROVIDER_POLICY:
             return cls.direct(source_provider, source_model_id, reason="invalid-route-policy")
+        canary_state = snapshot.get("canary_state")
+        canary_id = snapshot.get("canary_id")
+        try:
+            canary_successes = int(snapshot.get("canary_successes", 0))
+            canary_required_successes = int(snapshot.get("canary_required_successes", 0))
+        except (TypeError, ValueError):
+            return cls.direct(source_provider, source_model_id, reason="invalid-canary-evidence")
+        if (
+            canary_state != "passed"
+            or not canary_id
+            or canary_required_successes < 1
+            or canary_successes < canary_required_successes
+        ):
+            return cls.direct(source_provider, source_model_id, reason="canary-not-passed")
         if _timestamp_is_expired(snapshot.get("expires_at") or snapshot.get("recheck_at"), now=now):
             return cls.direct(source_provider, source_model_id, reason="route-evidence-expired")
 
@@ -133,6 +151,10 @@ class RouteDecision:
             route_snapshot_at=snapshot.get("route_snapshot_at"),
             route_probe_id=snapshot.get("route_probe_id"),
             route_decision_version=ROUTE_DECISION_VERSION,
+            route_canary_id=str(canary_id),
+            route_canary_state=str(canary_state),
+            route_canary_successes=canary_successes,
+            route_canary_required_successes=canary_required_successes,
             state="active",
             reason="active-pinned-route",
         )

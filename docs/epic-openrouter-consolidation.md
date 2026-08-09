@@ -1,6 +1,6 @@
 # Epic: conservative OpenRouter consolidation
 
-Status: draft for review
+Status: guarded implementation, activation pending canary
 Owner: LLM Bench
 Started: 2026-08-09
 
@@ -120,8 +120,26 @@ recovery.
 
 The runtime resolver is currently behind `OPENROUTER_ROUTING_ENABLED`, which
 defaults to off. A queued route snapshot is evidence and does not activate
-OpenRouter by itself. Activation remains blocked until the dashboard transport
-series and canary gates are in place.
+OpenRouter by itself. Scheduled jobs read the reviewed route-decision
+collection and freeze the snapshot onto the job. The resolver also requires a
+passed canary record before it can select OpenRouter. Activation remains
+blocked until the dashboard transport series and canary gates are in place.
+
+The route-decision collection is `bench_route_decisions` by default (override
+with `MONGODB_COLLECTION_ROUTE_DECISIONS`). Its minimum activation record is:
+
+```text
+source_provider, source_model_id
+route_decision_version, state=active
+transport_provider=openrouter, route_model_id, route_provider_slug
+route_probe_id, provider_metadata_verified=true
+canary_id, canary_state=passed
+canary_successes >= canary_required_successes >= 1
+route_snapshot_at, expires_at/recheck_at
+```
+
+Availability probes populate `route_probe_id`; they do not populate the
+passed canary fields. Missing, stale, or invalid records stay direct.
 
 ## Measurement contract
 
@@ -253,6 +271,28 @@ drop-in replacement.
 - [ ] Verify the dashboard and health checks distinguish source provider from
       transport provider and do not merge incompatible protocol rows.
 
+The guarded rollout procedure is:
+
+1. Write a route decision with `canary_state=availability_passed` or another
+   non-passed state. The scheduler will attach it to jobs, but the runner will
+   keep the direct lane.
+2. Run a paired, randomized direct-versus-pinned canary outside the published
+   metrics collection. Record the direct and routed attempts under one
+   `canary_id`, with separate transport fields and the same benchmark profile.
+3. Promote only after the predeclared success count and thresholds pass by
+   writing `canary_state=passed`, `canary_successes`, and
+   `canary_required_successes` to the route decision. The next scheduled jobs
+   freeze that evidence; they do not reinterpret already queued snapshots.
+4. Roll back by changing the route decision to `canary_state=rollback` or
+   `state=direct`. New jobs then resolve direct. Existing routed jobs fail
+   closed when their snapshot expires or is otherwise invalid, and every route
+   failure has a separately logged `route_*` error before direct recovery.
+
+OpenRouter requests use a route-specific client timeout and all routed source
+lanes share the scheduler process's `OPENROUTER_CONCURRENCY` gate. The gate is
+not a replacement for a deployment-wide quota service when multiple scheduler
+processes are run; that remains a deployment constraint before scaling out.
+
 ### F. Ongoing reconciliation
 
 - [ ] Refresh OpenRouter model and endpoint evidence on a schedule with a
@@ -268,26 +308,26 @@ drop-in replacement.
 
 ### G. Required implementation prerequisites
 
-- [ ] Add source/transport dispatch to the scheduler and runner. A route map
+- [x] Add source/transport dispatch to the scheduler and runner. A route map
       that the runner cannot interpret is not a usable fallback.
-- [ ] Repair the OpenRouter adapter's token accounting. Streaming chunk count
+- [x] Repair the OpenRouter adapter's token accounting. Streaming chunk count
       is not token count; use provider-reported usage where available and
       persist generated, visible, and reasoning tokens separately.
-- [ ] Capture finish reason, response status, response ID, effective request,
+- [x] Capture finish reason, response status, response ID, effective request,
       observed provider, and the reviewed provider-identity mapping for routed
       samples.
-- [ ] Add every route provenance field to the Mongo logging allowlist and add a
+- [x] Add every route provenance field to the Mongo logging allowlist and add a
       persistence test through `log_mongo`.
 - [ ] Add route/profile-specific concurrency, spend limits, health hysteresis,
       cooldown, and recovery probes. Per-source lanes must not bypass a shared
       OpenRouter quota.
-- [ ] Version route decisions and attach the version to queued jobs so a route
+- [x] Version route decisions and attach the version to queued jobs so a route
       change cannot reinterpret already queued work.
-- [ ] Add an invariant that every enabled source row remains schedulable when a
+- [x] Add an invariant that every enabled source row remains schedulable when a
       route record is missing, stale, or invalid. The result must be direct.
 - [ ] Add an invariant that models enabled after the audit snapshot default to
       direct and enter the next reconciliation pass.
-- [ ] Add scheduler, metrics, error-schema, dashboard grouping, and no-model-loss
+- [x] Add scheduler, metrics, error-schema, dashboard grouping, and no-model-loss
       tests before any production route is promoted.
 
 ## Acceptance criteria
@@ -314,7 +354,7 @@ The epic is ready for implementation when all of the following are true:
       transport.
 - [ ] The implementation plan names the runner, Mongo schema, scheduler,
       dashboard, health checks, and deployment surfaces that will change.
-- [ ] Hatch Sol has reviewed this epic and actionable findings are integrated.
+- [x] Hatch Sol has reviewed this epic and actionable findings are integrated.
 
 ## Explicit non-goals
 

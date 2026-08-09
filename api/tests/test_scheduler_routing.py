@@ -27,6 +27,10 @@ def active_snapshot(**overrides):
         "route_snapshot_at": "2026-08-09T00:00:00+00:00",
         "route_probe_id": "probe-1",
         "provider_metadata_verified": True,
+        "canary_id": "canary-1",
+        "canary_state": "passed",
+        "canary_successes": 2,
+        "canary_required_successes": 2,
     }
     value.update(overrides)
     return value
@@ -79,6 +83,17 @@ def test_incomplete_or_unverified_evidence_stays_direct():
     assert unverified.reason == "unverified-provider-metadata"
     assert incomplete.transport_provider == DIRECT_TRANSPORT
     assert unverified.transport_provider == DIRECT_TRANSPORT
+
+
+def test_availability_probe_without_passed_canary_stays_direct():
+    pending = RouteDecision.from_snapshot(
+        "deepinfra",
+        "Qwen/Qwen3-32B",
+        active_snapshot(canary_state="availability_passed", canary_successes=2),
+    )
+
+    assert pending.transport_provider == DIRECT_TRANSPORT
+    assert pending.reason == "canary-not-passed"
 
 
 def test_bedrock_route_is_always_direct():

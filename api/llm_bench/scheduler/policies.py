@@ -28,6 +28,7 @@ PROVIDER_CONCURRENCY_DEFAULTS: dict[str, int] = {
     "together": 2,
     "vertex": 2,
 }
+OPENROUTER_CONCURRENCY_DEFAULT = int(os.getenv("OPENROUTER_CONCURRENCY", "4"))
 
 RETRYABLE_ERROR_KINDS = {
     "network",
@@ -57,6 +58,10 @@ def provider_concurrency(provider: str) -> int:
     if os.getenv(env_name):
         return int(os.environ[env_name])
     return PROVIDER_CONCURRENCY_DEFAULTS.get(provider, 2)
+
+
+def openrouter_concurrency() -> int:
+    return max(1, int(os.getenv("OPENROUTER_CONCURRENCY", str(OPENROUTER_CONCURRENCY_DEFAULT))))
 
 
 def excluded_providers() -> set[str]:

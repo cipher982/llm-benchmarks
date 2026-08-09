@@ -18,6 +18,7 @@ from llm_bench.config import CloudConfig
 from llm_bench.logging import log_mongo
 from llm_bench.ops.error_rollups import upsert_error_rollup
 from llm_bench.ops.error_taxonomy import classify_error
+from llm_bench.scheduler import policies
 from llm_bench.scheduler.mongo import error_rollups_collection_name
 from llm_bench.scheduler.mongo import errors_collection_name
 from llm_bench.scheduler.mongo import metrics_collection_name
@@ -132,6 +133,7 @@ def log_error_mongo(
     exc_type: str = "",
     client: MongoClient | None = None,
     db_name: str | None = None,
+    provenance: dict[str, Any] | None = None,
 ) -> str:
     uri, default_db = mongo_env()
     db_name = db_name or default_db
@@ -156,6 +158,30 @@ def log_error_mongo(
         }
         if tb:
             doc["traceback"] = tb
+        if provenance:
+            for key in (
+                "source_provider",
+                "source_model_id",
+                "transport_provider",
+                "transport_model_id",
+                "route_model_id",
+                "route_provider_slug",
+                "observed_provider",
+                "observed_provider_slug",
+                "route_policy",
+                "route_snapshot_at",
+                "route_probe_id",
+                "route_decision_version",
+                "route_canary_id",
+                "route_canary_state",
+                "route_canary_successes",
+                "route_canary_required_successes",
+                "route_state",
+                "route_reason",
+                "transport_attempt",
+            ):
+                if key in provenance and provenance[key] is not None:
+                    doc[key] = provenance[key]
         client[db_name][errors_collection_name()].insert_one(doc)
         upsert_error_rollup(
             collection=client[db_name][error_rollups_collection_name()],
@@ -239,11 +265,22 @@ def openrouter_routing_enabled() -> bool:
     return os.getenv(OPENROUTER_ROUTING_ENABLED_ENV, "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def job_requires_openrouter(job: dict[str, Any]) -> bool:
+    """Return whether this queued job should consume the shared OR lane."""
+
+    return openrouter_routing_enabled() and resolve_job_route(job).transport_provider == OPENROUTER_TRANSPORT
+
+
 def _transport_provider(decision: RouteDecision) -> str:
     return decision.source_provider if decision.transport_provider == DIRECT_TRANSPORT else decision.transport_provider
 
 
-def _config_for_decision(decision: RouteDecision, *, run_ts: str) -> CloudConfig:
+def _config_for_decision(
+    decision: RouteDecision,
+    *,
+    run_ts: str,
+    timeout_seconds: float | None = None,
+) -> CloudConfig:
     provider = _transport_provider(decision)
     model_id = decision.transport_model_id or decision.source_model_id
     misc: dict[str, Any] = {}
@@ -252,6 +289,8 @@ def _config_for_decision(decision: RouteDecision, *, run_ts: str) -> CloudConfig
         misc["route_model_id"] = decision.route_model_id
         misc["route_probe_id"] = decision.route_probe_id
         misc["route_snapshot_at"] = decision.route_snapshot_at
+        if timeout_seconds is not None:
+            misc["timeout_seconds"] = timeout_seconds
     return CloudConfig(
         provider=provider,
         model_name=model_id,
@@ -271,8 +310,9 @@ def _generate_and_validate(
     run_ts: str,
     run_config: dict[str, Any],
     max_tokens: int,
+    timeout_seconds: float | None = None,
 ) -> tuple[CloudConfig, dict[str, Any]]:
-    config = _config_for_decision(decision, run_ts=run_ts)
+    config = _config_for_decision(decision, run_ts=run_ts, timeout_seconds=timeout_seconds)
     provider = _transport_provider(decision)
     try:
         generate = load_provider_func(provider)
@@ -305,6 +345,7 @@ def _record_attempt_failure(
     model_id: str,
     failure: AttemptFailure,
     stage_prefix: str = "",
+    decision: RouteDecision | None = None,
 ) -> str:
     stage = f"{stage_prefix}_{failure.stage}" if stage_prefix else failure.stage
     try:
@@ -315,6 +356,7 @@ def _record_attempt_failure(
             message=failure.message,
             tb=traceback.format_exc(limit=5),
             exc_type=type(failure).__name__,
+            provenance=decision.metric_fields() if decision is not None else None,
         )
     except Exception as exc:
         print(
@@ -330,7 +372,14 @@ def _annotate_metrics(
     *,
     fallback_reason: str | None = None,
 ) -> None:
-    metrics.update(decision.metric_fields())
+    route_fields = decision.metric_fields()
+    for key, value in route_fields.items():
+        # The completed request is authoritative for observed provider
+        # identity. The snapshot's observed identity is only an eligibility
+        # expectation and must not overwrite what this sample actually saw.
+        if key in {"observed_provider", "observed_provider_slug"} and metrics.get(key):
+            continue
+        metrics[key] = value
     metrics["provider_metadata_verified"] = bool(
         decision.transport_provider == OPENROUTER_TRANSPORT and metrics.get("observed_provider_slug")
     )
@@ -351,6 +400,7 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
     sample_role = str(job.get("sample_role") or SAMPLE_ROLE_PUBLISHED)
     profile_id = str(job.get("benchmark_profile_id") or DEFAULT_PROFILE_ID)
     max_tokens = profile_max_tokens(profile_id)
+    deadline_seconds = int(job.get("deadline_seconds") or policies.DEFAULT_DEADLINE_SECONDS)
     run_ts = get_current_timestamp()
     run_config = {
         "query": QUERY_TEXT,
@@ -364,11 +414,16 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
     fallback_reason = None
 
     try:
+        route_timeout_seconds = None
+        if decision.transport_provider == OPENROUTER_TRANSPORT:
+            configured = float(os.getenv("OPENROUTER_ROUTE_TIMEOUT_SECONDS", "45"))
+            route_timeout_seconds = min(configured, max(5.0, deadline_seconds / 3.0))
         model_config, metrics = _generate_and_validate(
             decision,
             run_ts=run_ts,
             run_config=run_config,
             max_tokens=max_tokens,
+            timeout_seconds=route_timeout_seconds,
         )
     except AttemptFailure as failure:
         if not route_attempted:
@@ -386,6 +441,7 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
             model_id=model_id,
             failure=failure,
             stage_prefix="route",
+            decision=decision,
         )
         fallback_reason = failure.message
         decision = RouteDecision.direct(provider, model_id, reason="route-fallback")

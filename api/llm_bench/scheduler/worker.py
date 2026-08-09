@@ -14,6 +14,11 @@ from llm_bench.scheduler.mongo import mongo_client
 from llm_bench.scheduler.mongo import mongo_env
 from llm_bench.scheduler.runner import run_job_in_child
 
+# Source-provider workers are separate lanes, but routed work shares one
+# OpenRouter quota. This process-wide gate keeps those source lanes from
+# multiplying concurrent OpenRouter requests beyond the shared budget.
+OPENROUTER_GATE = threading.BoundedSemaphore(policies.openrouter_concurrency())
+
 
 def worker_id(provider: str, slot: int) -> str:
     return f"{socket.gethostname()}:{provider}:{slot}:{uuid.uuid4().hex[:8]}"
@@ -73,7 +78,23 @@ def run_worker_loop(
                 details={"idle": False, "worker_id": wid, "job_id": str(job["_id"])},
             )
             try:
-                result = run_job_in_child(job, deadline_seconds=deadline)
+                if runner.job_requires_openrouter(job):
+                    acquired = OPENROUTER_GATE.acquire(timeout=max(1, deadline))
+                    if not acquired:
+                        result = runner.RunnerResult(
+                            status="error",
+                            error_kind="rate_limit",
+                            error_message="OpenRouter shared quota lane was unavailable before the job deadline",
+                            route_attempted=True,
+                            transport_provider="openrouter",
+                        )
+                    else:
+                        try:
+                            result = run_job_in_child(job, deadline_seconds=deadline)
+                        finally:
+                            OPENROUTER_GATE.release()
+                else:
+                    result = run_job_in_child(job, deadline_seconds=deadline)
                 now = datetime.now(timezone.utc)
                 model_id = str(job.get("model_id"))
 

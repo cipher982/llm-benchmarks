@@ -132,13 +132,25 @@ def _usage_metrics(usage: Any, response_text: str, reasoning_text: str, model_na
 
 
 def _metadata_from_chunk(chunk: Any) -> Mapping[str, Any] | None:
+    merged: dict[str, Any] = {}
     for candidate in (
         _nested_field(chunk, "openrouter_metadata"),
         _nested_field(chunk, "metadata"),
         _nested_field(chunk, "provider_metadata"),
     ):
         if isinstance(candidate, Mapping):
-            return candidate
+            merged.update(candidate)
+    # The streaming API may expose the selected provider directly on the
+    # chunk, while the metadata-enabled response exposes it below
+    # endpoints.available[].selected. Preserve both shapes for one parser.
+    direct = {
+        key: value
+        for key in ("provider", "provider_name", "provider_slug", "selected_provider", "selected_provider_slug")
+        if (value := _nested_field(chunk, key)) is not None
+    }
+    for key, value in direct.items():
+        merged.setdefault(key, value)
+    return merged or None
     return None
 
 
@@ -147,6 +159,12 @@ def _observed_provider(metadata: Mapping[str, Any] | None) -> tuple[str | None, 
         return None, None
     provider = metadata.get("provider") or metadata.get("provider_name") or metadata.get("selected_provider")
     slug = metadata.get("provider_slug") or metadata.get("selected_provider_slug")
+    endpoints = metadata.get("endpoints")
+    available = endpoints.get("available", []) if isinstance(endpoints, Mapping) else []
+    selected = next((item for item in available if isinstance(item, Mapping) and item.get("selected")), None)
+    if selected:
+        provider = provider or selected.get("provider") or selected.get("provider_name") or selected.get("name")
+        slug = slug or selected.get("provider_slug") or selected.get("slug") or selected.get("provider")
     return (str(provider) if provider else None, str(slug) if slug else None)
 
 
@@ -159,9 +177,11 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     assert "query" in run_config, "query must be in run_config"
     assert "max_tokens" in run_config, "max_tokens must be in run_config"
 
+    timeout_seconds = float(config.misc.get("timeout_seconds", os.getenv("OPENROUTER_TIMEOUT_SECONDS", "120")))
     client = OpenAI(
         base_url=os.environ["OPENROUTER_BASE_URL"],
         api_key=os.environ["OPENROUTER_API_KEY"],
+        timeout=timeout_seconds,
     )
 
     time_0 = time.time()
@@ -243,5 +263,5 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     if config.misc.get("route_provider_slug"):
         metrics["route_provider_slug"] = config.misc["route_provider_slug"]
         metrics["route_policy"] = "pinned-provider"
-        metrics["provider_metadata_verified"] = bool(observed_provider or observed_provider_slug)
+        metrics["provider_metadata_verified"] = bool(observed_provider and observed_provider_slug)
     return metrics

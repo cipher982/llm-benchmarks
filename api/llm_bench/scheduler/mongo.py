@@ -46,6 +46,24 @@ def probe_metrics_collection_name() -> str:
     return collection_name("MONGODB_COLLECTION_CLOUD_PROBE", "metrics_cloud_probe")
 
 
+def route_decisions_collection_name() -> str:
+    """Collection containing reviewed, versioned route decisions.
+
+    The scheduler reads this collection when it creates a job. A missing row
+    is intentionally equivalent to no route evidence and therefore selects
+    the direct adapter.
+    """
+    return collection_name("MONGODB_COLLECTION_ROUTE_DECISIONS", "bench_route_decisions")
+
+
+def route_snapshot(db, *, provider: str, model_id: str) -> dict | None:
+    """Return the newest reviewed route decision for one source row."""
+    return db[route_decisions_collection_name()].find_one(
+        {"source_provider": provider, "source_model_id": model_id},
+        sort=[("route_snapshot_at", -1), ("updated_at", -1)],
+    )
+
+
 def errors_collection_name() -> str:
     return collection_name("MONGODB_COLLECTION_ERRORS", "errors_cloud")
 
