@@ -12,6 +12,7 @@ from pymongo.database import Database
 from llm_bench.scheduler import policies
 from llm_bench.scheduler.mongo import jobs_collection_name
 from llm_bench.scheduler.mongo import models_collection_name
+from llm_bench.scheduler.routing import freeze_route_snapshot
 
 ACTIVE_STATUSES = {"queued", "running"}
 TERMINAL_RETRYABLE_STATUSES = {"success", "failed", "timeout"}
@@ -65,6 +66,7 @@ def _new_job_doc(
     max_attempts: int = policies.DEFAULT_MAX_ATTEMPTS,
     deadline_seconds: int = policies.DEFAULT_DEADLINE_SECONDS,
     extra: dict[str, Any] | None = None,
+    route_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     doc: dict[str, Any] = {
         "_id": job_id,
@@ -87,6 +89,9 @@ def _new_job_doc(
     }
     if extra:
         doc.update(extra)
+    frozen_route = freeze_route_snapshot(provider, model_id, route_snapshot, now=now)
+    if frozen_route is not None:
+        doc["route_snapshot"] = frozen_route
     return doc
 
 
@@ -98,6 +103,7 @@ def enqueue_scheduled_job(
     priority: float,
     not_before: datetime | None = None,
     now: datetime | None = None,
+    route_snapshot: dict[str, Any] | None = None,
 ) -> bool:
     now = now or utcnow()
     job_id = scheduled_job_id(provider, model_id)
@@ -109,6 +115,7 @@ def enqueue_scheduled_job(
         job_kind="scheduled",
         now=now,
         not_before=not_before,
+        route_snapshot=route_snapshot,
     )
     coll = jobs_collection(db)
     existing = coll.find_one({"_id": job_id}, {"status": 1})
@@ -159,6 +166,7 @@ def enqueue_manual_job(
     deadline_seconds: int = policies.DEFAULT_DEADLINE_SECONDS,
     max_attempts: int = policies.DEFAULT_MAX_ATTEMPTS,
     now: datetime | None = None,
+    route_snapshot: dict[str, Any] | None = None,
 ) -> str:
     now = now or utcnow()
     job_id = manual_job_id(provider, model_id, now)
@@ -171,6 +179,7 @@ def enqueue_manual_job(
         now=now,
         deadline_seconds=deadline_seconds,
         max_attempts=max_attempts,
+        route_snapshot=route_snapshot,
     )
     jobs_collection(db).insert_one(doc)
     return job_id

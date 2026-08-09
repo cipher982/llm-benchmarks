@@ -49,6 +49,23 @@ OPTIONAL_METRIC_FIELDS = (
     "protocol_version",
     "attempt_group",
     "attempt",
+    "source_provider",
+    "source_model_id",
+    "transport_provider",
+    "transport_model_id",
+    "route_model_id",
+    "route_provider_slug",
+    "observed_provider",
+    "observed_provider_slug",
+    "openrouter_response_id",
+    "route_policy",
+    "route_snapshot_at",
+    "route_probe_id",
+    "route_decision_version",
+    "transport_attempt",
+    "fallback_reason",
+    "route_reason",
+    "provider_metadata_verified",
 )
 
 

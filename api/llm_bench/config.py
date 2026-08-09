@@ -78,6 +78,10 @@ class CloudConfig:
         run_ts: str,
         temperature: float,
         misc: dict | None = None,
+        source_provider: str | None = None,
+        source_model_id: str | None = None,
+        transport_provider: str | None = None,
+        transport_model_id: str | None = None,
     ):
         """
         Configuration for a cloud model run.
@@ -87,6 +91,10 @@ class CloudConfig:
         self.run_ts = run_ts
         self.temperature = temperature
         self.misc = misc or {}
+        self.source_provider = source_provider or provider
+        self.source_model_id = source_model_id or model_name
+        self.transport_provider = transport_provider or provider
+        self.transport_model_id = transport_model_id or model_name
 
     def to_dict(self):
         return {
@@ -95,6 +103,10 @@ class CloudConfig:
             "run_ts": self.run_ts,
             "temperature": self.temperature,
             "misc": self.misc,
+            "source_provider": self.source_provider,
+            "source_model_id": self.source_model_id,
+            "transport_provider": self.transport_provider,
+            "transport_model_id": self.transport_model_id,
         }
 
 
