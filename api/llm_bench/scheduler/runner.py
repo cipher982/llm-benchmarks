@@ -23,6 +23,10 @@ from llm_bench.scheduler.mongo import errors_collection_name
 from llm_bench.scheduler.mongo import metrics_collection_name
 from llm_bench.scheduler.mongo import mongo_env
 from llm_bench.scheduler.mongo import probe_metrics_collection_name
+from llm_bench.scheduler.routing import DIRECT_TRANSPORT
+from llm_bench.scheduler.routing import OPENROUTER_TRANSPORT
+from llm_bench.scheduler.routing import RouteDecision
+from llm_bench.scheduler.routing import resolve_job_route
 from llm_bench.utils import get_current_timestamp
 
 dotenv.load_dotenv(".env")
@@ -63,6 +67,9 @@ class RunnerResult:
     # the run counts as the model being measured; a probe must not create the
     # appearance of freshness for a model that is not actually being published.
     sample_role: str = "published"
+    transport_provider: str = DIRECT_TRANSPORT
+    route_attempted: bool = False
+    fallback_reason: str | None = None
 
 
 def load_provider_func(provider: str):
@@ -176,6 +183,7 @@ NON_PUBLISHING_ROLES = frozenset({SAMPLE_ROLE_PROBE, SAMPLE_ROLE_SHADOW})
 # under different rules are never silently averaged together.
 PROTOCOL_VERSION = 1
 DEFAULT_PROFILE_ID = "cloud-default-v1"
+OPENROUTER_ROUTING_ENABLED_ENV = "OPENROUTER_ROUTING_ENABLED"
 
 # Profiles differ only in what they ask for. Which profile produced a row is
 # recorded on the row, so rows measured under different rules are never
@@ -216,6 +224,120 @@ def log_success_mongo(config: CloudConfig, metrics: dict[str, Any], *, sample_ro
     )
 
 
+class AttemptFailure(RuntimeError):
+    """A generation or validation failure for one transport attempt."""
+
+    def __init__(self, stage: str, message: str):
+        super().__init__(message)
+        self.stage = stage
+        self.message = message
+
+
+def openrouter_routing_enabled() -> bool:
+    """Return the explicit runtime gate for production route activation."""
+
+    return os.getenv(OPENROUTER_ROUTING_ENABLED_ENV, "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _transport_provider(decision: RouteDecision) -> str:
+    return decision.source_provider if decision.transport_provider == DIRECT_TRANSPORT else decision.transport_provider
+
+
+def _config_for_decision(decision: RouteDecision, *, run_ts: str) -> CloudConfig:
+    provider = _transport_provider(decision)
+    model_id = decision.transport_model_id or decision.source_model_id
+    misc: dict[str, Any] = {}
+    if decision.transport_provider == OPENROUTER_TRANSPORT:
+        misc["route_provider_slug"] = decision.route_provider_slug
+        misc["route_model_id"] = decision.route_model_id
+        misc["route_probe_id"] = decision.route_probe_id
+        misc["route_snapshot_at"] = decision.route_snapshot_at
+    return CloudConfig(
+        provider=provider,
+        model_name=model_id,
+        run_ts=run_ts,
+        temperature=TEMPERATURE,
+        misc=misc,
+        source_provider=decision.source_provider,
+        source_model_id=decision.source_model_id,
+        transport_provider=provider,
+        transport_model_id=model_id,
+    )
+
+
+def _generate_and_validate(
+    decision: RouteDecision,
+    *,
+    run_ts: str,
+    run_config: dict[str, Any],
+    max_tokens: int,
+) -> tuple[CloudConfig, dict[str, Any]]:
+    config = _config_for_decision(decision, run_ts=run_ts)
+    provider = _transport_provider(decision)
+    try:
+        generate = load_provider_func(provider)
+        metrics = generate(config, run_config)
+    except Exception as exc:
+        raise AttemptFailure("generate", f"{type(exc).__name__}: {exc}") from exc
+
+    if not metrics:
+        raise AttemptFailure("validate", "empty metrics")
+
+    ok, why = validate_metrics(decision.source_provider, metrics, max_tokens)
+    if not ok:
+        raise AttemptFailure("validate", str(why))
+
+    if decision.transport_provider == OPENROUTER_TRANSPORT:
+        observed_slug = metrics.get("observed_provider_slug")
+        if metrics.get("provider_metadata_verified") is not True:
+            raise AttemptFailure("validate", "OpenRouter provider metadata was not verified")
+        if observed_slug != decision.route_provider_slug:
+            raise AttemptFailure(
+                "validate",
+                f"observed provider {observed_slug!r} does not match route {decision.route_provider_slug!r}",
+            )
+    return config, metrics
+
+
+def _record_attempt_failure(
+    *,
+    provider: str,
+    model_id: str,
+    failure: AttemptFailure,
+    stage_prefix: str = "",
+) -> str:
+    stage = f"{stage_prefix}_{failure.stage}" if stage_prefix else failure.stage
+    try:
+        return log_error_mongo(
+            provider=provider,
+            model_id=model_id,
+            stage=stage,
+            message=failure.message,
+            tb=traceback.format_exc(limit=5),
+            exc_type=type(failure).__name__,
+        )
+    except Exception as exc:
+        print(
+            f"Failed to log {stage} error for {provider}:{model_id}: {type(exc).__name__}: {exc}",
+            flush=True,
+        )
+        return "unknown"
+
+
+def _annotate_metrics(
+    metrics: dict[str, Any],
+    decision: RouteDecision,
+    *,
+    fallback_reason: str | None = None,
+) -> None:
+    metrics.update(decision.metric_fields())
+    metrics["provider_metadata_verified"] = bool(
+        decision.transport_provider == OPENROUTER_TRANSPORT and metrics.get("observed_provider_slug")
+    )
+    if fallback_reason:
+        metrics["fallback_reason"] = fallback_reason
+
+
 def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
     provider = str(job["provider"])
     model_id = str(job["model_id"])
@@ -230,46 +352,63 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
     profile_id = str(job.get("benchmark_profile_id") or DEFAULT_PROFILE_ID)
     max_tokens = profile_max_tokens(profile_id)
     run_ts = get_current_timestamp()
-    model_config = CloudConfig(
-        provider=provider,
-        model_name=model_id,
-        run_ts=run_ts,
-        temperature=TEMPERATURE,
-        misc={},
-    )
     run_config = {
         "query": QUERY_TEXT,
         "max_tokens": max_tokens,
     }
 
+    decision = resolve_job_route(job)
+    if decision.transport_provider == OPENROUTER_TRANSPORT and not openrouter_routing_enabled():
+        decision = RouteDecision.direct(provider, model_id, reason="route-activation-disabled")
+    route_attempted = decision.transport_provider == OPENROUTER_TRANSPORT
+    fallback_reason = None
+
     try:
-        generate = load_provider_func(provider)
-        metrics = generate(model_config, run_config)
-    except Exception as exc:
-        reason = f"{type(exc).__name__}: {exc}"
-        error_kind = log_error_mongo(
+        model_config, metrics = _generate_and_validate(
+            decision,
+            run_ts=run_ts,
+            run_config=run_config,
+            max_tokens=max_tokens,
+        )
+    except AttemptFailure as failure:
+        if not route_attempted:
+            error_kind = _record_attempt_failure(provider=provider, model_id=model_id, failure=failure)
+            print(f"Error {provider}:{model_id} - {failure.message}", flush=True)
+            return RunnerResult(
+                status="error",
+                error_kind=error_kind,
+                error_message=failure.message,
+                transport_provider=decision.transport_provider,
+            )
+
+        _record_attempt_failure(
             provider=provider,
             model_id=model_id,
-            stage="generate",
-            message=reason,
-            tb=traceback.format_exc(limit=5),
-            exc_type=type(exc).__name__,
+            failure=failure,
+            stage_prefix="route",
         )
-        print(f"Error {provider}:{model_id} - {reason}", flush=True)
-        return RunnerResult(status="error", error_kind=error_kind, error_message=reason)
+        fallback_reason = failure.message
+        decision = RouteDecision.direct(provider, model_id, reason="route-fallback")
+        try:
+            model_config, metrics = _generate_and_validate(
+                decision,
+                run_ts=run_ts,
+                run_config=run_config,
+                max_tokens=max_tokens,
+            )
+        except AttemptFailure as direct_failure:
+            error_kind = _record_attempt_failure(provider=provider, model_id=model_id, failure=direct_failure)
+            print(f"Error {provider}:{model_id} - {direct_failure.message}", flush=True)
+            return RunnerResult(
+                status="error",
+                error_kind=error_kind,
+                error_message=direct_failure.message,
+                transport_provider=decision.transport_provider,
+                route_attempted=True,
+                fallback_reason=fallback_reason,
+            )
 
-    if not metrics:
-        msg = "empty metrics"
-        error_kind = log_error_mongo(provider=provider, model_id=model_id, stage="validate", message=msg)
-        print(f"Error {provider}:{model_id} - {msg}", flush=True)
-        return RunnerResult(status="error", error_kind=error_kind, error_message=msg)
-
-    ok, why = validate_metrics(provider, metrics, max_tokens)
-    if not ok:
-        error_kind = log_error_mongo(provider=provider, model_id=model_id, stage="validate", message=str(why))
-        print(f"Error {provider}:{model_id} - {why}", flush=True)
-        return RunnerResult(status="error", error_kind=error_kind, error_message=str(why))
-
+    _annotate_metrics(metrics, decision, fallback_reason=fallback_reason)
     metrics.setdefault("validation_policy", validation_policy(provider))
     # Provenance every sample carries, so a row can always be traced back to the
     # rules that produced it and to the group of attempts it came from. The
@@ -300,7 +439,13 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
         f"(tps={metrics.get('tokens_per_second'):.2f}, out={metrics.get('output_tokens')})",
         flush=True,
     )
-    return RunnerResult(status="success", sample_role=sample_role)
+    return RunnerResult(
+        status="success",
+        sample_role=sample_role,
+        transport_provider=decision.transport_provider,
+        route_attempted=route_attempted,
+        fallback_reason=fallback_reason,
+    )
 
 
 def _child_main(job: dict[str, Any], result_queue: Queue) -> None:

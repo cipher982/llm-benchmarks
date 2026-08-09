@@ -118,6 +118,11 @@ the route has passed its canary gate. A provider outage, OpenRouter outage,
 billing failure, or route mismatch must leave the direct row eligible for
 recovery.
 
+The runtime resolver is currently behind `OPENROUTER_ROUTING_ENABLED`, which
+defaults to off. A queued route snapshot is evidence and does not activate
+OpenRouter by itself. Activation remains blocked until the dashboard transport
+series and canary gates are in place.
+
 ## Measurement contract
 
 The current runner records source-provider rows in the published metrics
