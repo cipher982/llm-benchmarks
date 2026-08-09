@@ -182,6 +182,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         base_url=os.environ["OPENROUTER_BASE_URL"],
         api_key=os.environ["OPENROUTER_API_KEY"],
         timeout=timeout_seconds,
+        max_retries=int(config.misc.get("max_retries", 0)),
     )
 
     time_0 = time.time()

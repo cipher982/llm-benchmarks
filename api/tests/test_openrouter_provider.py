@@ -147,6 +147,7 @@ def test_selected_endpoint_metadata_and_timeout_are_parsed(monkeypatch):
     metrics = openrouter.generate(config, {"query": "hi", "max_tokens": 64})
 
     assert observed["timeout"] == 17
+    assert observed["max_retries"] == 0
     assert metrics["observed_provider"] == "DeepInfra"
     assert metrics["observed_provider_slug"] == "deepinfra"
     assert metrics["provider_metadata_verified"] is True
