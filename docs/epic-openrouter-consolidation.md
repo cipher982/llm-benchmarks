@@ -1,6 +1,6 @@
 # Epic: conservative OpenRouter consolidation
 
-Status: guarded implementation, first canary complete, activation pending cost review
+Status: guarded implementation, 30-pair costed canary passed, activation remains opt-in
 Owner: LLM Bench
 Started: 2026-08-09
 
@@ -135,6 +135,9 @@ transport_provider=openrouter, route_model_id, route_provider_slug
 route_probe_id, provider_metadata_verified=true
 canary_id, canary_state=passed
 canary_successes >= canary_required_successes >= 1
+canary_cost_status=verified, canary_promotion_gate=passed
+canary_evidence_uri, canary_evidence_sha256
+canary_tps_ci95_lower, canary_ttft_ci95_upper, canary_cost_ci95_upper
 route_snapshot_at, expires_at/recheck_at
 ```
 
@@ -147,7 +150,10 @@ one decision per audited source row, uses `state=candidate` and
 `canary_state=availability_passed` for availability-qualified routes, and keeps
 every other row direct. The command only writes MongoDB when both `--apply` and
 `--yes` are supplied. A materialized candidate remains direct until a paired
-measurement canary promotes it.
+measurement canary promotes it. `--expected-source-count 241` makes the
+denominator check explicit. `scripts/openrouter_promote_route.py` is the only
+promotion bridge: it requires a passing costed canary, hashes the artifact,
+copies its confidence-bound gates, and sets a finite expiry.
 
 ## Measurement contract
 
@@ -253,9 +259,9 @@ drop-in replacement.
       while the route map is being tested.
 - [ ] Define the OpenRouter outage, billing, rate-limit, and route-error
       behavior. The first failure must not delete the source row.
-- [ ] Add an explicit route health state so a bad route can fall back to direct
+- [x] Add an explicit route health state so a bad route can fall back to direct
       without a manual catalogue edit.
-- [ ] Treat direct recovery as a separately logged application-level attempt.
+- [x] Treat direct recovery as a separately logged application-level attempt.
       Never combine partial routed output and a direct retry into one sample.
 
 ### E. Canary and rollout
@@ -265,14 +271,14 @@ drop-in replacement.
       rows before rollout.
 - [ ] Review the per-provider totals and every `route-or` decision, with special
       attention to dated models, aliases, reasoning models, and regional IDs.
-- [ ] Canary a small set of non-Bedrock rows with paired, randomized direct and
+- [x] Canary a small set of non-Bedrock rows with paired, randomized direct and
       pinned-OpenRouter transport evidence. Predeclare sample counts and
       thresholds for output validity, generated/visible throughput, TTFT,
       errors, cost, and observed provider.
 - [ ] Keep direct-versus-routed canary comparison separate from route
       availability. A pinned route can be available while serving a materially
       different build from the direct API.
-- [ ] Promote only rows that pass the canary gate. Keep direct as an immediate
+- [x] Promote only rows that pass the canary gate. Keep direct as an immediate
       rollback path.
 - [ ] Expand in bounded batches and stop promotion when route health or model
       coverage falls below the pre-switch baseline.
@@ -288,13 +294,21 @@ The guarded rollout procedure is:
    metrics collection. Record the direct and routed attempts under one
    `canary_id`, with separate transport fields and the same benchmark profile.
 3. Promote only after the predeclared success count and thresholds pass by
-   writing `canary_state=passed`, `canary_successes`, and
-   `canary_required_successes` to the route decision. The next scheduled jobs
-   freeze that evidence; they do not reinterpret already queued snapshots.
+   running `scripts/openrouter_promote_route.py`. It writes
+   `canary_state=passed`, verified cost, the evidence hash, confidence bounds,
+   `canary_successes`, `canary_required_successes`, and a finite expiry. The
+   next scheduled jobs freeze that evidence; they do not reinterpret already
+   queued snapshots.
 4. Roll back by changing the route decision to `canary_state=rollback` or
    `state=direct`. New jobs then resolve direct. Existing routed jobs fail
    closed when their snapshot expires or is otherwise invalid, and every route
    failure has a separately logged `route_*` error before direct recovery.
+
+An automated operator transition is available through
+`scripts/openrouter_route_health.py`: a route failure can enter `state=cooldown`
+with a bounded `cooldown_until`, and only an explicit recovery probe can return
+it to `state=active`. Both transitions preserve the original evidence and can
+be applied only with the same explicit `--apply --yes` write guard.
 
 OpenRouter requests use a route-specific client timeout and all routed source
 lanes share the scheduler process's `OPENROUTER_CONCURRENCY` gate. The gate is
@@ -307,7 +321,7 @@ processes are run; that remains a deployment constraint before scaling out.
       complete-run ledger.
 - [ ] Recheck routes when a model ID, endpoint list, supported parameter set,
       or benchmark profile changes.
-- [ ] Expire stale route evidence conservatively. Staleness keeps a row direct;
+- [x] Expire stale route evidence conservatively. Staleness keeps a row direct;
       it never silently broadens routing.
 - [ ] Report route additions, removals, fallback events, and direct-provider
       coverage in the existing health/digest path.
@@ -326,7 +340,7 @@ processes are run; that remains a deployment constraint before scaling out.
       samples.
 - [x] Add every route provenance field to the Mongo logging allowlist and add a
       persistence test through `log_mongo`.
-- [ ] Add route/profile-specific concurrency, spend limits, health hysteresis,
+- [x] Add route/profile-specific concurrency, spend limits, health hysteresis,
       cooldown, and recovery probes. Per-source lanes must not bypass a shared
       OpenRouter quota.
 - [x] Version route decisions and attach the version to queued jobs so a route
@@ -342,8 +356,8 @@ processes are run; that remains a deployment constraint before scaling out.
 
 The epic is ready for implementation when all of the following are true:
 
-- [ ] The 241-row audit input and provider totals are reproducible.
-- [ ] Every row has exactly one conservative route decision and evidence.
+- [x] The 241-row audit input and provider totals are reproducible.
+- [x] Every row has exactly one conservative route decision and evidence.
 - [ ] No `route-or` decision relies only on name similarity or catalog presence.
 - [ ] Bedrock is excluded from route-replacement candidates in this epic;
       account-backed OpenRouter/Bedrock routing is not configured or in scope.
@@ -354,10 +368,10 @@ The epic is ready for implementation when all of the following are true:
       observed provider identity, and historical metric compatibility.
 - [ ] The OpenRouter adapter uses provider-reported usage or an equivalent
       authoritative token source; chunk counts are never published as tokens.
-- [ ] Missing, stale, invalid, or mismatched route evidence defaults to direct.
+- [x] Missing, stale, invalid, or mismatched route evidence defaults to direct.
 - [ ] Probe costs, concurrency, retries, and unknown outcomes are bounded.
-- [ ] A canary and rollback procedure is written and testable.
-- [ ] A no-model-loss test enumerates every enabled source row and proves that
+- [x] A canary and rollback procedure is written and testable.
+- [x] A no-model-loss test enumerates every enabled source row and proves that
       absent, stale, invalid, or mismatched route records select direct
       transport.
 - [ ] The implementation plan names the runner, Mongo schema, scheduler,
@@ -393,7 +407,11 @@ The epic is ready for implementation when all of the following are true:
 
 ## Review gate
 
-The next action after this draft is a full Hatch Sol review focused on:
+Hatch Sol's implementation review on 2026-08-10 found and required the
+fail-closed promotion evidence, mandatory expiry, paired confidence bounds,
+overall canary deadline, and 241-row preservation test. Those findings are
+integrated in the route resolver, canary runner, promotion command, and test
+suite. The final review is a second independent Hatch Sol pass focused on:
 
 - false positives that could lose a provider or merge incompatible metrics;
 - missing OpenRouter endpoint and fallback semantics;
@@ -401,4 +419,4 @@ The next action after this draft is a full Hatch Sol review focused on:
 - rollout, rollback, spend, and health-check gaps; and
 - whether the task list is small enough to implement safely.
 
-No production routing change is in scope until that review is integrated.
+No production routing change is in scope until that final review is integrated.

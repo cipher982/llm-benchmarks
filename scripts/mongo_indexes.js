@@ -45,9 +45,43 @@ db.getCollection(heartbeatsColl).createIndex({ component: 1 }, { unique: true })
 print('Created index on bench_scheduler_heartbeats (component unique)');
 
 // lifecycle status
-db.getCollection(statusColl).createIndex({ provider: 1, model_id: 1 }, { unique: true });
+const statusCollection = db.getCollection(statusColl);
+// The lifecycle dashboard has one record per source model and transport lane.
+// Existing rows predate transport-aware lifecycle status, so make their
+// implicit direct lane explicit before changing the uniqueness key.
+const legacyLifecycleRows = statusCollection.updateMany(
+    {
+        $or: [
+            { transport_provider: { $exists: false } },
+            { transport_provider: null },
+            { transport_provider: '' },
+        ],
+    },
+    { $set: { transport_provider: 'direct' } },
+);
+if (legacyLifecycleRows.modifiedCount) {
+    print(`Backfilled ${legacyLifecycleRows.modifiedCount} lifecycle rows with direct transport`);
+}
+// Remove the pre-routing unique index before creating its transport-keyed
+// replacement, otherwise a routed record collides with the direct record.
+statusCollection.getIndexes().forEach((index) => {
+    const keys = Object.keys(index.key || {});
+    if (
+        index.unique === true &&
+        keys.length === 2 &&
+        index.key.provider === 1 &&
+        index.key.model_id === 1
+    ) {
+        statusCollection.dropIndex(index.name);
+        print(`Dropped legacy lifecycle index ${index.name}`);
+    }
+});
+statusCollection.createIndex(
+    { provider: 1, model_id: 1, transport_provider: 1 },
+    { unique: true, name: 'provider_1_model_id_1_transport_provider_1' },
+);
 db.getCollection(statusColl).createIndex({ status: 1, computed_at: -1 });
-print('Created indexes on model_status (provider/model_id unique, status/computed_at)');
+print('Created indexes on model_status (provider/model_id/transport unique, status/computed_at)');
 
 // reviewed route decisions
 db.getCollection(routeDecisionsColl).createIndex(

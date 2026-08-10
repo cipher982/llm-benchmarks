@@ -7,19 +7,25 @@ rename a source row or silently turn an unknown route into OpenRouter work.
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from dataclasses import asdict
 from dataclasses import dataclass
 from datetime import datetime
 from datetime import timezone
+from math import isfinite
 from typing import Any
 from typing import Mapping
+from urllib.parse import urlparse
 
 ROUTE_DECISION_VERSION = "or-route-v1"
 DIRECT_TRANSPORT = "direct"
 OPENROUTER_TRANSPORT = "openrouter"
 DIRECT_POLICY = "direct"
 PINNED_PROVIDER_POLICY = "pinned-provider"
+MIN_PROMOTION_TPS_CI95 = 0.8
+MAX_PROMOTION_TTFT_CI95 = 1.5
+MAX_PROMOTION_COST_CI95 = 1.10
 
 
 def _timestamp_is_expired(value: Any, *, now: datetime | None) -> bool:
@@ -61,6 +67,11 @@ class RouteDecision:
     route_canary_state: str | None = None
     route_canary_successes: int | None = None
     route_canary_required_successes: int | None = None
+    route_canary_cost_status: str | None = None
+    route_canary_evidence_uri: str | None = None
+    route_canary_evidence_sha256: str | None = None
+    route_canary_promotion_gate: str | None = None
+    route_expires_at: str | None = None
     state: str = "direct"
     reason: str = "missing-route-snapshot"
 
@@ -81,6 +92,7 @@ class RouteDecision:
         snapshot: Mapping[str, Any] | None,
         *,
         now: datetime | None = None,
+        require_promotion_evidence: bool = True,
     ) -> "RouteDecision":
         """Resolve a snapshot, returning direct for every invalid case."""
 
@@ -117,8 +129,42 @@ class RouteDecision:
             or canary_successes < canary_required_successes
         ):
             return cls.direct(source_provider, source_model_id, reason="canary-not-passed")
-        if _timestamp_is_expired(snapshot.get("expires_at") or snapshot.get("recheck_at"), now=now):
+        expiry = snapshot.get("expires_at") or snapshot.get("recheck_at")
+        if not expiry:
+            return cls.direct(source_provider, source_model_id, reason="route-expiry-missing")
+        if _timestamp_is_expired(expiry, now=now):
             return cls.direct(source_provider, source_model_id, reason="route-evidence-expired")
+
+        if require_promotion_evidence:
+            if snapshot.get("canary_promotion_gate") != "passed":
+                return cls.direct(source_provider, source_model_id, reason="canary-promotion-gate-not-passed")
+            if snapshot.get("canary_cost_status") != "verified":
+                return cls.direct(source_provider, source_model_id, reason="canary-cost-unverified")
+            evidence_uri = snapshot.get("canary_evidence_uri")
+            evidence_sha256 = snapshot.get("canary_evidence_sha256")
+            if (
+                not isinstance(evidence_uri, str)
+                or urlparse(evidence_uri).scheme != "s3"
+                or not urlparse(evidence_uri).netloc
+                or not urlparse(evidence_uri).path.strip("/")
+                or not isinstance(evidence_sha256, str)
+                or re.fullmatch(r"[0-9a-fA-F]{64}", evidence_sha256) is None
+            ):
+                return cls.direct(source_provider, source_model_id, reason="canary-evidence-not-immutable")
+            try:
+                tps_lower = float(snapshot["canary_tps_ci95_lower"])
+                ttft_upper = float(snapshot["canary_ttft_ci95_upper"])
+                cost_upper = float(snapshot["canary_cost_ci95_upper"])
+            except (KeyError, TypeError, ValueError):
+                return cls.direct(source_provider, source_model_id, reason="canary-statistical-evidence-missing")
+            if not all(isfinite(value) for value in (tps_lower, ttft_upper, cost_upper)):
+                return cls.direct(source_provider, source_model_id, reason="canary-statistical-evidence-nonfinite")
+            if tps_lower < MIN_PROMOTION_TPS_CI95:
+                return cls.direct(source_provider, source_model_id, reason="canary-tps-bound-failed")
+            if ttft_upper > MAX_PROMOTION_TTFT_CI95:
+                return cls.direct(source_provider, source_model_id, reason="canary-ttft-bound-failed")
+            if cost_upper > MAX_PROMOTION_COST_CI95:
+                return cls.direct(source_provider, source_model_id, reason="canary-cost-bound-failed")
 
         required = (
             "route_model_id",
@@ -155,6 +201,11 @@ class RouteDecision:
             route_canary_state=str(canary_state),
             route_canary_successes=canary_successes,
             route_canary_required_successes=canary_required_successes,
+            route_canary_cost_status=snapshot.get("canary_cost_status"),
+            route_canary_evidence_uri=snapshot.get("canary_evidence_uri"),
+            route_canary_evidence_sha256=snapshot.get("canary_evidence_sha256"),
+            route_canary_promotion_gate=snapshot.get("canary_promotion_gate"),
+            route_expires_at=str(expiry),
             state="active",
             reason="active-pinned-route",
         )
@@ -196,6 +247,72 @@ def freeze_route_snapshot(
     if now is not None and "queued_at" not in frozen:
         frozen["queued_at"] = now.isoformat()
     return frozen
+
+
+def cooldown_route_snapshot(
+    snapshot: Mapping[str, Any],
+    *,
+    failure_reason: str,
+    now: datetime | None = None,
+    cooldown_seconds: int = 300,
+) -> dict[str, Any]:
+    """Return a direct-by-resolution cooldown snapshot after a route failure."""
+
+    if not isinstance(snapshot, Mapping):
+        raise TypeError("route_snapshot must be a mapping")
+    if cooldown_seconds < 1:
+        raise ValueError("cooldown_seconds must be positive")
+    now = now or datetime.now(timezone.utc)
+    updated = deepcopy(dict(snapshot))
+    failures = int(updated.get("route_health_failure_count", 0)) + 1
+    updated.update(
+        {
+            "state": "cooldown",
+            "route_health_state": "cooldown",
+            "route_health_failure_count": failures,
+            "route_health_failure_reason": str(failure_reason),
+            "cooldown_until": (now.timestamp() + cooldown_seconds),
+            "updated_at": now.isoformat(),
+        }
+    )
+    return updated
+
+
+def recover_route_snapshot(
+    snapshot: Mapping[str, Any],
+    *,
+    recovery_probe_id: str,
+    recovery_probe_passed: bool,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Re-enable a cooled route only after an explicit recovery probe."""
+
+    if not isinstance(snapshot, Mapping):
+        raise TypeError("route_snapshot must be a mapping")
+    if not recovery_probe_id or recovery_probe_passed is not True:
+        raise ValueError("recovery_probe_id is required")
+    now = now or datetime.now(timezone.utc)
+    cooldown_until = snapshot.get("cooldown_until")
+    if cooldown_until is not None and float(cooldown_until) > now.timestamp():
+        raise ValueError("route cooldown is still active")
+    recovered = deepcopy(dict(snapshot))
+    recovered.update(
+        {
+            "state": "active",
+            "route_health_state": "recovered",
+            "route_recovery_probe_id": str(recovery_probe_id),
+            "route_recovered_at": now.isoformat(),
+        }
+    )
+    decision = RouteDecision.from_snapshot(
+        str(recovered.get("source_provider") or ""),
+        str(recovered.get("source_model_id") or ""),
+        recovered,
+        now=now,
+    )
+    if decision.transport_provider != OPENROUTER_TRANSPORT:
+        raise ValueError(f"recovery evidence is not activatable: {decision.reason}")
+    return recovered
 
 
 def resolve_job_route(job: Mapping[str, Any], *, now: datetime | None = None) -> RouteDecision:

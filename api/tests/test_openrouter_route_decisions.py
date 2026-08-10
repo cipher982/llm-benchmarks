@@ -1,5 +1,12 @@
-import mongomock
+from datetime import datetime
+from datetime import timezone
 
+import mongomock
+import pytest
+from llm_bench.scheduler.routing import DIRECT_TRANSPORT
+from llm_bench.scheduler.routing import RouteDecision
+
+from scripts.openrouter_promote_route import promote_decision
 from scripts.openrouter_route_decisions import apply_decisions
 from scripts.openrouter_route_decisions import materialize_report
 
@@ -49,6 +56,24 @@ def test_materializer_keeps_availability_candidates_fail_closed():
     assert direct["transport_provider"] == "direct"
 
 
+def test_materializer_proves_exact_241_row_conservative_decision_set():
+    rows = [audit_row(f"provider-{index % 7}/model-{index:03d}") for index in range(241)]
+    report = materialize_report(
+        {"generated_at": "2026-08-09T12:00:00+00:00", "rows": rows},
+        audit_path="frozen-241.json",
+        expected_source_count=241,
+    )
+
+    keys = {(item["source_provider"], item["source_model_id"]) for item in report["decisions"]}
+    assert report["source_count"] == 241
+    assert len(keys) == 241
+    assert all(
+        RouteDecision.from_snapshot(item["source_provider"], item["source_model_id"], item).transport_provider
+        == DIRECT_TRANSPORT
+        for item in report["decisions"]
+    )
+
+
 def test_incomplete_route_evidence_stays_direct():
     row = audit_row("deepinfra/Qwen/Qwen3-32B", decision="route-or")
     row["evidence"]["probe"]["provider_metadata_verified"] = False
@@ -79,3 +104,109 @@ def test_apply_preserves_passed_canary():
 
     assert result == {"inserted_or_updated": 0, "preserved_passed": 1}
     assert collection.find_one({"source_provider": "openai"})["canary_id"] == "canary-1"
+
+
+def test_promotion_requires_passing_costed_canary_and_sets_expiry(tmp_path):
+    report = materialize_report(
+        {
+            "generated_at": "2026-08-09T12:00:00+00:00",
+            "rows": [audit_row("deepinfra/Qwen/Qwen3-32B", decision="route-or")],
+        },
+        audit_path="audit.json",
+    )
+    evidence = tmp_path / "canary.json"
+    evidence.write_text('{"canary":"passed"}\n', encoding="utf-8")
+    pair = {
+        "order": ["direct", "openrouter"],
+        "attempts": {
+            "direct": {
+                "status": "success",
+                "metrics": {
+                    "tokens_per_second": 100,
+                    "time_to_first_token": 1.0,
+                    "input_tokens": 10,
+                    "output_tokens": 64,
+                },
+            },
+            "openrouter": {
+                "status": "success",
+                "metrics": {
+                    "tokens_per_second": 95,
+                    "time_to_first_token": 1.1,
+                    "input_tokens": 10,
+                    "output_tokens": 64,
+                    "provider_metadata_verified": True,
+                    "observed_provider_slug": "deepinfra",
+                },
+            },
+        },
+    }
+    pairs = []
+    for index in range(30):
+        current = dict(pair)
+        current["pair_index"] = index + 1
+        current["order"] = ["direct", "openrouter"] if index < 15 else ["openrouter", "direct"]
+        pairs.append(current)
+    canary = {
+        "canary_id": "canary-1",
+        "source_provider": "deepinfra",
+        "source_model_id": "Qwen/Qwen3-32B",
+        "route_model_id": "qwen/qwen3-32b",
+        "seed": 0,
+        "pricing": {
+            "direct": {"input_per_token": 1e-6, "output_per_token": 1e-6},
+            "openrouter": {"input_per_token": 1e-6, "output_per_token": 1e-6},
+        },
+        "pairs": pairs,
+        "evaluation": {
+            "canary_state": "passed",
+            "promotion_valid": True,
+            "cost_status": "verified",
+            "successful_pairs": 30,
+            "required_pairs": 30,
+            "route_tps_ratio_ci95": [0.9, 1.1],
+            "route_ttft_ratio_ci95": [0.7, 1.2],
+            "route_cost_ratio_ci95": [0.9, 1.05],
+            "route_error_delta": 0.0,
+            "route_metadata_verified": 30,
+        },
+    }
+
+    route = promote_decision(
+        report["decisions"][0],
+        canary,
+        evidence_path=evidence,
+        evidence_uri="s3://artifacts/test/canary.json",
+        now=datetime(2026, 8, 10, tzinfo=timezone.utc),
+    )
+
+    assert route["state"] == "active"
+    assert route["canary_promotion_gate"] == "passed"
+    assert route["canary_cost_status"] == "verified"
+    assert route["expires_at"] == "2026-08-11T00:00:00+00:00"
+    assert route["canary_required_successes"] == 29
+
+
+def test_promotion_rejects_self_declared_one_pair_verdict(tmp_path):
+    report = materialize_report(
+        {
+            "generated_at": "2026-08-09T12:00:00+00:00",
+            "rows": [audit_row("deepinfra/Qwen/Qwen3-32B", decision="route-or")],
+        },
+        audit_path="audit.json",
+    )
+    evidence = tmp_path / "fake.json"
+    evidence.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="30 raw"):
+        promote_decision(
+            report["decisions"][0],
+            {
+                "canary_id": "fake",
+                "source_provider": "deepinfra",
+                "source_model_id": "Qwen/Qwen3-32B",
+                "route_model_id": "qwen/qwen3-32b",
+                "pairs": [{}],
+                "evaluation": {"required_pairs": 1, "canary_state": "passed", "promotion_valid": True},
+            },
+            evidence_path=evidence,
+        )

@@ -122,6 +122,7 @@ def materialize_report(
     *,
     audit_path: str,
     canary_required: int = DEFAULT_CANARY_REQUIRED,
+    expected_source_count: int | None = None,
 ) -> dict[str, Any]:
     rows = report.get("rows")
     if not isinstance(rows, list):
@@ -146,6 +147,8 @@ def materialize_report(
                 canary_required=canary_required,
             )
         )
+    if expected_source_count is not None and len(decisions) != expected_source_count:
+        raise ValueError(f"expected {expected_source_count} source rows, got {len(decisions)}")
     decisions.sort(key=lambda item: (item["source_provider"], item["source_model_id"]))
     counts: dict[str, int] = {}
     for decision in decisions:
@@ -159,6 +162,7 @@ def materialize_report(
         "route_decision_version": ROUTE_DECISION_VERSION,
         "canary_required_successes": max(1, int(canary_required)),
         "counts": counts,
+        "source_count": len(decisions),
         "decisions": decisions,
     }
 
@@ -201,6 +205,7 @@ def main() -> int:
     parser.add_argument("--audit-json", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--canary-required", type=int, default=DEFAULT_CANARY_REQUIRED)
+    parser.add_argument("--expected-source-count", type=int)
     parser.add_argument("--apply", action="store_true", help="Upsert decisions into MongoDB")
     parser.add_argument("--yes", action="store_true", help="Confirm the MongoDB write")
     args = parser.parse_args()
@@ -214,6 +219,7 @@ def main() -> int:
         load_json(args.audit_json),
         audit_path=str(args.audit_json),
         canary_required=args.canary_required,
+        expected_source_count=args.expected_source_count,
     )
     write_json(args.output, report)
     print(json.dumps(report["counts"], sort_keys=True))

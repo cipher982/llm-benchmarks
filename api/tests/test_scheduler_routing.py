@@ -8,7 +8,9 @@ from llm_bench.scheduler.routing import DIRECT_TRANSPORT
 from llm_bench.scheduler.routing import OPENROUTER_TRANSPORT
 from llm_bench.scheduler.routing import ROUTE_DECISION_VERSION
 from llm_bench.scheduler.routing import RouteDecision
+from llm_bench.scheduler.routing import cooldown_route_snapshot
 from llm_bench.scheduler.routing import freeze_route_snapshot
+from llm_bench.scheduler.routing import recover_route_snapshot
 from llm_bench.scheduler.routing import resolve_job_route
 
 
@@ -31,6 +33,14 @@ def active_snapshot(**overrides):
         "canary_state": "passed",
         "canary_successes": 2,
         "canary_required_successes": 2,
+        "canary_cost_status": "verified",
+        "canary_evidence_uri": "s3://artifacts/canary.json",
+        "canary_evidence_sha256": "a" * 64,
+        "canary_promotion_gate": "passed",
+        "canary_tps_ci95_lower": 0.9,
+        "canary_ttft_ci95_upper": 1.2,
+        "canary_cost_ci95_upper": 1.05,
+        "expires_at": "2099-08-10T00:00:00+00:00",
     }
     value.update(overrides)
     return value
@@ -71,6 +81,72 @@ def test_provider_mismatch_and_expiry_fail_closed():
     assert mismatch.reason == "observed-provider-mismatch"
     assert expired.transport_provider == DIRECT_TRANSPORT
     assert expired.reason == "route-evidence-expired"
+
+
+def test_rollback_state_fails_closed():
+    rolled_back = RouteDecision.from_snapshot("deepinfra", "Qwen/Qwen3-32B", active_snapshot(state="rollback"))
+
+    assert rolled_back.transport_provider == DIRECT_TRANSPORT
+    assert rolled_back.reason == "route-state-not-active"
+
+
+def test_missing_promotion_evidence_or_expiry_fails_closed():
+    missing_evidence = RouteDecision.from_snapshot(
+        "deepinfra", "Qwen/Qwen3-32B", active_snapshot(canary_cost_status="unverified")
+    )
+    missing_expiry = RouteDecision.from_snapshot("deepinfra", "Qwen/Qwen3-32B", active_snapshot(expires_at=None))
+
+    assert missing_evidence.transport_provider == DIRECT_TRANSPORT
+    assert missing_evidence.reason == "canary-cost-unverified"
+    assert missing_expiry.transport_provider == DIRECT_TRANSPORT
+    assert missing_expiry.reason == "route-expiry-missing"
+
+
+def test_nonfinite_promotion_bounds_fail_closed():
+    decision = RouteDecision.from_snapshot(
+        "deepinfra", "Qwen/Qwen3-32B", active_snapshot(canary_tps_ci95_lower=float("nan"))
+    )
+
+    assert decision.transport_provider == DIRECT_TRANSPORT
+    assert decision.reason == "canary-statistical-evidence-nonfinite"
+
+
+def test_malformed_evidence_uri_fails_closed():
+    decision = RouteDecision.from_snapshot("deepinfra", "Qwen/Qwen3-32B", active_snapshot(canary_evidence_uri="s3://"))
+
+    assert decision.transport_provider == DIRECT_TRANSPORT
+    assert decision.reason == "canary-evidence-not-immutable"
+
+
+def test_route_cooldown_resolves_direct_and_recovery_requires_probe():
+    original = active_snapshot()
+    cooled = cooldown_route_snapshot(
+        original,
+        failure_reason="route 429",
+        now=datetime(2026, 8, 10, tzinfo=timezone.utc),
+        cooldown_seconds=60,
+    )
+    during = RouteDecision.from_snapshot(
+        cooled["source_provider"], cooled["source_model_id"], cooled, now=datetime(2026, 8, 10, tzinfo=timezone.utc)
+    )
+    assert cooled["route_health_state"] == "cooldown"
+    assert during.transport_provider == DIRECT_TRANSPORT
+    assert during.reason == "route-state-not-active"
+
+    recovered = recover_route_snapshot(
+        cooled,
+        recovery_probe_id="recovery-1",
+        recovery_probe_passed=True,
+        now=datetime(2026, 8, 10, 0, 2, tzinfo=timezone.utc),
+    )
+    decision = RouteDecision.from_snapshot(
+        recovered["source_provider"],
+        recovered["source_model_id"],
+        recovered,
+        now=datetime(2026, 8, 10, 0, 2, tzinfo=timezone.utc),
+    )
+    assert recovered["route_health_state"] == "recovered"
+    assert decision.transport_provider == OPENROUTER_TRANSPORT
 
 
 def test_incomplete_or_unverified_evidence_stays_direct():

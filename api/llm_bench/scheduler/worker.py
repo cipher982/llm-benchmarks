@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import socket
 import threading
+import time
 import uuid
 from datetime import datetime
 from datetime import timezone
@@ -12,6 +13,8 @@ from llm_bench.scheduler import queue
 from llm_bench.scheduler import runner
 from llm_bench.scheduler.mongo import mongo_client
 from llm_bench.scheduler.mongo import mongo_env
+from llm_bench.scheduler.mongo import route_decisions_collection_name
+from llm_bench.scheduler.routing import cooldown_route_snapshot
 from llm_bench.scheduler.runner import run_job_in_child
 
 # Source-provider workers are separate lanes, but routed work shares one
@@ -29,6 +32,42 @@ def _safe_heartbeat(db, *, component: str, details: dict) -> None:
         health.heartbeat(db, component=component, details=details)
     except Exception as exc:
         print(f"Worker heartbeat error component={component}: {type(exc).__name__}: {exc}", flush=True)
+
+
+def acquire_openrouter_slot(timeout_seconds: float) -> bool:
+    """Acquire the process-wide OpenRouter quota slot for one attempt."""
+
+    return OPENROUTER_GATE.acquire(timeout=max(0.0, float(timeout_seconds)))
+
+
+def persist_route_cooldown(db, *, job: dict, result: runner.RunnerResult, now: datetime) -> None:
+    """Persist a route failure as cooldown while preserving the source lane."""
+
+    snapshot = job.get("route_snapshot")
+    failure_reason = result.fallback_reason or result.error_message
+    if not result.route_attempted or not failure_reason or not isinstance(snapshot, dict):
+        return
+    cooled = cooldown_route_snapshot(snapshot, failure_reason=failure_reason, now=now)
+    key = {
+        "source_provider": cooled.get("source_provider", job.get("provider")),
+        "source_model_id": cooled.get("source_model_id", job.get("model_id")),
+        "route_snapshot_at": cooled.get("route_snapshot_at"),
+    }
+    if job.get("_id") is not None:
+        # A retry uses the job's frozen snapshot, not the route-decision
+        # collection. Freeze the cooldown onto that job before it is queued
+        # again so a transient route failure cannot immediately re-enter OR.
+        queue.jobs_collection(db).update_one(
+            {
+                "_id": job["_id"],
+                "status": "running",
+                "route_snapshot.state": "active",
+            },
+            {"$set": {"route_snapshot": cooled}},
+        )
+    # The job snapshot is the retry safety boundary. Update it first, then
+    # mirror the same state into the operator-facing route collection.
+    db[route_decisions_collection_name()].update_one(key, {"$set": cooled}, upsert=True)
 
 
 def run_worker_loop(
@@ -66,7 +105,8 @@ def run_worker_loop(
                 stop_event.wait(idle_sleep_seconds)
                 continue
 
-            deadline = int(job.get("deadline_seconds") or policies.DEFAULT_DEADLINE_SECONDS)
+            deadline = float(job.get("deadline_seconds") or policies.DEFAULT_DEADLINE_SECONDS)
+            attempt_started = time.monotonic()
             print(
                 f"Claimed job {job['_id']} provider={provider} model={job.get('model_id')} "
                 f"attempt={job.get('attempt')} deadline={deadline}s",
@@ -79,7 +119,8 @@ def run_worker_loop(
             )
             try:
                 if runner.job_requires_openrouter(job):
-                    acquired = OPENROUTER_GATE.acquire(timeout=max(1, deadline))
+                    remaining = max(0.0, deadline - (time.monotonic() - attempt_started))
+                    acquired = acquire_openrouter_slot(remaining)
                     if not acquired:
                         result = runner.RunnerResult(
                             status="error",
@@ -87,16 +128,36 @@ def run_worker_loop(
                             error_message="OpenRouter shared quota lane was unavailable before the job deadline",
                             route_attempted=True,
                             transport_provider="openrouter",
+                            fallback_reason="openrouter-quota-unavailable",
                         )
                     else:
                         try:
-                            result = run_job_in_child(job, deadline_seconds=deadline)
+                            remaining = max(0.0, deadline - (time.monotonic() - attempt_started))
+                            if remaining <= 0:
+                                result = runner.RunnerResult(
+                                    status="timeout",
+                                    error_kind="timeout",
+                                    error_message="job deadline expired before OpenRouter child start",
+                                    route_attempted=True,
+                                    transport_provider="openrouter",
+                                )
+                            else:
+                                result = run_job_in_child(job, deadline_seconds=remaining)
                         finally:
                             OPENROUTER_GATE.release()
                 else:
-                    result = run_job_in_child(job, deadline_seconds=deadline)
+                    remaining = max(0.0, deadline - (time.monotonic() - attempt_started))
+                    if remaining <= 0:
+                        result = runner.RunnerResult(
+                            status="timeout",
+                            error_kind="timeout",
+                            error_message="job deadline expired before child start",
+                        )
+                    else:
+                        result = run_job_in_child(job, deadline_seconds=remaining)
                 now = datetime.now(timezone.utc)
                 model_id = str(job.get("model_id"))
+                persist_route_cooldown(db, job=job, result=result, now=now)
 
                 if result.status == "success":
                     if queue.mark_success(db, job_id=job["_id"], worker_id=wid, now=now):

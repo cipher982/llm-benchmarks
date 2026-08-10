@@ -20,6 +20,14 @@ def active_snapshot(**overrides):
         "canary_state": "passed",
         "canary_successes": 2,
         "canary_required_successes": 2,
+        "canary_cost_status": "verified",
+        "canary_evidence_uri": "s3://artifacts/canary.json",
+        "canary_evidence_sha256": "a" * 64,
+        "canary_promotion_gate": "passed",
+        "canary_tps_ci95_lower": 0.9,
+        "canary_ttft_ci95_upper": 1.2,
+        "canary_cost_ci95_upper": 1.05,
+        "expires_at": "2099-08-10T00:00:00+00:00",
     }
     value.update(overrides)
     return value

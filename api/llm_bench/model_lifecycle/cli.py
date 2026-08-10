@@ -109,6 +109,20 @@ def _write_results(docs: List[Dict], collection_name: str) -> None:
     try:
         coll = client[db_name][collection_name]
         now = datetime.now(timezone.utc)
+        # Rows written before transport-aware lifecycle status implicitly
+        # represent the direct lane. Backfill them before keyed upserts so a
+        # new explicit direct row cannot coexist with or overwrite one in an
+        # order-dependent way.
+        coll.update_many(
+            {
+                "$or": [
+                    {"transport_provider": {"$exists": False}},
+                    {"transport_provider": None},
+                    {"transport_provider": ""},
+                ]
+            },
+            {"$set": {"transport_provider": "direct"}},
+        )
         for doc in docs:
             update_doc = dict(doc)
             update_doc.setdefault("computed_at", now)

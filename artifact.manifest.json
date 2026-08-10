@@ -60,6 +60,42 @@
         "sha256": "292bfcf119bc968cdd7dfa856621564d60a5677ad9e7dea4647301e3f4f87987",
         "size_bytes": 4068,
         "role": "derived paired canary evidence"
+      },
+      {
+        "key": "derived/or_canary_gpt-4o-mini_30.json",
+        "sha256": "2ef2a10d7dec286775a9c311f5f74b09fd01d7a57e8a1908a3af0a15c934221c",
+        "size_bytes": 60116,
+        "role": "derived 30-pair statistically gated canary evidence"
+      },
+      {
+        "key": "derived/gpt4o-mini-pricing.json",
+        "sha256": "fccb2e151b2bb28dccf87518e1bc14faf96efb27bded66dc970dcef98b1e100b",
+        "size_bytes": 609,
+        "role": "authoritative direct and OpenRouter pricing inputs for the canary"
+      },
+      {
+        "key": "derived/or_route_openai_gpt-4o-mini_active.json",
+        "sha256": "48368ca0b2e2e1fb4de0b49980fe5a79ada666442a62f9f69b45cdd5d47864f4",
+        "size_bytes": 1434,
+        "role": "derived expiring promoted route decision, dry-run only"
+      },
+      {
+        "key": "derived/or_canary_gpt-4o-mini_30_balanced_v2.json",
+        "sha256": "19a18c8be5036f45a3d544166a616e733f3e641548443b6e646aa749af114d99",
+        "size_bytes": 60118,
+        "role": "derived balanced 30-pair statistically gated canary evidence"
+      },
+      {
+        "key": "derived/or_route_openai_gpt-4o-mini_active_v2.json",
+        "sha256": "6e040797fdb54d3388e7bcb780295520f3efbab05345bf2fbdaf96b9a289eb3a",
+        "size_bytes": 1445,
+        "role": "derived balanced canary expiring promoted route decision, dry-run only"
+      },
+      {
+        "key": "derived/or_route_openai_gpt-4o-mini_active_v3.json",
+        "sha256": "ecfb8d2cd31591c16d57e0831cd877df90d26018439f721997675a3232adc42c",
+        "size_bytes": 1445,
+        "role": "derived final promotion-gate-validated expiring route decision, dry-run only"
       }
     ],
     "blobs": {

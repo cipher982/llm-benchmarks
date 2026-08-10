@@ -95,6 +95,6 @@ rows. The per-row decision fields matched the stored report exactly.
 
 Re-running the audit requires a new source snapshot and a new OpenRouter
 catalog snapshot. The route result must not be copied into production model
-configuration. The first paired canary is recorded in
-`docs/audits/openrouter-canary-2026-08-10.md`; its output and performance checks
-passed, while cost remains unverified.
+configuration. The 30-pair costed canary is recorded in
+`docs/audits/openrouter-canary-2026-08-10.md`; all promotion gates passed, but
+the production activation flag remains opt-in.

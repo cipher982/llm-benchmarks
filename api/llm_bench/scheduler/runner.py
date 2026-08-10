@@ -176,6 +176,11 @@ def log_error_mongo(
                 "route_canary_state",
                 "route_canary_successes",
                 "route_canary_required_successes",
+                "route_canary_cost_status",
+                "route_canary_evidence_uri",
+                "route_canary_evidence_sha256",
+                "route_canary_promotion_gate",
+                "route_expires_at",
                 "route_state",
                 "route_reason",
                 "transport_attempt",
@@ -564,12 +569,15 @@ def _kill_process_group(process) -> None:
             process.kill()
 
 
-def run_job_in_child(job: dict[str, Any], *, deadline_seconds: int) -> RunnerResult:
+def run_job_in_child(job: dict[str, Any], *, deadline_seconds: float) -> RunnerResult:
     ctx = get_context("spawn")
     result_queue = ctx.Queue(maxsize=1)
     process = ctx.Process(target=_child_main, args=(job, result_queue))
+    started = time.monotonic()
+    timeout_decision = effective_job_route(job)
     process.start()
-    process.join(timeout=deadline_seconds)
+    remaining = max(0.0, float(deadline_seconds) - (time.monotonic() - started))
+    process.join(timeout=remaining)
     if process.is_alive():
         _kill_process_group(process)
         process.join(timeout=5)
@@ -577,7 +585,6 @@ def run_job_in_child(job: dict[str, Any], *, deadline_seconds: int) -> RunnerRes
         model_id = str(job.get("model_id"))
         message = f"benchmark timed out after {deadline_seconds}s"
         try:
-            timeout_decision = effective_job_route(job)
             log_error_mongo(
                 provider=provider,
                 model_id=model_id,
@@ -588,7 +595,13 @@ def run_job_in_child(job: dict[str, Any], *, deadline_seconds: int) -> RunnerRes
             )
         except Exception as exc:
             print(f"Failed to log timeout for {provider}:{model_id}: {exc}", flush=True)
-        return RunnerResult(status="timeout", error_kind="timeout", error_message=message)
+        return RunnerResult(
+            status="timeout",
+            error_kind="timeout",
+            error_message=message,
+            route_attempted=timeout_decision.transport_provider == OPENROUTER_TRANSPORT,
+            transport_provider=timeout_decision.transport_provider,
+        )
 
     if process.exitcode and process.exitcode != 0:
         return RunnerResult(status="error", error_kind="unknown", error_message=f"child exited {process.exitcode}")
