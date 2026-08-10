@@ -1,8 +1,12 @@
 # Epic: conservative OpenRouter consolidation
 
-Status: guarded implementation, 30-pair costed canary passed, activation remains opt-in
+Status: guarded pilot implementation, 30-pair costed canary passed, activation remains opt-in
 Owner: LLM Bench
 Started: 2026-08-09
+
+This document records the conservative pilot and its runtime safeguards. It is
+not the acceptance plan for validating every possible model equivalence. The
+full migration plan is [openrouter-full-migration-plan.md](openrouter-full-migration-plan.md).
 
 ## Outcome
 
