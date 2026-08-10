@@ -83,6 +83,12 @@ The temporary raw evidence is retained for this session at:
 - `/tmp/or_probe_full_v2.json`
 - `/tmp/or_probe_retry.json`
 
+The immutable evidence bundle is now preserved under the artifact manifest
+[`artifact.manifest.json`](../../artifact.manifest.json), backed by the
+`cube-artifacts` MinIO store at version `v1`. The manifest records checksums for
+the frozen source inputs, 83 endpoint responses, audit outputs, route decisions,
+and the paired canary report.
+
 Re-running the audit requires a new source snapshot and a new OpenRouter
 catalog snapshot. The route result must not be copied into production model
 configuration. The first paired canary is recorded in

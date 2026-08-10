@@ -1,0 +1,73 @@
+{
+  "schema": "drose.artifact-manifest.v1",
+  "artifact_id": "llm-benchmarks/openrouter-consolidation",
+  "version": "v1",
+  "description": "Frozen 241-row OpenRouter consolidation audit and canary evidence.",
+  "created_at": "2026-08-10T13:20:35-04:00",
+  "primary_store": {
+    "mc_alias": "cube-artifacts",
+    "bucket": "artifacts",
+    "prefix": "llm-benchmarks/openrouter-consolidation/v1"
+  },
+  "objects": {
+    "source": [
+      {
+        "key": "source/our_models_fresh.json",
+        "sha256": "05c0d2050abcc9767cb6b6521a1b49f9afbe547c56f2d1feda14441c0a8c780d",
+        "size_bytes": 31734,
+        "role": "source-of-truth frozen enabled model input"
+      },
+      {
+        "key": "source/or_models_fresh.json",
+        "sha256": "02bf3d644019604f37a388f29bcb7b98e6584df5fa8bbf22f7c4657dd678be66",
+        "size_bytes": 1028971,
+        "role": "source-of-truth OpenRouter catalog response"
+      },
+      {
+        "key": "source/or_endpoints_fresh.tar.gz",
+        "sha256": "536487902b6a6b21b18b46456ebc4ebe683b611f83d7f542ea2de7a69f2ba8d8",
+        "size_bytes": 70752,
+        "role": "source-of-truth endpoint listing responses, 83 files"
+      }
+    ],
+    "derived": [
+      {
+        "key": "derived/or_coverage_final_v3.json",
+        "sha256": "28a76c4552ebbdb9bc0523c4bc9c1c015c2cbcc0c8c39cfd545898b4249e28e3",
+        "size_bytes": 645171,
+        "role": "derived conservative audit"
+      },
+      {
+        "key": "derived/or_probe_full_v2.json",
+        "sha256": "cc48fb9cf2fbc8315f03501d96780bfd288618b2a158d4e7301db98536acfc91",
+        "size_bytes": 391179,
+        "role": "derived availability probes"
+      },
+      {
+        "key": "derived/or_probe_retry.json",
+        "sha256": "147ef58abfb4a8b5447ec8860813b1d3865be682638e49a28f75c351f94d43fb",
+        "size_bytes": 10769,
+        "role": "derived retry probes"
+      },
+      {
+        "key": "derived/or_route_decisions.json",
+        "sha256": "177fd046cc5c9bd6cc7f3d1bf901dde76df00a97ba52b10c8c0ae15a619c2ca3",
+        "size_bytes": 132156,
+        "role": "derived guarded route decisions"
+      },
+      {
+        "key": "derived/or_canary_gpt-4o-mini_balanced.json",
+        "sha256": "292bfcf119bc968cdd7dfa856621564d60a5677ad9e7dea4647301e3f4f87987",
+        "size_bytes": 4068,
+        "role": "derived paired canary evidence"
+      }
+    ],
+    "blobs": {
+      "count": 0,
+      "role": "none"
+    }
+  },
+  "cache": {
+    "required_for_query": []
+  }
+}
