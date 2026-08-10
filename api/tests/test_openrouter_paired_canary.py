@@ -1,3 +1,8 @@
+import time
+
+from llm_bench.scheduler.routing import RouteDecision
+
+from scripts import openrouter_paired_canary
 from scripts.openrouter_paired_canary import _planned_orders
 from scripts.openrouter_paired_canary import evaluate
 
@@ -108,3 +113,19 @@ def test_evaluate_cost_and_confidence_gates_can_promote():
     assert result["cost_status"] == "verified"
     assert result["promotion_valid"] is True
     assert result["canary_state"] == "passed"
+
+
+def test_attempt_uses_one_deadline_across_retries(monkeypatch):
+    decision = RouteDecision.direct("openai", "gpt-4o-mini", reason="test")
+
+    def slow_generate(*args, **kwargs):
+        time.sleep(2)
+
+    monkeypatch.setattr(openrouter_paired_canary.runner, "_generate_and_validate", slow_generate)
+    started = time.monotonic()
+    result = openrouter_paired_canary._attempt(decision, max_tokens=16, deadline_seconds=1)
+    elapsed = time.monotonic() - started
+
+    assert result["status"] == "error"
+    assert result["retry_count"] == 0
+    assert elapsed < 1.5

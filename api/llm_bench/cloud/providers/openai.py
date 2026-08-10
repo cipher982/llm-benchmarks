@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 
 import tiktoken
@@ -289,7 +290,13 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     assert "query" in run_config, "query must be in run_config"
     assert "max_tokens" in run_config, "max_tokens must be in run_config"
 
-    client = OpenAI()
+    client_kwargs = {}
+    if config.misc.get("bounded_timeout"):
+        client_kwargs = {
+            "timeout": float(config.misc.get("timeout_seconds", os.getenv("OPENAI_TIMEOUT_SECONDS", "120"))),
+            "max_retries": 0,
+        }
+    client = OpenAI(**client_kwargs)
 
     if config.model_name in NON_CHAT_MODELS:
         return _run_legacy_completion(client, config, run_config)

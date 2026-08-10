@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import json
 import random
+import signal
 import time
 from datetime import datetime
 from datetime import timedelta
@@ -133,7 +134,6 @@ def _attempt(
     max_tokens: int,
     deadline_seconds: int,
 ) -> dict[str, Any]:
-    run_ts = datetime.now(timezone.utc).isoformat()
     effective_request = {
         "transport_provider": decision.transport_provider,
         "transport_model_id": decision.transport_model_id,
@@ -145,38 +145,58 @@ def _attempt(
         "temperature": runner.TEMPERATURE,
         "protocol_version": runner.PROTOCOL_VERSION,
     }
-    try:
-        _, metrics = runner._generate_and_validate(
-            decision,
-            run_ts=run_ts,
-            run_config={"query": QUERY_TEXT, "max_tokens": max_tokens},
-            max_tokens=max_tokens,
-            timeout_seconds=min(45.0, max(5.0, deadline_seconds / 3.0))
-            if decision.transport_provider == "openrouter"
-            else None,
-        )
-        return {
-            "status": "success",
-            "metrics": _safe_metrics(metrics),
-            "effective_request": effective_request,
-            "effective_request_hash": stable_hash(effective_request),
-        }
-    except runner.AttemptFailure as exc:
-        return {
-            "status": "error",
-            "stage": exc.stage,
-            "error": exc.message,
-            "effective_request": effective_request,
-            "effective_request_hash": stable_hash(effective_request),
-        }
-    except Exception as exc:  # noqa: BLE001 - preserve per-attempt evidence
-        return {
-            "status": "error",
-            "stage": "generate",
-            "error": f"{type(exc).__name__}: {exc}",
-            "effective_request": effective_request,
-            "effective_request_hash": stable_hash(effective_request),
-        }
+    global_deadline = time.monotonic() + max(0.1, float(deadline_seconds))
+    errors: list[str] = []
+    stage = "generate"
+    last_retry_count = 0
+    for retry_count in range(2):
+        remaining_seconds = global_deadline - time.monotonic()
+        if remaining_seconds <= 0:
+            errors.append("attempt deadline exhausted before retry")
+            break
+        timeout_seconds = min(45.0, max(0.1, remaining_seconds))
+        last_retry_count = retry_count
+        previous_handler = signal.getsignal(signal.SIGALRM)
+
+        def _timeout(_signum, _frame):
+            raise TimeoutError(f"attempt exceeded {timeout_seconds:.1f}s")
+
+        try:
+            signal.signal(signal.SIGALRM, _timeout)
+            signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
+            _, metrics = runner._generate_and_validate(
+                decision,
+                run_ts=datetime.now(timezone.utc).isoformat(),
+                run_config={"query": QUERY_TEXT, "max_tokens": max_tokens},
+                max_tokens=max_tokens,
+                timeout_seconds=timeout_seconds,
+            )
+            return {
+                "status": "success",
+                "metrics": _safe_metrics(metrics),
+                "effective_request": effective_request,
+                "effective_request_hash": stable_hash(effective_request),
+                "retry_count": retry_count,
+                "retry_errors": errors,
+            }
+        except runner.AttemptFailure as exc:
+            stage = exc.stage
+            errors.append(exc.message)
+        except Exception as exc:  # noqa: BLE001 - preserve per-attempt evidence
+            errors.append(f"{type(exc).__name__}: {exc}")
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous_handler)
+
+    return {
+        "status": "error",
+        "stage": stage,
+        "error": errors[-1] if errors else "attempt failed",
+        "retry_count": last_retry_count,
+        "retry_errors": errors,
+        "effective_request": effective_request,
+        "effective_request_hash": stable_hash(effective_request),
+    }
 
 
 def _percentile(values: list[float], percentile: float) -> float | None:

@@ -53,4 +53,3 @@ Run paired canaries in bounded batches over the candidate set, deduplicated by
 OpenRouter ID while retaining every source-row mapping. Promote only rows that
 pass the existing cost, latency, error, output, and revocation gates. Keep all
 other rows direct with their specific evidence reason.
-

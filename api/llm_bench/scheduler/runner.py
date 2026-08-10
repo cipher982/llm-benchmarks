@@ -316,8 +316,9 @@ def _config_for_decision(
         misc["route_model_id"] = decision.route_model_id
         misc["route_probe_id"] = decision.route_probe_id
         misc["route_snapshot_at"] = decision.route_snapshot_at
-        if timeout_seconds is not None:
-            misc["timeout_seconds"] = timeout_seconds
+    if timeout_seconds is not None:
+        misc["timeout_seconds"] = timeout_seconds
+        misc["bounded_timeout"] = True
     return CloudConfig(
         provider=provider,
         model_name=model_id,

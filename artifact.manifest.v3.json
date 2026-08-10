@@ -1,0 +1,769 @@
+{
+  "artifact_id": "llm-benchmarks/openrouter-consolidation",
+  "cache": {
+    "required_for_query": []
+  },
+  "created_at": "2026-08-10T22:43:43Z",
+  "description": "Local pre-production OpenRouter route closure and paired canary evidence.",
+  "objects": {
+    "blobs": {
+      "count": 0,
+      "role": "none"
+    },
+    "derived": [
+      {
+        "key": "derived/canaries/_summary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "0b5f098babf5a99a72186e89bb798827a55d51afab7b41f2329a06c1a5e75abe",
+        "size_bytes": 17048
+      },
+      {
+        "key": "derived/canaries/anthropic__claude-fable-5__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "3858c390b0c9826e55ea7ec97a29dea4de2286f0779c990c8518c07f567d4dd7",
+        "size_bytes": 2717
+      },
+      {
+        "key": "derived/canaries/anthropic__claude-opus-5__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "8adb8af8aff79c8b85acc15ee9d6765718553979aa80decb27df53398d5782e9",
+        "size_bytes": 2665
+      },
+      {
+        "key": "derived/canaries/anthropic__claude-sonnet-5__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "df14fdd0b5a87877e1625b51f4041dfd31e86c4476246e41523ce3c1dc2db43d",
+        "size_bytes": 2671
+      },
+      {
+        "key": "derived/canaries/deepinfra__Qwen_Qwen3-Next-80B-A3B-Instruct__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "6734d7fb92b274a9d264aa8bca4494ae2b96ac7f32b997bb72155ca65e1f2708",
+        "size_bytes": 2720
+      },
+      {
+        "key": "derived/canaries/deepinfra__Qwen_Qwen3-VL-235B-A22B-Instruct__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "d11097723f206cb418010757cc15bd2f657c1313338006875a8ff0107bc8a435",
+        "size_bytes": 2724
+      },
+      {
+        "key": "derived/canaries/deepinfra__Qwen_Qwen3-VL-30B-A3B-Instruct__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "ad2049ea23535383a58655288be8565c18f3f62a15678daebfe71ded9f65b048",
+        "size_bytes": 2714
+      },
+      {
+        "key": "derived/canaries/deepinfra__Qwen_Qwen3.5-122B-A10B__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "48904b1a53c50b5d9164a4adf3239dafa062c7c4ebcb6a4d320f52bb5a9746cb",
+        "size_bytes": 2678
+      },
+      {
+        "key": "derived/canaries/deepinfra__google_gemma-3-12b-it__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "3a5d8ce58de0401b7aea1899ec7f3c84488f11bbf882a1e6750581bfb766f160",
+        "size_bytes": 2665
+      },
+      {
+        "key": "derived/canaries/deepinfra__google_gemma-3-27b-it__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "25d2f155e7a9b2473014635f9b3534290879813f2c4a117de33866d64afcaf4d",
+        "size_bytes": 2665
+      },
+      {
+        "key": "derived/canaries/deepinfra__google_gemma-3-4b-it__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "de3a09a042936f1a2942e636da61a92565759feb880b79b5393018f93dd3f251",
+        "size_bytes": 2656
+      },
+      {
+        "key": "derived/canaries/deepinfra__google_gemma-4-26B-A4B-it__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "9d37c187e45060af94232827b02f9d10afaaf9c94427c5f8fc25079975c76ba7",
+        "size_bytes": 2685
+      },
+      {
+        "key": "derived/canaries/deepinfra__google_gemma-4-31B-it__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "d0869274cdddaa172303ac4cefc328121a64a2a6bb5e2f975e8504a125bb3ca6",
+        "size_bytes": 2669
+      },
+      {
+        "key": "derived/canaries/deepinfra__meta-llama_Llama-3.3-70B-Instruct__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "f3d923032c2991db45b70c745b1d268e07b661ede3389221e0f3ccbf64ccde79",
+        "size_bytes": 2725
+      },
+      {
+        "key": "derived/canaries/deepinfra__meta-llama_Llama-Guard-4-12B__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "fe9b2a7fbee31b31da404ee1a24e80739b4141dcc08e5dc749d68d71ec096b9e",
+        "size_bytes": 2708
+      },
+      {
+        "key": "derived/canaries/deepinfra__microsoft_phi-4__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "027f0860cd7dfc6b7529cc92c29d591dd8ac8683ffdad2b2a47196a7f0477514",
+        "size_bytes": 2635
+      },
+      {
+        "key": "derived/canaries/deepinfra__mistralai_Mistral-Small-24B-Instruct-2501__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "e28230f4ce8bb6120a6fe2b8499451bc4679e0a3c8cec317eacfb2c542868d3c",
+        "size_bytes": 2761
+      },
+      {
+        "key": "derived/canaries/deepinfra__moonshotai_kimi-k2.7-code__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "7ca16e86ab7b65677b0125113161082e005c008bc612086927c20c939961d5f1",
+        "size_bytes": 2695
+      },
+      {
+        "key": "derived/canaries/deepinfra__openai_gpt-oss-120b__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "42fa1c2d0dbec54a2ac70b44b6446f7a588cb1782fa92350790f19be1b728469",
+        "size_bytes": 2659
+      },
+      {
+        "key": "derived/canaries/deepinfra__tencent_hy3__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "3576286a3bb40df6b701001adeeddf9381bb9fc415cb271fd058e67a080b79df",
+        "size_bytes": 2623
+      },
+      {
+        "key": "derived/canaries/deepinfra__thinkingmachines_inkling-small__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "e79ab4cb621ce57a39c85cf27453a6d384c6fcdf779915a76a9adb588e8d6130",
+        "size_bytes": 2714
+      },
+      {
+        "key": "derived/canaries/deepinfra__thinkingmachines_inkling__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "35d0f8a9261676920830f7ae0a253a4433252253e4360faac8ca3d7e731d775f",
+        "size_bytes": 2690
+      },
+      {
+        "key": "derived/canaries/groq__openai_gpt-oss-safeguard-20b__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "f3d6a158d65d0de5029d24e7f3206090a513fd380a5d40c0252e693891b38b3e",
+        "size_bytes": 2666
+      },
+      {
+        "key": "derived/canaries/openai__gpt-3.5-turbo__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "1e84957b6a429c8968a0fb1f8c6c6cce8c6a6d4ef4bb5c4567609663ad1ed545",
+        "size_bytes": 99475
+      },
+      {
+        "key": "derived/canaries/openai__gpt-4-turbo__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "942d1b2fb98d7e225f3e92316eb71ab6f79efcc0624d469806a2a05d13d30abb",
+        "size_bytes": 98710
+      },
+      {
+        "key": "derived/canaries/openai__gpt-4.1-mini__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "2a8c0c2693c49b0ada9f533c4f73aa6cb62c8aa318b226de6fdf582ac4ee533d",
+        "size_bytes": 98814
+      },
+      {
+        "key": "derived/canaries/openai__gpt-4.1-nano__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "25786b200a8cad84ad57d1febffed5395f5d97737a36351c91bb9ec3eed77794",
+        "size_bytes": 98820
+      },
+      {
+        "key": "derived/canaries/openai__gpt-4.1__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "4913b64364e5ae6d48b9a2f52f9db156dc27ada5c64b680ed68fa2e987de9280",
+        "size_bytes": 98189
+      },
+      {
+        "key": "derived/canaries/openai__gpt-4__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "43cf4291639f25a341751daaebaaf436d630ba946604b93df03c6e0631c05ceb",
+        "size_bytes": 97977
+      },
+      {
+        "key": "derived/canaries/openai__gpt-4o-mini__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "c6fd9dfca02346cf7e85a68e9a55751c65a99ca24870bfa482a9ab82719f7887",
+        "size_bytes": 94272
+      },
+      {
+        "key": "derived/canaries/openai__gpt-4o__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "a2dc2081319836791665de55808b8c2172b14ccf6388b2a20b1a67c000e88b76",
+        "size_bytes": 98074
+      },
+      {
+        "key": "derived/canaries/openai__gpt-5.1__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "80e34de63cd57f1cf1387c5a55709b3e9bbde447ca1abb0cd24b246c3ee07feb",
+        "size_bytes": 98375
+      },
+      {
+        "key": "derived/canaries/openai__gpt-5.2-pro__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "d7d22158370f70e4985cc48b22d7c8141fb9bb9a71fd61ce7f0789b4e4fa8fd5",
+        "size_bytes": 2635
+      },
+      {
+        "key": "derived/canaries/openai__gpt-5.2__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "b16cd234b50ed0040032388ece7904d4bef1da3b8d159e2e825b58d91eb3e9d3",
+        "size_bytes": 83666
+      },
+      {
+        "key": "derived/canaries/openai__gpt-5.3-codex__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "336174e04f2389e470dd27385ee100399d070c9a1ff4894a2581fa5a390fccc7",
+        "size_bytes": 2643
+      },
+      {
+        "key": "derived/canaries/openai__gpt-5.4-mini__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "5dbb6d708c26c81ed018600916db2cd838fb2071155722445a10a9cf0a7ffee4",
+        "size_bytes": 2634
+      },
+      {
+        "key": "derived/canaries/openai__gpt-5.4-nano__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "5c01d5c0ab55fef9e9f89b07080dd4516b7dfd8dea6beb9b649ce3924188579a",
+        "size_bytes": 99042
+      },
+      {
+        "key": "derived/canaries/openai__gpt-5.4-pro__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "f3f544042face9665732df6154ec2411436e54e58a9248dc888254da6214422f",
+        "size_bytes": 24605
+      },
+      {
+        "key": "derived/canaries/openai__gpt-5.4__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "d48e25b0a556310767161733dfced127494a0c3623d9c2164bb56cec451b4c9f",
+        "size_bytes": 2601
+      },
+      {
+        "key": "derived/canaries/openai__gpt-5.5-pro__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "c3325cf32571f95a4ac57ba0bb436b1b8ff2fb0e598fa2b4f46a6e39b52ff4d4",
+        "size_bytes": 2625
+      },
+      {
+        "key": "derived/canaries/openai__gpt-5.5__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "3105424f6cd9d1d5ae114f467cc3b836538f0a0fa588beb819426d049a22b457",
+        "size_bytes": 2668
+      },
+      {
+        "key": "derived/canaries/openai__gpt-5.6-luna__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "f2ae904806734f59e385c86cc5047dcfdb06642c3bc92df6b0de322845d2047a",
+        "size_bytes": 2630
+      },
+      {
+        "key": "derived/canaries/openai__gpt-5.6-sol__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "236486472637171452f57248d9628aeed233db6b659d984bd8516c264107c7d4",
+        "size_bytes": 2621
+      },
+      {
+        "key": "derived/canaries/openai__gpt-5.6-terra__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "f8032e79751ad7a851e091fc0f6ff70f74116f767ee5bbacc3da90760a90987e",
+        "size_bytes": 95281
+      },
+      {
+        "key": "derived/canaries/openai__o3-pro__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "213e9cc5e67a9397e125cfa58a451e7501baf5ce86bbffde34ff3ca2e931585b",
+        "size_bytes": 2596
+      },
+      {
+        "key": "derived/canaries/openai__o3__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "0b6d68358a4130b335b4ef56b629327ed54477fd0e74f0c4d6654156c90af231",
+        "size_bytes": 80217
+      },
+      {
+        "key": "derived/canaries/together__google_gemma-3n-E4B-it__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "e07e88583a050206adf4893344944238e6b673cbf92259db5bacebeeede5145f",
+        "size_bytes": 2662
+      },
+      {
+        "key": "derived/canaries/together__google_gemma-4-31B-it__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "2feb23189005afece2f64485559f67fbad28ed0f2b5b5933c755917e1b124274",
+        "size_bytes": 2665
+      },
+      {
+        "key": "derived/canaries/together__meta-llama_Llama-Guard-4-12B__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "473ffab45d9ae4096d88950962ca6d1bb4802998f335727453bdb3147d891288",
+        "size_bytes": 2688
+      },
+      {
+        "key": "derived/canaries/together__moonshotai_Kimi-K2.6__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "700c1ef9074c91a7b09e5d1f6077bcc8a323d5fc845e17b8a08fd21750c75013",
+        "size_bytes": 2656
+      },
+      {
+        "key": "derived/canaries/together__moonshotai_kimi-k2.7-code__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "8b297814213e5fd6052eaee5e0c7e3e6a935f9e0d9fcc2df315e7c71a7ca3f18",
+        "size_bytes": 2681
+      },
+      {
+        "key": "derived/canaries/together__moonshotai_kimi-k3__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "087ae733e4f19520028646e48cbb8601ae319c9b71051a0234c33175a4450198",
+        "size_bytes": 2693
+      },
+      {
+        "key": "derived/canaries/together__nvidia_nemotron-3-ultra-550b-a55b__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "dd002dfaa309430c4df428133b9de7ecc4d3b0a8b15ed7437b323ef465cb0b98",
+        "size_bytes": 2717
+      },
+      {
+        "key": "derived/canaries/together__openai_gpt-oss-120b__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "7c03d667289ee4d5cc082546f7c745e4dbbd86a554d51235856fabfd9cea1ec8",
+        "size_bytes": 2651
+      },
+      {
+        "key": "derived/canaries/together__thinkingmachines_Inkling-Small__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "5d26b1cbba870c27bd4cce0c59942df6f83934b5954150c6a4c79e1cbbb97ef7",
+        "size_bytes": 2702
+      },
+      {
+        "key": "derived/canaries/together__thinkingmachines_inkling__canary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "8fa1fe749dc38d16986c52f800a21d3b6107766514f647141a7602394158de3c",
+        "size_bytes": 2729
+      },
+      {
+        "key": "derived/final/local_route_map.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "17f6397fabf6ea4ceceb892538b8d7fd0a4f6ef9c537814da73d836a20766198",
+        "size_bytes": 12055
+      },
+      {
+        "key": "derived/final/or_final_decisions_local.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "631ca6bd0221617bb05cf22bbbbf07340ea3dc73371ce824859419dd6f45a616",
+        "size_bytes": 212649
+      },
+      {
+        "key": "derived/final/or_reconciliation_local.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "12dfe5258f992b6b2dc3f0a5d24119b319aa75acc0f2732ff39e48b4f3bb69a5",
+        "size_bytes": 215525
+      },
+      {
+        "key": "derived/pricing/_summary.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "e15ec33c8d58d25b62c3e0dab59773a187066dafcf105b6273e2370f12efa220",
+        "size_bytes": 39
+      },
+      {
+        "key": "derived/pricing/anthropic__claude-fable-5.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "0254c43c6f8732f079d584fd7bdbc129fbfb5ed38d7a64a2ba616cc396d2d0f7",
+        "size_bytes": 1652
+      },
+      {
+        "key": "derived/pricing/anthropic__claude-opus-5.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "48861659b18f3e972065cfaaabb48091e18602ed7ba4c9283f713869770bee6c",
+        "size_bytes": 1602
+      },
+      {
+        "key": "derived/pricing/anthropic__claude-sonnet-5.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "51367622d716c9fe1f40642fe2c47b8e2774cefc051ff84e586fb76961c297c8",
+        "size_bytes": 1604
+      },
+      {
+        "key": "derived/pricing/deepinfra__Qwen_Qwen3-Next-80B-A3B-Instruct.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "a3824018e1c618eb233d47c8c60844b3aa177de90bf6acf668d66f30752e20f8",
+        "size_bytes": 1629
+      },
+      {
+        "key": "derived/pricing/deepinfra__Qwen_Qwen3-VL-235B-A22B-Instruct.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "1ba099a04eab38a03e982445b70148c7d0ef4c373fa06e8323e9b87e22e7e9f1",
+        "size_bytes": 1633
+      },
+      {
+        "key": "derived/pricing/deepinfra__Qwen_Qwen3-VL-30B-A3B-Instruct.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "94ee23196ec3b64c3a6cd0a619af27d359641f5d5d497a494f7eb1bdd313453f",
+        "size_bytes": 1627
+      },
+      {
+        "key": "derived/pricing/deepinfra__Qwen_Qwen3.5-122B-A10B.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "968a706b894f4050a222af875c7a1ee9d6caec6924d9aa7c075de83eedb302f7",
+        "size_bytes": 1607
+      },
+      {
+        "key": "derived/pricing/deepinfra__google_gemma-3-12b-it.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "bd468341fa171800869f1f7c4099fcaeb8deec0c5967f3d2a3dcbf87a3919c8c",
+        "size_bytes": 1596
+      },
+      {
+        "key": "derived/pricing/deepinfra__google_gemma-3-27b-it.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "d514dfe3320d57407ce80a3eee1a928814d2e3aef93ea49efdf699d76d7ab789",
+        "size_bytes": 1596
+      },
+      {
+        "key": "derived/pricing/deepinfra__google_gemma-3-4b-it.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "2e3a9b4f35dcd92d399ef50c4bf001bb45f0aa6af93fee4c9687be3a1c7ebc9d",
+        "size_bytes": 1589
+      },
+      {
+        "key": "derived/pricing/deepinfra__google_gemma-4-26B-A4B-it.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "3682a8e9062ff0c7572151f15555cad6e9ff6a8bf4239bc1304e2916c367ec7f",
+        "size_bytes": 1608
+      },
+      {
+        "key": "derived/pricing/deepinfra__google_gemma-4-31B-it.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "365929875474bf4333bcb821c279b53ca7151018f7018ea1493566337ef47de8",
+        "size_bytes": 1600
+      },
+      {
+        "key": "derived/pricing/deepinfra__meta-llama_Llama-3.3-70B-Instruct.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "5056987e52640a6729b85f7f94aea76c76d4445a13344d261914fd2634988552",
+        "size_bytes": 1632
+      },
+      {
+        "key": "derived/pricing/deepinfra__meta-llama_Llama-Guard-4-12B.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "93197b4fc8709d2140fa56a853c9703a5d8048d1b83bb9846d6fa5d3683be5aa",
+        "size_bytes": 1625
+      },
+      {
+        "key": "derived/pricing/deepinfra__microsoft_phi-4.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "8aa1c4d89fc295ec27d40f4ef40189bf94a06ff8555e7fddb4dbe883df0c454c",
+        "size_bytes": 1578
+      },
+      {
+        "key": "derived/pricing/deepinfra__mistralai_Mistral-Small-24B-Instruct-2501.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "0463d83144dd639e37d8dfcfad7ff0c3915efb89ceea2ba93ceced6aa05f43ca",
+        "size_bytes": 1652
+      },
+      {
+        "key": "derived/pricing/deepinfra__moonshotai_kimi-k2.7-code.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "b327244a0d34b8e5897c036d0baea241fb3f6bb298723305a8a11b4158dee714",
+        "size_bytes": 1618
+      },
+      {
+        "key": "derived/pricing/deepinfra__openai_gpt-oss-120b.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "3b95bd12f666a4498527fe65d8102ebe92389337941b858e948b04cced9bce4d",
+        "size_bytes": 1594
+      },
+      {
+        "key": "derived/pricing/deepinfra__tencent_hy3.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "d71dff1ebf90ababd72f36034c5575e7eb405552ca34dbe6252e01efd3a2690a",
+        "size_bytes": 1574
+      },
+      {
+        "key": "derived/pricing/deepinfra__thinkingmachines_inkling-small.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "e2942f3052eaf10cb779042a849cd6b4f4e7902474a5c738c5080ae92f8d19d7",
+        "size_bytes": 1627
+      },
+      {
+        "key": "derived/pricing/deepinfra__thinkingmachines_inkling.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "b5176de389df856fc2bedcd77f6135074f8887ce2cd682ddf544732d0ad8ed5d",
+        "size_bytes": 1615
+      },
+      {
+        "key": "derived/pricing/groq__openai_gpt-oss-safeguard-20b.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "035d87312b65985eba2c8b450399be837851a01ed013467aece5e8b8661f877b",
+        "size_bytes": 1593
+      },
+      {
+        "key": "derived/pricing/openai__gpt-3.5-turbo.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "aa6ff470cc840668c41e4085e73bf9e03f6792c9f42310dafe42d9f5e83266b3",
+        "size_bytes": 1575
+      },
+      {
+        "key": "derived/pricing/openai__gpt-4-turbo.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "3ef26c7354ae4a7dfe9bab53812ca28036a63269cf36d5ac659e00b0615e0125",
+        "size_bytes": 1565
+      },
+      {
+        "key": "derived/pricing/openai__gpt-4.1-mini.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "16116c586bda7c5e4fdf8dbe678b03d36bc2d2b3bc0b29612387d739c6f11cfb",
+        "size_bytes": 1572
+      },
+      {
+        "key": "derived/pricing/openai__gpt-4.1-nano.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "bffbed5b7ee9066242dfad6985c931897682488d7044c0e0a93ada4c08eaafb9",
+        "size_bytes": 1572
+      },
+      {
+        "key": "derived/pricing/openai__gpt-4.1.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "bfa7ddfb2438cbd46f4ed1856165715eac10ba45df756cd7c28c06ad278bc49f",
+        "size_bytes": 1553
+      },
+      {
+        "key": "derived/pricing/openai__gpt-4.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "85082a824ff0b0a08ec21b5fd5578e2bc5edb476e2171fc1d09a128eedd1ac61",
+        "size_bytes": 1547
+      },
+      {
+        "key": "derived/pricing/openai__gpt-4o-mini.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "4e9518d424a3a6990fff3d742df4959b20b3da5603636561275dbebd737b7340",
+        "size_bytes": 1573
+      },
+      {
+        "key": "derived/pricing/openai__gpt-4o.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "3b424ef082be6ea7c2efc6fbfc4637b5bb3eadab2494d4330a63a0acd8ff16b6",
+        "size_bytes": 1560
+      },
+      {
+        "key": "derived/pricing/openai__gpt-5.1.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "f1c060c8be18f7cb2be9730f1602d7d76a342c30a671498a975322833196c6ff",
+        "size_bytes": 1561
+      },
+      {
+        "key": "derived/pricing/openai__gpt-5.2-pro.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "16695887b585f877fa20a04dccb2d00fc7be5187b34def328089b72a0b05917d",
+        "size_bytes": 1579
+      },
+      {
+        "key": "derived/pricing/openai__gpt-5.2.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "b48a628efd04ceef807f4abc5d97891886b0e5726c95f8883e7dd8c746fbb49a",
+        "size_bytes": 1565
+      },
+      {
+        "key": "derived/pricing/openai__gpt-5.3-codex.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "feb5377ebe61c7e259ee4d0b24623f8eb8422de1755c2c110b7de6b7170d7c25",
+        "size_bytes": 1583
+      },
+      {
+        "key": "derived/pricing/openai__gpt-5.4-mini.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "d9d785319a493f2c273b70dc6ce244abb3e4d2838d75f53e6754ca973a9d802c",
+        "size_bytes": 1576
+      },
+      {
+        "key": "derived/pricing/openai__gpt-5.4-nano.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "41097b1419477242953ef6967f71642c73999b3170989ee676cdc0b3a71103c8",
+        "size_bytes": 1625
+      },
+      {
+        "key": "derived/pricing/openai__gpt-5.4-pro.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "9ea6a6be3dc8d98a57e949969816d55aa7bdeb2b310e464dace4a3a98c6b8831",
+        "size_bytes": 1569
+      },
+      {
+        "key": "derived/pricing/openai__gpt-5.4.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "0dd7d6aa0ab630e8c33f15bd234735d35f51829c3bd90172b7f76e3321265dea",
+        "size_bytes": 1553
+      },
+      {
+        "key": "derived/pricing/openai__gpt-5.5-pro.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "f0717bb410074f949fdb2dbf885b50b618141799140499989bacda74d41658f5",
+        "size_bytes": 1569
+      },
+      {
+        "key": "derived/pricing/openai__gpt-5.5.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "3aa845a7d87e2117dd744cc0742b50e2687c3354b9f2595afb2ab09062cb7e51",
+        "size_bytes": 1620
+      },
+      {
+        "key": "derived/pricing/openai__gpt-5.6-luna.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "4daa35deb8f8cd39bd00550f6f883f1b72867b12bce3ad09b72db0d9640ad958",
+        "size_bytes": 1572
+      },
+      {
+        "key": "derived/pricing/openai__gpt-5.6-sol.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "5f27f22ab20d247f7de9a12b130e0215f2e98acc4391dfcd1e4786b18b4dd555",
+        "size_bytes": 1565
+      },
+      {
+        "key": "derived/pricing/openai__gpt-5.6-terra.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "5ab2a0e917da979761bdeb4ca6def7f168d6bbb9954ec6afd556d91e8f95dc07",
+        "size_bytes": 1575
+      },
+      {
+        "key": "derived/pricing/openai__o3-pro.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "56f0817eeb4c79f0d4d64c8fe0c4fc1661838a9907404e2afe53b451fc2e5321",
+        "size_bytes": 1550
+      },
+      {
+        "key": "derived/pricing/openai__o3.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "b902c829143ef62eed7fa9b9bd35af1d645d4fccd2e260b838715e0f7dbc43c3",
+        "size_bytes": 1538
+      },
+      {
+        "key": "derived/pricing/together__google_gemma-3n-E4B-it.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "70f29f5735f025991b88ffca07b253d80e09a8fa44dc434968d0da1d9078e844",
+        "size_bytes": 1593
+      },
+      {
+        "key": "derived/pricing/together__google_gemma-4-31B-it.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "4df3455ff029b403cfd5a78d4463b85e97669e9e3b555c05f233544e8807becc",
+        "size_bytes": 1598
+      },
+      {
+        "key": "derived/pricing/together__meta-llama_Llama-Guard-4-12B.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "4afab8a721cab7196d08dc264299d31a035db3aaf3373a63b6cfd4579a29ada6",
+        "size_bytes": 1607
+      },
+      {
+        "key": "derived/pricing/together__moonshotai_Kimi-K2.6.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "caa2119b5e1a61d66ac33f102079b789b5701889f64e713fdad9a3c34ae9ba23",
+        "size_bytes": 1591
+      },
+      {
+        "key": "derived/pricing/together__moonshotai_kimi-k2.7-code.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "d05989382001476f203f688a9f04e2262cf0326cd928697b28ae8a9a90211aaa",
+        "size_bytes": 1606
+      },
+      {
+        "key": "derived/pricing/together__moonshotai_kimi-k3.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "587baa1685ef68131a1455ee7fe3d91ad4399f60f83182d51ead65eb4de98203",
+        "size_bytes": 1632
+      },
+      {
+        "key": "derived/pricing/together__nvidia_nemotron-3-ultra-550b-a55b.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "81829c4f06f8e02da1c298782215f9c7f4213182331a46d9ce14b1fba183b55d",
+        "size_bytes": 1626
+      },
+      {
+        "key": "derived/pricing/together__openai_gpt-oss-120b.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "8f1a22929d9bde955462742603c6416c591c3f545073c236e2cc55fc839ff271",
+        "size_bytes": 1588
+      },
+      {
+        "key": "derived/pricing/together__thinkingmachines_Inkling-Small.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "f811ea2b91be042eb0fca2d831c711d1f0aae1ac63de1a84db1f9c2424f1abf2",
+        "size_bytes": 1617
+      },
+      {
+        "key": "derived/pricing/together__thinkingmachines_inkling.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "3656ff8869cd443e798c26369d402d7b04982622ebb7a6b1d463fecbaafe0db2",
+        "size_bytes": 1656
+      },
+      {
+        "key": "derived/routes/openai__gpt-3.5-turbo.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "9e556cfdc14607d5fc3ae54e60a4265cd8aee10137697fc6d6b890ce09224f04",
+        "size_bytes": 1833
+      },
+      {
+        "key": "derived/routes/openai__gpt-4-turbo.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "728adc48cd1c1c25fc0a714eecb55d45e4596fb601eb6de6340fe9dc3f8333b7",
+        "size_bytes": 1825
+      },
+      {
+        "key": "derived/routes/openai__gpt-4.1-mini.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "f49edb2b4b264d1a05eecaca6e97d6469c6953be4f10ca358919fa35837a4f68",
+        "size_bytes": 1829
+      },
+      {
+        "key": "derived/routes/openai__gpt-4.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "49f5984ce16a8722082849e71ee5b3a56a16398815828cca3e4b953e5597a641",
+        "size_bytes": 1816
+      },
+      {
+        "key": "derived/routes/openai__gpt-4o-mini.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "fac1c9155a34b957092fac2c086ca702026f42ff30844e6408c077c8e0fd406f",
+        "size_bytes": 1825
+      },
+      {
+        "key": "derived/routes/openai__gpt-4o.json",
+        "role": "local OpenRouter consolidation evidence",
+        "sha256": "50446e0d6bbdd4ac9cf1b9a13b0008bb4e0f48cec83139bdb801b9f12338700b",
+        "size_bytes": 1805
+      }
+    ],
+    "source": [
+      {
+        "key": "source/or_endpoints_fresh.tar.gz",
+        "role": "frozen local OpenRouter consolidation source evidence",
+        "sha256": "536487902b6a6b21b18b46456ebc4ebe683b611f83d7f542ea2de7a69f2ba8d8",
+        "size_bytes": 70752
+      },
+      {
+        "key": "source/or_models_fresh.json",
+        "role": "frozen local OpenRouter consolidation source evidence",
+        "sha256": "02bf3d644019604f37a388f29bcb7b98e6584df5fa8bbf22f7c4657dd678be66",
+        "size_bytes": 1028971
+      },
+      {
+        "key": "source/our_models_fresh.json",
+        "role": "frozen local OpenRouter consolidation source evidence",
+        "sha256": "05c0d2050abcc9767cb6b6521a1b49f9afbe547c56f2d1feda14441c0a8c780d",
+        "size_bytes": 31734
+      }
+    ]
+  },
+  "primary_store": {
+    "bucket": "artifacts",
+    "mc_alias": "cube-artifacts",
+    "prefix": "llm-benchmarks/openrouter-consolidation/v3"
+  },
+  "schema": "drose.artifact-manifest.v1",
+  "version": "v3"
+}

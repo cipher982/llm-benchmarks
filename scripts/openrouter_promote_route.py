@@ -138,6 +138,8 @@ def promote_decision(
     route.update(
         {
             "state": "active",
+            "terminal_state": "route-approved",
+            "audit_reason": "paired-canary-promoted",
             "transport_provider": "openrouter",
             "route_policy": "pinned-provider",
             "canary_id": canary.get("canary_id"),

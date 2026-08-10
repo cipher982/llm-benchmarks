@@ -15,7 +15,13 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     assert "query" in run_config, "query must be in run_config"
     assert "max_tokens" in run_config, "max_tokens must be in run_config"
 
-    client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+    client_kwargs = {}
+    if config.misc.get("bounded_timeout"):
+        client_kwargs = {
+            "timeout": float(config.misc.get("timeout_seconds", os.getenv("GROQ_TIMEOUT_SECONDS", "120"))),
+            "max_retries": 0,
+        }
+    client = Groq(api_key=os.environ.get("GROQ_API_KEY"), **client_kwargs)
     return run_chat_completion_benchmark(
         client=client,
         model=config.model_name,

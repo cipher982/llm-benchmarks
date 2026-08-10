@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 
 from anthropic import Anthropic
@@ -19,7 +20,13 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     assert "max_tokens" in run_config, "max_tokens must be in run_config"
 
     # Set up connection
-    anthropic = Anthropic()
+    client_kwargs = {}
+    if config.misc.get("bounded_timeout"):
+        client_kwargs = {
+            "timeout": float(config.misc.get("timeout_seconds", os.getenv("ANTHROPIC_TIMEOUT_SECONDS", "120"))),
+            "max_retries": 0,
+        }
+    anthropic = Anthropic(**client_kwargs)
 
     # Generate
     time_0 = time.time()

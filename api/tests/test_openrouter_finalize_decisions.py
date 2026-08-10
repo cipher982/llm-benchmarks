@@ -79,3 +79,39 @@ def test_promoted_route_is_terminal_route_approved():
 
     assert result["terminal_counts"] == {"route-approved": 1}
     assert result["decisions"][0]["state"] == "active"
+
+
+def test_failed_canary_becomes_terminal_direct_canary_failed():
+    result = finalize(
+        {
+            "decisions": [
+                {
+                    "source_provider": "openai",
+                    "source_model_id": "gpt-4o",
+                    "state": "candidate",
+                    "transport_provider": "openrouter",
+                    "route_model_id": "openai/gpt-4o",
+                    "route_provider_slug": "openai",
+                    "observed_provider_slug": "openai",
+                    "route_probe_id": "probe:test",
+                }
+            ]
+        },
+        [],
+        [
+            {
+                "source_provider": "openai",
+                "source_model_id": "gpt-4o",
+                "evaluation": {
+                    "canary_state": "failed",
+                    "promotion_valid": False,
+                    "failure_reason": "missing-local-credential:OPENAI_API_KEY",
+                },
+            }
+        ],
+        canary_paths=["/tmp/canary.json"],
+    )
+
+    row = result["decisions"][0]
+    assert row["terminal_state"] == "direct-canary-failed"
+    assert row["canary_artifact_path"] == "/tmp/canary.json"
