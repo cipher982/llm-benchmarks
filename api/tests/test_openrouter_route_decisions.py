@@ -121,6 +121,7 @@ def test_promotion_requires_passing_costed_canary_and_sets_expiry(tmp_path):
         "attempts": {
             "direct": {
                 "status": "success",
+                "effective_request_hash": "c" * 64,
                 "metrics": {
                     "tokens_per_second": 100,
                     "time_to_first_token": 1.0,
@@ -130,6 +131,8 @@ def test_promotion_requires_passing_costed_canary_and_sets_expiry(tmp_path):
             },
             "openrouter": {
                 "status": "success",
+                "effective_request_hash": "d" * 64,
+                "effective_request": {"protocol_version": 1},
                 "metrics": {
                     "tokens_per_second": 95,
                     "time_to_first_token": 1.1,
@@ -153,6 +156,7 @@ def test_promotion_requires_passing_costed_canary_and_sets_expiry(tmp_path):
         "source_model_id": "Qwen/Qwen3-32B",
         "route_model_id": "qwen/qwen3-32b",
         "seed": 0,
+        "profile_hash": "b" * 64,
         "pricing": {
             "direct": {"input_per_token": 1e-6, "output_per_token": 1e-6},
             "openrouter": {"input_per_token": 1e-6, "output_per_token": 1e-6},

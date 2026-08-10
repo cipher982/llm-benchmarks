@@ -10,6 +10,7 @@ The output is evidence input for ``openrouter_coverage_audit.py``.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -21,12 +22,16 @@ from urllib.error import HTTPError
 from urllib.request import Request
 from urllib.request import urlopen
 
+from openrouter_budget import DEFAULT_BATCH_MAX_USD
+from openrouter_budget import DEFAULT_DAILY_MAX_USD
+from openrouter_budget import reserve_daily_budget
 from openrouter_coverage_audit import PROVIDER_SLUGS
 from openrouter_coverage_audit import norm
 from openrouter_coverage_audit import utc_now
 
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 PROMPT = "Reply with OK."
+PROBE_SCHEMA_VERSION = 2
 
 
 def load_json(path: Path) -> Any:
@@ -39,6 +44,11 @@ def write_json(path: Path, value: Any) -> None:
     with path.open("w", encoding="utf-8") as handle:
         json.dump(value, handle, indent=2, sort_keys=True)
         handle.write("\n")
+
+
+def stable_hash(value: Any) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def provider_slug(provider: str, mapping: dict[str, Any]) -> str | None:
@@ -109,6 +119,8 @@ def probe_once(
     timeout: float,
     route_slug: str,
     attempt: int,
+    profile_id: str,
+    profile_hash: str,
 ) -> dict[str, Any]:
     source_key = str(row["source_key"])
     model_id = str(row["or_model_id"])
@@ -140,6 +152,8 @@ def probe_once(
         "source_key": source_key,
         "or_model_id": model_id,
         "attempt": attempt,
+        "profile_id": profile_id,
+        "profile_hash": profile_hash,
         "route_provider_slug": route_slug,
         "started_at": utc_now(),
         "request": {
@@ -150,6 +164,7 @@ def probe_once(
             "provider": body["provider"],
         },
     }
+    result["effective_request_hash"] = stable_hash(body)
     try:
         with urlopen(request, timeout=timeout) as response:  # noqa: S310 - fixed API base URL from CLI
             parsed = parse_sse(response)
@@ -216,6 +231,12 @@ def summarize(row: dict[str, Any], attempts: list[dict[str, Any]]) -> dict[str, 
         "usable_output": len(successful) == len(attempts),
         "successful_attempts": len(successful),
         "attempts": attempts,
+        "identity_evidence_verified": bool((row.get("evidence") or {}).get("identity", {}).get("verified")),
+        "profile_id": attempts[0].get("profile_id") if attempts else None,
+        "profile_hash": attempts[0].get("profile_hash") if attempts else None,
+        "effective_request_hashes": sorted(
+            {str(attempt["effective_request_hash"]) for attempt in attempts if attempt.get("effective_request_hash")}
+        ),
     }
 
 
@@ -232,6 +253,13 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=60.0)
     parser.add_argument("--concurrency", type=int, default=3)
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--max-probes", type=int, default=200)
+    parser.add_argument("--max-cost-usd", type=float, default=10.0)
+    parser.add_argument("--batch-max-cost-usd", type=float, default=DEFAULT_BATCH_MAX_USD)
+    parser.add_argument("--daily-max-cost-usd", type=float, default=DEFAULT_DAILY_MAX_USD)
+    parser.add_argument("--daily-ledger-json", type=Path)
+    parser.add_argument("--estimated-cost-per-probe", type=float, default=0.02)
+    parser.add_argument("--profile-id", default="cloud-default-v1")
     args = parser.parse_args()
 
     if args.replay_json:
@@ -244,6 +272,7 @@ def main() -> int:
         previous["generated_at"] = utc_now()
         previous["replayed_from"] = str(args.replay_json)
         previous["rows"] = sorted(replayed_rows, key=lambda item: str(item["source_key"]))
+        previous["schema_version"] = PROBE_SCHEMA_VERSION
         write_json(args.output, previous)
         print(f"replayed {len(replayed_rows)} rows")
         print(f"wrote {args.output}")
@@ -252,6 +281,14 @@ def main() -> int:
     api_key = args.api_key or os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY is required")
+    if args.max_probes < 1 or args.max_cost_usd <= 0 or args.estimated_cost_per_probe <= 0:
+        raise ValueError("probe budget values must be positive")
+    if not args.daily_ledger_json:
+        raise ValueError("live probes require --daily-ledger-json shared budget ledger")
+    if args.max_cost_usd > args.batch_max_cost_usd:
+        raise ValueError("--max-cost-usd cannot exceed --batch-max-cost-usd")
+    profile = {"profile_id": args.profile_id, "max_tokens": args.max_tokens, "prompt": PROMPT, "stream": True}
+    profile_hash = stable_hash(profile)
     audit = load_json(args.audit_json)
     provider_map = load_json(args.provider_map_json) if args.provider_map_json else {}
     if not isinstance(provider_map, dict):
@@ -263,8 +300,20 @@ def main() -> int:
         route_slug = provider_slug(str(row["provider"]), provider_map)
         if route_slug:
             candidates.append({**row, "route_provider_slug": route_slug})
+    max_by_budget = min(args.max_probes, int(args.max_cost_usd / args.estimated_cost_per_probe))
     if args.limit:
-        candidates = candidates[: args.limit]
+        max_by_budget = min(max_by_budget, args.limit)
+    unprobed = candidates[max_by_budget:]
+    candidates = candidates[:max_by_budget]
+    estimated_requests = len(candidates) * args.attempts
+    reserved_cost = min(args.max_cost_usd, estimated_requests * args.estimated_cost_per_probe)
+    ledger = reserve_daily_budget(
+        args.daily_ledger_json,
+        amount_usd=reserved_cost,
+        batch_max_usd=args.batch_max_cost_usd,
+        daily_max_usd=args.daily_max_cost_usd,
+        operation="availability-probe",
+    )
 
     summaries: list[dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as pool:
@@ -281,6 +330,8 @@ def main() -> int:
                             timeout=args.timeout,
                             route_slug=str(item["route_provider_slug"]),
                             attempt=attempt,
+                            profile_id=args.profile_id,
+                            profile_hash=profile_hash,
                         )
                         for attempt in range(1, args.attempts + 1)
                     ],
@@ -306,13 +357,27 @@ def main() -> int:
             print(f"probe {index}/{len(candidates)} {row['source_key']}", file=sys.stderr, flush=True)
 
     report = {
-        "schema_version": 1,
+        "schema_version": PROBE_SCHEMA_VERSION,
         "generated_at": utc_now(),
         "mode": "report-only-probe",
         "audit_snapshot": str(args.audit_json),
         "attempts_per_row": args.attempts,
         "max_tokens": args.max_tokens,
         "concurrency": args.concurrency,
+        "profile": profile,
+        "profile_hash": profile_hash,
+        "budget": {
+            "max_probes": args.max_probes,
+            "max_cost_usd": args.max_cost_usd,
+            "estimated_cost_per_probe": args.estimated_cost_per_probe,
+            "estimated_requests": estimated_requests,
+            "scheduled_rows": len(candidates),
+            "unprobed_rows": len(unprobed),
+            "status": "exhausted" if unprobed else "within-budget",
+            "daily_ledger": str(args.daily_ledger_json),
+            "daily_reserved_usd": ledger["reserved_usd"],
+        },
+        "budget_exhausted_source_keys": [str(row["source_key"]) for row in unprobed],
         "rows": sorted(summaries, key=lambda item: str(item["source_key"])),
     }
     write_json(args.output, report)

@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "rule_version": "or-alias-v1",
+  "reviewed_candidate_count": 56,
+  "review_artifacts": [
+    "hatch_20260810T190002.855387000Z_cdf9d525f035c771 (cursor-grok)",
+    "hatch_20260810T190518.377100000Z_14d6d714301fc525 (codex-sol)"
+  ],
+  "evidence_manifest": {
+    "frozen-source": {
+      "uri": "s3://artifacts/llm-benchmarks/openrouter-consolidation/v2/source/our_models_fresh.json",
+      "sha256": "05c0d2050abcc9767cb6b6521a1b49f9afbe547c56f2d1feda14441c0a8c780d"
+    },
+    "frozen-catalog": {
+      "uri": "s3://artifacts/llm-benchmarks/openrouter-consolidation/v2/source/or_models_fresh.json",
+      "sha256": "02bf3d644019604f37a388f29bcb7b98e6584df5fa8bbf22f7c4657dd678be66"
+    },
+    "frozen-endpoints": {
+      "uri": "s3://artifacts/llm-benchmarks/openrouter-consolidation/v2/source/or_endpoints_fresh.tar.gz",
+      "sha256": "536487902b6a6b21b18b46456ebc4ebe683b611f83d7f542ea2de7a69f2ba8d8"
+    },
+    "frozen-probe": {
+      "uri": "s3://artifacts/llm-benchmarks/openrouter-consolidation/v2/derived/or_probe_live_v2.json",
+      "sha256": "5cc9129608fbe439f409f3092def6b0935c4e5b0e499f62fa56d8e125ed22aa6"
+    }
+  },
+  "review_receipts": {
+    "cursor-grok": {
+      "run_id": "hatch_20260810T190002.855387000Z_cdf9d525f035c771",
+      "uri": "hatch://hatch_20260810T190002.855387000Z_cdf9d525f035c771/evidence.sha256",
+      "sha256": "b7121d7d0e67b64e1c1f0d2bab86e329e24523dab075a0ce4f14c5a356fa6e5c",
+      "verdict": "approved",
+      "reviewed_count": 56
+    },
+    "codex-sol": {
+      "run_id": "hatch_20260810T190518.377100000Z_14d6d714301fc525",
+      "uri": "hatch://hatch_20260810T190518.377100000Z_14d6d714301fc525/evidence.sha256",
+      "sha256": "b88b40298cd25e12b3b699acd834640970ab136c32bbf78abf2e8f4604bc7568",
+      "verdict": "approved",
+      "reviewed_count": 56
+    }
+  },
+  "aliases": [
+    {"source_key":"anthropic/claude-fable-5","target_or_model_id":"anthropic/claude-fable-5","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"anthropic/claude-opus-5","target_or_model_id":"anthropic/claude-opus-5","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"anthropic/claude-sonnet-5","target_or_model_id":"anthropic/claude-sonnet-5","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"deepinfra/Qwen/Qwen3-Next-80B-A3B-Instruct","target_or_model_id":"qwen/qwen3-next-80b-a3b-instruct","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"deepinfra/Qwen/Qwen3-VL-235B-A22B-Instruct","target_or_model_id":"qwen/qwen3-vl-235b-a22b-instruct","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"deepinfra/Qwen/Qwen3-VL-30B-A3B-Instruct","target_or_model_id":"qwen/qwen3-vl-30b-a3b-instruct","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"deepinfra/Qwen/Qwen3.5-122B-A10B","target_or_model_id":"qwen/qwen3.5-122b-a10b","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"deepinfra/google/gemma-3-12b-it","target_or_model_id":"google/gemma-3-12b-it","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"deepinfra/google/gemma-3-27b-it","target_or_model_id":"google/gemma-3-27b-it","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"deepinfra/google/gemma-3-4b-it","target_or_model_id":"google/gemma-3-4b-it","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"deepinfra/google/gemma-4-26B-A4B-it","target_or_model_id":"google/gemma-4-26b-a4b-it","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"deepinfra/google/gemma-4-31B-it","target_or_model_id":"google/gemma-4-31b-it","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"deepinfra/meta-llama/Llama-3.3-70B-Instruct","target_or_model_id":"meta-llama/llama-3.3-70b-instruct","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"deepinfra/meta-llama/Llama-Guard-4-12B","target_or_model_id":"meta-llama/llama-guard-4-12b","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"deepinfra/microsoft/phi-4","target_or_model_id":"microsoft/phi-4","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"deepinfra/mistralai/Mistral-Small-24B-Instruct-2501","target_or_model_id":"mistralai/mistral-small-24b-instruct-2501","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"deepinfra/moonshotai/kimi-k2.7-code","target_or_model_id":"moonshotai/kimi-k2.7-code","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"deepinfra/openai/gpt-oss-120b","target_or_model_id":"openai/gpt-oss-120b","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"deepinfra/openai/gpt-oss-20b","target_or_model_id":"openai/gpt-oss-20b","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"deepinfra/tencent/hy3","target_or_model_id":"tencent/hy3","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"deepinfra/thinkingmachines/inkling","target_or_model_id":"thinkingmachines/inkling","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"deepinfra/thinkingmachines/inkling-small","target_or_model_id":"thinkingmachines/inkling-small","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"groq/openai/gpt-oss-safeguard-20b","target_or_model_id":"openai/gpt-oss-safeguard-20b","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-3.5-turbo","target_or_model_id":"openai/gpt-3.5-turbo","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-4","target_or_model_id":"openai/gpt-4","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-4-turbo","target_or_model_id":"openai/gpt-4-turbo","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-4.1","target_or_model_id":"openai/gpt-4.1","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-4.1-mini","target_or_model_id":"openai/gpt-4.1-mini","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-4.1-nano","target_or_model_id":"openai/gpt-4.1-nano","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-4o","target_or_model_id":"openai/gpt-4o","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-4o-mini","target_or_model_id":"openai/gpt-4o-mini","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-5.1","target_or_model_id":"openai/gpt-5.1","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-5.2","target_or_model_id":"openai/gpt-5.2","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-5.2-pro","target_or_model_id":"openai/gpt-5.2-pro","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-5.3-codex","target_or_model_id":"openai/gpt-5.3-codex","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-5.4","target_or_model_id":"openai/gpt-5.4","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-5.4-mini","target_or_model_id":"openai/gpt-5.4-mini","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-5.4-nano","target_or_model_id":"openai/gpt-5.4-nano","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-5.4-pro","target_or_model_id":"openai/gpt-5.4-pro","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-5.5","target_or_model_id":"openai/gpt-5.5","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-5.5-pro","target_or_model_id":"openai/gpt-5.5-pro","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-5.6-luna","target_or_model_id":"openai/gpt-5.6-luna","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-5.6-sol","target_or_model_id":"openai/gpt-5.6-sol","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/gpt-5.6-terra","target_or_model_id":"openai/gpt-5.6-terra","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/o3","target_or_model_id":"openai/o3","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"openai/o3-pro","target_or_model_id":"openai/o3-pro","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"together/google/gemma-3n-E4B-it","target_or_model_id":"google/gemma-3n-e4b-it","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"together/google/gemma-4-31B-it","target_or_model_id":"google/gemma-4-31b-it","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"together/meta-llama/Llama-Guard-4-12B","target_or_model_id":"meta-llama/llama-guard-4-12b","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"together/moonshotai/Kimi-K2.6","target_or_model_id":"moonshotai/kimi-k2.6","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"together/moonshotai/kimi-k2.7-code","target_or_model_id":"moonshotai/kimi-k2.7-code","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"together/moonshotai/kimi-k3","target_or_model_id":"moonshotai/kimi-k3","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"together/nvidia/nemotron-3-ultra-550b-a55b","target_or_model_id":"nvidia/nemotron-3-ultra-550b-a55b","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"together/openai/gpt-oss-120b","target_or_model_id":"openai/gpt-oss-120b","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"together/thinkingmachines/Inkling-Small","target_or_model_id":"thinkingmachines/inkling-small","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"},
+    {"source_key":"together/thinkingmachines/inkling","target_or_model_id":"thinkingmachines/inkling","evidence_refs":["frozen-source","frozen-catalog","frozen-endpoints","frozen-probe"],"reviewers":["cursor-grok","codex-sol"],"rule_version":"or-alias-v1"}
+  ]
+}

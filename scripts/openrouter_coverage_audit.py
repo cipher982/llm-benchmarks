@@ -4,8 +4,9 @@
 This tool never writes MongoDB and never enables, disables, or queues a model.
 It joins a frozen enabled-model snapshot to an OpenRouter model snapshot and,
 when available, endpoint-listing snapshots. Name similarity is used only to
-report ambiguity. A row becomes ``route-or`` only when an explicit alias and a
-successful, observed-provider probe are supplied in the evidence input.
+report ambiguity. A row becomes ``route-or`` only when an exact or reviewed
+alias identity, primary identity evidence, and a successful observed-provider
+probe are supplied in the evidence input.
 
 The first pass is intentionally useful without probes: it identifies exact
 candidate IDs, endpoint metadata, and the rows that must remain direct. A later
@@ -15,6 +16,7 @@ probe pass can add evidence without changing this decision logic.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -34,6 +36,8 @@ DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 # streaming. ``max_tokens`` is the request parameter used by this bench and is
 # safe to use as the catalog-level compatibility filter.
 REQUIRED_PARAMETERS = ("max_tokens",)
+IDENTITY_RULE_VERSION = "or-identity-v2"
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 # OpenRouter uses display names in some endpoint responses and slugs in routing
 # requests. This is deliberately a reviewed, small mapping. It is not a model
@@ -79,6 +83,14 @@ def write_json(path: Path, value: Any) -> None:
         handle.write("\n")
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def request_json(url: str, *, api_key: str | None, timeout: float) -> Any:
     headers = {"Accept": "application/json", "User-Agent": "llm-bench-coverage-audit/1"}
     if api_key:
@@ -111,6 +123,42 @@ def model_rows(payload: Any) -> list[dict[str, Any]]:
     return [row for row in payload if isinstance(row, dict) and row.get("id")]
 
 
+def catalog_scope(payload: Any, *, observed_count: int) -> tuple[str, list[str]]:
+    """Validate whether a catalog can support a negative match decision.
+
+    A truncated or paginated catalog is useful for positive candidates but it
+    cannot prove that a source model is absent. The caller must keep those rows
+    as ``direct-unknown`` until a complete global snapshot is available.
+    """
+
+    if not isinstance(payload, dict):
+        return "unknown", ["catalog-payload-not-object"]
+    problems: list[str] = []
+    total = payload.get("total_count")
+    if not isinstance(total, int):
+        problems.append("catalog-total-count-missing")
+    elif total != observed_count:
+        problems.append("catalog-count-mismatch")
+    links = payload.get("links")
+    if isinstance(links, dict) and links.get("next"):
+        problems.append("catalog-pagination-present")
+    scope = str(payload.get("catalog_scope") or "public-discovery").strip().lower()
+    if scope != "global":
+        problems.append("catalog-scope-not-global")
+    repeated = payload.get("stable_repeated_count")
+    if repeated is not True:
+        problems.append("catalog-count-not-stable")
+    repeated_counts = payload.get("stable_repeated_counts")
+    if (
+        not isinstance(repeated_counts, list)
+        or len(repeated_counts) < 2
+        or len({value for value in repeated_counts if isinstance(value, int)}) != 1
+        or any(not isinstance(value, int) for value in repeated_counts)
+    ):
+        problems.append("catalog-repeat-evidence-missing")
+    return ("global" if not problems else scope), problems
+
+
 def enabled_rows(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, dict) and isinstance(payload.get("data"), list):
         payload = payload["data"]
@@ -139,6 +187,25 @@ def slug(or_id: str) -> str:
     return or_id.rsplit("/", 1)[-1]
 
 
+def diagnostic_stem(model_id: str) -> str:
+    """Build a version-dot-safe diagnostic stem, never an approval key.
+
+    Source IDs can contain organization prefixes, Bedrock regions, provider
+    suffixes, and version dots such as ``Qwen2.5``. Splitting on dots destroys
+    those versions, so only slash separators are structural here. This value is
+    retained for reviewer ranking and debugging, never for route activation.
+    """
+
+    core = str(model_id).split(":", 1)[0]
+    core = core.split("/")[-1]
+    core = re.sub(r"^(?:us|eu|ap|sa|ca|me|af)\.", "", core, flags=re.IGNORECASE)
+    core = re.sub(r"^(?:anthropic|amazon|meta|mistral)\.", "", core, flags=re.IGNORECASE)
+    core = core.casefold()
+    core = re.sub(r"-v\d+(?:\.\d+)?$", "", core)
+    core = re.sub(r"-(?:\d{8}|\d{4})$", "", core)
+    return core.strip("-._")
+
+
 def exact_candidates(model_id: str, catalog: list[dict[str, Any]]) -> list[str]:
     """Return only case-insensitive full-ID matches, never fuzzy matches."""
     wanted = norm(model_id)
@@ -158,13 +225,152 @@ def unique_slug_candidates(model_id: str, catalog: list[dict[str, Any]]) -> list
     return sorted(set(matches))
 
 
-def alias_candidates(key: str, aliases: dict[str, Any], catalog: list[dict[str, Any]]) -> list[str]:
+def alias_records(key: str, aliases: dict[str, Any]) -> list[dict[str, Any]]:
+    """Read both the v1 reviewed schema and the old keyed-map fixture shape."""
+
+    if isinstance(aliases.get("aliases"), list):
+        return [item for item in aliases["aliases"] if isinstance(item, dict) and str(item.get("source_key")) == key]
     value = aliases.get(key)
     if not value:
         return []
     values = [value] if isinstance(value, str) else value
+    if isinstance(values, list) and all(isinstance(item, str) for item in values):
+        return [{"source_key": key, "target_or_model_id": item} for item in values]
+    return [item for item in values if isinstance(item, dict)] if isinstance(values, list) else []
+
+
+def alias_candidates(key: str, aliases: dict[str, Any], catalog: list[dict[str, Any]]) -> list[str]:
+    records = alias_records(key, aliases)
     catalog_ids = {norm(str(row["id"])): str(row["id"]) for row in catalog}
-    return [catalog_ids[norm(str(item))] for item in values if norm(str(item)) in catalog_ids]
+    result: list[str] = []
+    for record in records:
+        target = record.get("target_or_model_id") or record.get("target")
+        values = [target] if isinstance(target, str) else target
+        for item in values or []:
+            if norm(str(item)) in catalog_ids:
+                result.append(catalog_ids[norm(str(item))])
+    return result
+
+
+def reviewed_alias_evidence(
+    aliases: dict[str, Any],
+    *,
+    refs: Any,
+    reviewers: Any,
+    rule_version: Any,
+) -> tuple[bool, dict[str, Any]]:
+    """Validate alias references against the signed-in-place evidence manifest."""
+
+    manifest = aliases.get("evidence_manifest")
+    receipts = aliases.get("review_receipts")
+    if not isinstance(manifest, dict) or not isinstance(receipts, dict):
+        return False, {"reason": "alias-evidence-manifest-missing"}
+    if rule_version != aliases.get("rule_version"):
+        return False, {"reason": "alias-rule-version-mismatch"}
+    if not isinstance(refs, list) or not refs:
+        return False, {"reason": "alias-evidence-refs-missing"}
+    resolved_refs: list[dict[str, Any]] = []
+    for ref in refs:
+        item = manifest.get(ref) if isinstance(ref, str) else None
+        if not isinstance(item, dict) or not isinstance(item.get("uri"), str):
+            return False, {"reason": "alias-evidence-ref-unresolved", "ref": ref}
+        if not SHA256_RE.fullmatch(str(item.get("sha256") or "")):
+            return False, {"reason": "alias-evidence-hash-invalid", "ref": ref}
+        resolved_refs.append({"ref": ref, "uri": item["uri"], "sha256": item["sha256"]})
+    if not isinstance(reviewers, list) or len(reviewers) < 2:
+        return False, {"reason": "alias-reviewer-quorum-missing"}
+    resolved_reviewers: list[dict[str, Any]] = []
+    for reviewer in reviewers:
+        receipt = receipts.get(reviewer) if isinstance(reviewer, str) else None
+        try:
+            reviewed_count = int(receipt.get("reviewed_count", 0) or 0) if isinstance(receipt, dict) else 0
+        except (TypeError, ValueError):
+            reviewed_count = 0
+        if (
+            not isinstance(receipt, dict)
+            or not str(receipt.get("run_id", "")).startswith("hatch_")
+            or not isinstance(receipt.get("uri"), str)
+            or not SHA256_RE.fullmatch(str(receipt.get("sha256") or ""))
+            or receipt.get("verdict") != "approved"
+            or reviewed_count < 1
+        ):
+            return False, {"reason": "alias-review-receipt-unresolved", "reviewer": reviewer}
+        resolved_reviewers.append(
+            {
+                "reviewer": reviewer,
+                "run_id": receipt["run_id"],
+                "uri": receipt["uri"],
+                "sha256": receipt["sha256"],
+                "verdict": receipt["verdict"],
+                "reviewed_count": reviewed_count,
+            }
+        )
+    return True, {"evidence": resolved_refs, "reviewers": resolved_reviewers}
+
+
+def identity_evidence_for(
+    key: str,
+    *,
+    source_row: dict[str, Any],
+    aliases: dict[str, Any],
+    catalog_row: dict[str, Any],
+    route_model_id: str,
+    catalog_snapshot_hash: str | None = None,
+) -> dict[str, Any]:
+    """Return primary evidence for a source-to-OR identity assertion.
+
+    A unique slug is never evidence. Exact IDs can use a matching canonical OR
+    record only when the record carries a canonical slug or official metadata;
+    reviewed aliases must carry explicit evidence references and reviewer
+    attestations.
+    """
+
+    records = [
+        record for record in alias_records(key, aliases) if (record.get("target_or_model_id") or record.get("target"))
+    ]
+    for record in records:
+        targets = record.get("target_or_model_id") or record.get("target")
+        if isinstance(targets, str):
+            targets = [targets]
+        if route_model_id in {str(item) for item in targets or []}:
+            refs = record.get("evidence_refs") or record.get("evidence")
+            reviewers = record.get("reviewers")
+            valid, resolved = reviewed_alias_evidence(
+                aliases,
+                refs=refs,
+                reviewers=reviewers,
+                rule_version=record.get("rule_version"),
+            )
+            if valid:
+                return {
+                    "verified": True,
+                    "method": "reviewed-alias",
+                    "evidence_refs": refs,
+                    "reviewers": reviewers,
+                    "rule_version": record.get("rule_version"),
+                    "resolved_evidence": resolved["evidence"],
+                    "resolved_reviewers": resolved["reviewers"],
+                }
+    source_metadata = source_row.get("identity_evidence")
+    if isinstance(source_metadata, dict) and source_metadata.get("verified") is True:
+        refs = source_metadata.get("evidence_refs") or source_metadata.get("evidence")
+        if isinstance(refs, list) and refs:
+            return {"verified": True, "method": "source-metadata", "evidence_refs": refs}
+    canonical = catalog_row.get("canonical_slug")
+    official_fields = (catalog_row.get("name"), catalog_row.get("description"), catalog_row.get("architecture"))
+    if (
+        norm(str(canonical or "")) == norm(route_model_id)
+        and any(official_fields)
+        and catalog_snapshot_hash
+        and SHA256_RE.fullmatch(catalog_snapshot_hash)
+    ):
+        return {
+            "verified": True,
+            "method": "exact-id-canonical-or-record",
+            "evidence_refs": [str(catalog_row.get("links", {}).get("details") or route_model_id)],
+            "evidence_hashes": [catalog_snapshot_hash],
+        }
+    return {"verified": False, "method": "none", "evidence_refs": []}
 
 
 def endpoint_provider_slug(endpoint: dict[str, Any]) -> str | None:
@@ -245,6 +451,7 @@ def decide(
     aliases: dict[str, Any],
     endpoint_payload: Any | None,
     probe: dict[str, Any] | None,
+    catalog_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     provider = str(row["provider"])
     model_id = str(row["model_id"])
@@ -268,15 +475,23 @@ def decide(
     exact = exact_candidates(model_id, catalog)
     explicit = alias_candidates(key, aliases, catalog)
     slug_matches = unique_slug_candidates(model_id, catalog)
-    candidates = sorted(set(exact + explicit + (slug_matches if len(slug_matches) == 1 else [])))
+    candidates = sorted(set(exact + explicit))
     base["evidence"] = {
+        "identity_rule_version": IDENTITY_RULE_VERSION,
+        "diagnostic_stem": diagnostic_stem(model_id),
         "exact_id_candidates": exact,
         "explicit_alias_candidates": explicit,
         "unique_slug_candidates": slug_matches,
     }
     if len(candidates) != 1:
         base["reason_class"] = (
-            "ambiguous-model-id" if len(slug_matches) > 1 or len(candidates) > 1 else "no-exact-or-ambiguous-model-id"
+            "ambiguous-model-id"
+            if len(slug_matches) > 1 or len(candidates) > 1
+            else (
+                "no-exact-or-ambiguous-model-id"
+                if (catalog_meta or {}).get("scope") == "global"
+                else "catalog-evidence-incomplete"
+            )
         )
         if len(slug_matches) > 1:
             base["evidence"]["ambiguous_slug_candidates"] = slug_matches
@@ -284,6 +499,21 @@ def decide(
 
     or_id = candidates[0]
     base["or_model_id"] = or_id
+    catalog_row = next((item for item in catalog if str(item.get("id")) == or_id), {})
+    identity = identity_evidence_for(
+        key,
+        source_row=row,
+        aliases=aliases,
+        catalog_row=catalog_row,
+        route_model_id=or_id,
+        catalog_snapshot_hash=(catalog_meta or {}).get("snapshot_sha256"),
+    )
+    base["evidence"]["identity"] = identity
+    if isinstance(catalog_row.get("pricing"), dict):
+        base["evidence"]["or_catalog_pricing"] = catalog_row["pricing"]
+    if not identity.get("verified"):
+        base["reason_class"] = "identity-evidence-missing"
+        return base
     if endpoint_payload is None:
         base["reason_class"] = "endpoint-evidence-missing"
         return base
@@ -312,6 +542,9 @@ def decide(
     if not probe.get("usable_output") or not probe.get("provider_metadata_verified"):
         base["reason_class"] = "probe-evidence-incomplete"
         return base
+    if probe.get("identity_evidence_verified") is not True and not identity.get("verified"):
+        base["reason_class"] = "identity-evidence-missing"
+        return base
     base.update(
         {
             "decision": "route-or",
@@ -339,9 +572,6 @@ def fetch_endpoint_snapshots(
     for row in rows:
         candidates = exact_candidates(str(row["model_id"]), catalog)
         candidates += alias_candidates(source_key(row), aliases, catalog)
-        slug_matches = unique_slug_candidates(str(row["model_id"]), catalog)
-        if len(slug_matches) == 1:
-            candidates += slug_matches
         ids.update(candidates)
 
     results: dict[str, Any] = {}
@@ -382,6 +612,12 @@ def main() -> int:
     parser.add_argument("--api-key", default=None, help="OpenRouter key; prefer OPENROUTER_API_KEY")
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--delay", type=float, default=0.1)
+    parser.add_argument(
+        "--catalog-scope",
+        choices=("public-discovery", "global"),
+        default="public-discovery",
+        help="Declare whether this snapshot is complete enough for negative matches.",
+    )
     args = parser.parse_args()
 
     api_key = args.api_key
@@ -405,6 +641,16 @@ def main() -> int:
         catalog = model_rows(catalog_snapshot)
     else:
         raise ValueError("provide --catalog-json or --fetch-catalog")
+
+    if isinstance(catalog_snapshot, dict):
+        catalog_snapshot = dict(catalog_snapshot)
+        catalog_snapshot.setdefault("catalog_scope", args.catalog_scope)
+    scope, scope_problems = catalog_scope(catalog_snapshot, observed_count=len(catalog))
+    catalog_meta = {
+        "scope": scope,
+        "problems": scope_problems,
+        "snapshot_sha256": sha256_file(Path(args.catalog_json)) if args.catalog_json else None,
+    }
 
     endpoint_payloads: dict[str, Any] = {}
     if args.fetch_endpoints:
@@ -433,9 +679,8 @@ def main() -> int:
     for row in sorted(rows, key=lambda item: source_key(item)):
         candidates = exact_candidates(str(row["model_id"]), catalog)
         candidates += alias_candidates(source_key(row), aliases, catalog)
-        slug_matches = unique_slug_candidates(str(row["model_id"]), catalog)
-        if len(slug_matches) == 1:
-            candidates += slug_matches
+        # Unique slug matches are retained in the audit row for diagnostics,
+        # but never authorize an endpoint fetch or a route.
         candidate_ids = sorted(set(candidates))
         endpoint_payload = endpoint_payloads.get(candidate_ids[0]) if len(candidate_ids) == 1 else None
         audit_rows.append(
@@ -445,6 +690,7 @@ def main() -> int:
                 aliases=aliases,
                 endpoint_payload=endpoint_payload,
                 probe=probes.get(source_key(row)),
+                catalog_meta=catalog_meta,
             )
         )
 
@@ -464,6 +710,7 @@ def main() -> int:
         "catalog_snapshot": str(args.catalog_json) if args.catalog_json else "fetched",
         "catalog_count": len(catalog),
         "catalog_total_count": catalog_snapshot.get("total_count") if isinstance(catalog_snapshot, dict) else None,
+        "catalog_scope": catalog_meta,
         "required_parameters": list(REQUIRED_PARAMETERS),
         "decisions": counts,
         "by_provider": by_provider,

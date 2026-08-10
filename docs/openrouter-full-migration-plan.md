@@ -1,6 +1,6 @@
 # OpenRouter full model equivalence and migration plan
 
-Status: plan under review
+Status: implementation and evidence pass complete; production promotion pending
 Owner: LLM Bench
 Started: 2026-08-10
 
@@ -76,6 +76,43 @@ signals, but it may still be a limited public discovery view rather than a
 global service catalog. The audit records both facts separately:
 `pagination_complete` and `catalog_scope`. A complete discovery view is not
 evidence that an absent model is globally unservable.
+
+## Implementation result, 2026-08-10
+
+The workflow is implemented and exercised against the frozen 241-row source
+snapshot. The live run is deliberately conservative:
+
+- The public OpenRouter discovery response contained 400 rows and did not
+  establish global catalog completeness. Unseen IDs therefore remain
+  `direct-unknown`; they are not treated as proven no-match.
+- The reviewed alias table contains 56 candidate source rows. Cursor Grok and
+  Hatch Sol independently reviewed all 56 and returned no rejected mappings.
+  Each alias now resolves its evidence labels through a hash-addressed
+  manifest and its reviewer names through durable Hatch receipts.
+- The pinned availability probe scheduled 59 candidates and observed 55
+  successful provider-identified responses. A successful probe alone did not
+  activate a route.
+- One paired 30-request canary passed for `openai/gpt-4o-mini` and was
+  materialized as an active dry-run route. Its throughput ratio was 0.987,
+  TTFT ratio 1.003, cost ratio 1.000, with zero errors.
+- The final 241-row reconciliation has 1 `route-approved` row and 240 direct
+  rows: 21 policy-excluded, 5 incompatible, 2 probe-failed, and 212 unknown.
+  The unknown category includes rows hidden by the limited public catalog and
+  candidates that have not yet received the required costed paired canary.
+- No production Mongo reconciliation was applied because this run had no
+  configured `MONGODB_URI`. The active route artifact is therefore a
+  reviewable dry-run artifact, not a production mutation.
+- Probe and canary commands now require a shared UTC-day reservation ledger,
+  enforce a per-batch cap, and include input-token cost in the canary estimate.
+  Reconciliation accepts a previous run and records new, changed, stale, and
+  removed source keys.
+
+The immutable v2 evidence bundle is described by
+`artifact.manifest.v2.json` and stored under
+`artifacts/llm-benchmarks/openrouter-consolidation/v2/`. It includes the frozen
+inputs, alias reviews, audit, probes, canary, pricing, active route, final
+decisions, and reconciliation report. The exact row-level states and hashes
+are in `docs/audits/openrouter-migration-live-2026-08-10.md`.
 
 ## Row decision states
 

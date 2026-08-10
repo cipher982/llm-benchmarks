@@ -41,6 +41,9 @@ def active_snapshot(**overrides):
         "canary_ttft_ci95_upper": 1.2,
         "canary_cost_ci95_upper": 1.05,
         "expires_at": "2099-08-10T00:00:00+00:00",
+        "profile_hash": "b" * 64,
+        "direct_effective_request_hash": "c" * 64,
+        "routed_effective_request_hash": "d" * 64,
     }
     value.update(overrides)
     return value
@@ -116,6 +119,18 @@ def test_malformed_evidence_uri_fails_closed():
 
     assert decision.transport_provider == DIRECT_TRANSPORT
     assert decision.reason == "canary-evidence-not-immutable"
+
+
+def test_newer_revocation_generation_forces_direct():
+    decision = RouteDecision.from_snapshot(
+        "deepinfra",
+        "Qwen/Qwen3-32B",
+        active_snapshot(route_revocation_generation=3),
+        current_revocation_generation=4,
+    )
+
+    assert decision.transport_provider == DIRECT_TRANSPORT
+    assert decision.reason == "route-revoked"
 
 
 def test_route_cooldown_resolves_direct_and_recovery_requires_probe():

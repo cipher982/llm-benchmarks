@@ -87,7 +87,16 @@ class TestProvenanceSurvivesTheWriteLayer:
     def test_every_provenance_field_is_on_the_allowlist(self):
         from llm_bench.logging import OPTIONAL_METRIC_FIELDS
 
-        required = {"sample_role", "benchmark_profile_id", "protocol_version", "attempt_group", "attempt"}
+        required = {
+            "sample_role",
+            "benchmark_profile_id",
+            "protocol_version",
+            "attempt_group",
+            "attempt",
+            "profile_hash",
+            "effective_request_hash",
+            "route_revocation_generation",
+        }
         assert required <= set(OPTIONAL_METRIC_FIELDS), required - set(OPTIONAL_METRIC_FIELDS)
 
     def test_the_fields_the_runner_sets_are_exactly_the_fields_that_persist(self, monkeypatch):
@@ -103,5 +112,20 @@ class TestProvenanceSurvivesTheWriteLayer:
         runner.run_benchmark_job({"_id": "job-1", "provider": "groq", "model_id": "m", "attempt": 2})
 
         persisted = _optional_metric_fields(written)
-        for field in ("sample_role", "benchmark_profile_id", "protocol_version", "attempt_group", "attempt"):
+        for field in (
+            "sample_role",
+            "benchmark_profile_id",
+            "protocol_version",
+            "attempt_group",
+            "attempt",
+        ):
             assert field in persisted, f"{field} is set by the runner but dropped before Mongo"
+        for field in (
+            "profile_hash",
+            "effective_request_hash",
+            "direct_effective_request_hash",
+            "routed_effective_request_hash",
+            "route_revocation_generation",
+        ):
+            if field in written:
+                assert field in persisted, f"{field} is set by the runner but dropped before Mongo"

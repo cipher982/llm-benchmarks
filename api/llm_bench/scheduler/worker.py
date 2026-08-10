@@ -4,6 +4,7 @@ import socket
 import threading
 import time
 import uuid
+from copy import deepcopy
 from datetime import datetime
 from datetime import timezone
 
@@ -14,6 +15,7 @@ from llm_bench.scheduler import runner
 from llm_bench.scheduler.mongo import mongo_client
 from llm_bench.scheduler.mongo import mongo_env
 from llm_bench.scheduler.mongo import route_decisions_collection_name
+from llm_bench.scheduler.mongo import route_revocation_generation
 from llm_bench.scheduler.routing import cooldown_route_snapshot
 from llm_bench.scheduler.runner import run_job_in_child
 
@@ -45,7 +47,8 @@ def persist_route_cooldown(db, *, job: dict, result: runner.RunnerResult, now: d
 
     snapshot = job.get("route_snapshot")
     failure_reason = result.fallback_reason or result.error_message
-    if not result.route_attempted or not failure_reason or not isinstance(snapshot, dict):
+    quota_fallback = result.fallback_reason == "openrouter-quota-unavailable"
+    if (not result.route_attempted and not quota_fallback) or not failure_reason or not isinstance(snapshot, dict):
         return
     cooled = cooldown_route_snapshot(snapshot, failure_reason=failure_reason, now=now)
     key = {
@@ -68,6 +71,55 @@ def persist_route_cooldown(db, *, job: dict, result: runner.RunnerResult, now: d
     # The job snapshot is the retry safety boundary. Update it first, then
     # mirror the same state into the operator-facing route collection.
     db[route_decisions_collection_name()].update_one(key, {"$set": cooled}, upsert=True)
+
+
+def apply_route_revocation_guard(db, job: dict) -> dict:
+    """Re-check the monotonic revocation generation immediately before dispatch."""
+
+    snapshot = job.get("route_snapshot")
+    if not isinstance(snapshot, dict):
+        return job
+    provider = str(job.get("provider") or "")
+    model_id = str(job.get("model_id") or "")
+    current = route_revocation_generation(db, provider=provider, model_id=model_id)
+    try:
+        queued = int(snapshot.get("route_revocation_generation", 0))
+    except (TypeError, ValueError):
+        queued = -1
+    if current <= queued:
+        return job
+    updated = dict(job)
+    revoked = deepcopy(snapshot)
+    revoked.update(
+        {
+            "state": "revoked",
+            "transport_provider": "direct",
+            "route_policy": "direct",
+            "route_revocation_generation": current,
+            "route_revocation_reason": "route-revoked-before-dispatch",
+        }
+    )
+    updated["route_snapshot"] = revoked
+    updated["route_fallback_reason"] = "route-revoked-before-dispatch"
+    return updated
+
+
+def direct_fallback_job(job: dict, *, reason: str) -> dict:
+    """Return a copy that cannot resolve back to OpenRouter."""
+
+    fallback = dict(job)
+    snapshot = deepcopy(job.get("route_snapshot") or {})
+    snapshot.update(
+        {
+            "state": "revoked",
+            "transport_provider": "direct",
+            "route_policy": "direct",
+            "route_revocation_reason": reason,
+        }
+    )
+    fallback["route_snapshot"] = snapshot
+    fallback["route_fallback_reason"] = reason
+    return fallback
 
 
 def run_worker_loop(
@@ -105,6 +157,8 @@ def run_worker_loop(
                 stop_event.wait(idle_sleep_seconds)
                 continue
 
+            job = apply_route_revocation_guard(db, job)
+
             deadline = float(job.get("deadline_seconds") or policies.DEFAULT_DEADLINE_SECONDS)
             attempt_started = time.monotonic()
             print(
@@ -120,16 +174,27 @@ def run_worker_loop(
             try:
                 if runner.job_requires_openrouter(job):
                     remaining = max(0.0, deadline - (time.monotonic() - attempt_started))
-                    acquired = acquire_openrouter_slot(remaining)
+                    # Keep a bounded direct lane reserve. A quota stall must
+                    # not turn a valid source provider into a lost sample.
+                    reserve = max(10.0, deadline * 0.25)
+                    acquire_wait = max(0.0, remaining - reserve)
+                    acquired = acquire_openrouter_slot(acquire_wait)
                     if not acquired:
-                        result = runner.RunnerResult(
-                            status="error",
-                            error_kind="rate_limit",
-                            error_message="OpenRouter shared quota lane was unavailable before the job deadline",
-                            route_attempted=True,
-                            transport_provider="openrouter",
-                            fallback_reason="openrouter-quota-unavailable",
-                        )
+                        remaining = max(0.0, deadline - (time.monotonic() - attempt_started))
+                        if remaining > 0:
+                            result = run_job_in_child(
+                                direct_fallback_job(job, reason="openrouter-quota-unavailable"),
+                                deadline_seconds=remaining,
+                            )
+                        else:
+                            result = runner.RunnerResult(
+                                status="timeout",
+                                error_kind="timeout",
+                                error_message="direct fallback reserve expired before dispatch",
+                                route_attempted=True,
+                                transport_provider="direct",
+                                fallback_reason="openrouter-quota-unavailable",
+                            )
                     else:
                         try:
                             remaining = max(0.0, deadline - (time.monotonic() - attempt_started))

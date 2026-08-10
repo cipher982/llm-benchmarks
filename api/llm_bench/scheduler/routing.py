@@ -72,6 +72,10 @@ class RouteDecision:
     route_canary_evidence_sha256: str | None = None
     route_canary_promotion_gate: str | None = None
     route_expires_at: str | None = None
+    route_revocation_generation: int = 0
+    profile_hash: str | None = None
+    direct_effective_request_hash: str | None = None
+    routed_effective_request_hash: str | None = None
     state: str = "direct"
     reason: str = "missing-route-snapshot"
 
@@ -93,6 +97,7 @@ class RouteDecision:
         *,
         now: datetime | None = None,
         require_promotion_evidence: bool = True,
+        current_revocation_generation: int | None = None,
     ) -> "RouteDecision":
         """Resolve a snapshot, returning direct for every invalid case."""
 
@@ -109,6 +114,14 @@ class RouteDecision:
             return cls.direct(source_provider, source_model_id, reason="route-decision-version-mismatch")
         if source_provider == "bedrock":
             return cls.direct(source_provider, source_model_id, reason="bedrock-out-of-scope")
+        try:
+            snapshot_generation = int(snapshot.get("route_revocation_generation", 0))
+        except (TypeError, ValueError):
+            return cls.direct(source_provider, source_model_id, reason="invalid-route-revocation-generation")
+        if snapshot_generation < 0:
+            return cls.direct(source_provider, source_model_id, reason="invalid-route-revocation-generation")
+        if current_revocation_generation is not None and current_revocation_generation > snapshot_generation:
+            return cls.direct(source_provider, source_model_id, reason="route-revoked")
         if snapshot.get("state") != "active":
             return cls.direct(source_provider, source_model_id, reason="route-state-not-active")
         if snapshot.get("transport_provider") != OPENROUTER_TRANSPORT:
@@ -179,6 +192,11 @@ class RouteDecision:
             return cls.direct(source_provider, source_model_id, reason="unverified-provider-metadata")
         if snapshot.get("observed_provider_slug") != snapshot.get("route_provider_slug"):
             return cls.direct(source_provider, source_model_id, reason="observed-provider-mismatch")
+        if require_promotion_evidence and any(
+            not snapshot.get(key)
+            for key in ("profile_hash", "direct_effective_request_hash", "routed_effective_request_hash")
+        ):
+            return cls.direct(source_provider, source_model_id, reason="request-evidence-missing")
 
         route_model_id = str(snapshot["route_model_id"])
         if route_model_id.count("/") != 1:
@@ -206,6 +224,10 @@ class RouteDecision:
             route_canary_evidence_sha256=snapshot.get("canary_evidence_sha256"),
             route_canary_promotion_gate=snapshot.get("canary_promotion_gate"),
             route_expires_at=str(expiry),
+            route_revocation_generation=snapshot_generation,
+            profile_hash=snapshot.get("profile_hash"),
+            direct_effective_request_hash=snapshot.get("direct_effective_request_hash"),
+            routed_effective_request_hash=snapshot.get("routed_effective_request_hash"),
             state="active",
             reason="active-pinned-route",
         )
@@ -315,7 +337,12 @@ def recover_route_snapshot(
     return recovered
 
 
-def resolve_job_route(job: Mapping[str, Any], *, now: datetime | None = None) -> RouteDecision:
+def resolve_job_route(
+    job: Mapping[str, Any],
+    *,
+    now: datetime | None = None,
+    current_revocation_generation: int | None = None,
+) -> RouteDecision:
     """Resolve the immutable route snapshot attached to a queued job."""
 
     return RouteDecision.from_snapshot(
@@ -323,4 +350,5 @@ def resolve_job_route(job: Mapping[str, Any], *, now: datetime | None = None) ->
         str(job.get("model_id") or ""),
         job.get("route_snapshot"),
         now=now,
+        current_revocation_generation=current_revocation_generation,
     )

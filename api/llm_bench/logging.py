@@ -76,6 +76,11 @@ OPTIONAL_METRIC_FIELDS = (
     "route_reason",
     "provider_metadata_verified",
     "route_state",
+    "profile_hash",
+    "effective_request_hash",
+    "direct_effective_request_hash",
+    "routed_effective_request_hash",
+    "route_revocation_generation",
 )
 
 

@@ -28,6 +28,33 @@ from pymongo import MongoClient
 
 DEFAULT_CANARY_REQUIRED = 2
 
+TERMINAL_REASON_MAP = {
+    "bedrock-out-of-scope": "direct-policy-excluded",
+    "no-exact-or-ambiguous-model-id": "direct-no-match",
+    "catalog-evidence-incomplete": "direct-unknown",
+    "endpoint-evidence-missing": "direct-unknown",
+    "identity-evidence-missing": "direct-unknown",
+    "source-provider-not-listed": "direct-incompatible",
+    "protocol-incompatible": "direct-incompatible",
+    "observed-provider-mismatch": "direct-probe-failed",
+    "probe-failed-or-incomplete": "direct-probe-failed",
+    "probe-evidence-incomplete": "direct-probe-failed",
+    "visible-output-empty": "direct-probe-failed",
+    "budget-exhausted": "direct-unknown",
+}
+
+
+def terminal_state(row: dict[str, Any], *, catalog_scope: dict[str, Any] | None) -> str:
+    """Map audit evidence to the stable terminal state used by runtime/reporting."""
+
+    reason = str(row.get("reason_class") or "unknown")
+    if reason == "no-exact-or-ambiguous-model-id":
+        if not isinstance(catalog_scope, dict) or catalog_scope.get("scope") != "global":
+            return "direct-unknown"
+    if reason == "ambiguous-model-id":
+        return "direct-ambiguous"
+    return TERMINAL_REASON_MAP.get(reason, "direct-unknown")
+
 
 def load_json(path: Path) -> Any:
     with path.open(encoding="utf-8") as handle:
@@ -66,6 +93,7 @@ def materialize_row(
     snapshot_at: str,
     audit_path: str,
     canary_required: int = DEFAULT_CANARY_REQUIRED,
+    catalog_scope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Convert one audit row into a scheduler route decision."""
 
@@ -83,6 +111,8 @@ def materialize_row(
         "state": "direct",
         "transport_provider": "direct",
         "route_policy": "direct",
+        "terminal_state": terminal_state(row, catalog_scope=catalog_scope),
+        "route_revocation_generation": 0,
     }
 
     if row.get("decision") != "route-or":
@@ -96,6 +126,7 @@ def materialize_row(
     metadata_verified = probe.get("provider_metadata_verified") is True
     if not all((route_model_id, route_provider_slug, observed_provider_slug, metadata_verified)):
         base["audit_reason"] = "incomplete-audit-evidence"
+        base["terminal_state"] = "direct-unknown"
         return base
 
     base.update(
@@ -112,6 +143,7 @@ def materialize_row(
             "canary_state": "availability_passed",
             "canary_successes": 0,
             "canary_required_successes": max(1, int(canary_required)),
+            "route_revocation_generation": 0,
         }
     )
     return base
@@ -129,6 +161,7 @@ def materialize_report(
         raise ValueError("audit report must contain a rows list")
     snapshot_at = _timestamp(report.get("generated_at"))
     decisions = []
+    catalog_scope = report.get("catalog_scope")
     seen: set[tuple[str, str]] = set()
     for row in rows:
         if not isinstance(row, dict):
@@ -145,15 +178,19 @@ def materialize_report(
                 snapshot_at=snapshot_at,
                 audit_path=audit_path,
                 canary_required=canary_required,
+                catalog_scope=catalog_scope if isinstance(catalog_scope, dict) else None,
             )
         )
     if expected_source_count is not None and len(decisions) != expected_source_count:
         raise ValueError(f"expected {expected_source_count} source rows, got {len(decisions)}")
     decisions.sort(key=lambda item: (item["source_provider"], item["source_model_id"]))
     counts: dict[str, int] = {}
+    terminal_counts: dict[str, int] = {}
     for decision in decisions:
         key = "candidate" if decision["state"] == "candidate" else "direct"
         counts[key] = counts.get(key, 0) + 1
+        terminal = "route-candidate" if key == "candidate" else decision.get("terminal_state", "direct-unknown")
+        terminal_counts[terminal] = terminal_counts.get(terminal, 0) + 1
     return {
         "schema_version": 1,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -162,6 +199,7 @@ def materialize_report(
         "route_decision_version": ROUTE_DECISION_VERSION,
         "canary_required_successes": max(1, int(canary_required)),
         "counts": counts,
+        "terminal_counts": terminal_counts,
         "source_count": len(decisions),
         "decisions": decisions,
     }

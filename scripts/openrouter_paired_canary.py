@@ -10,6 +10,7 @@ provider metric contract does not expose a comparable cost field.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import time
@@ -23,6 +24,15 @@ from typing import Any
 
 from llm_bench.scheduler import runner
 from llm_bench.scheduler.routing import RouteDecision
+
+try:
+    from scripts.openrouter_budget import DEFAULT_BATCH_MAX_USD
+    from scripts.openrouter_budget import DEFAULT_DAILY_MAX_USD
+    from scripts.openrouter_budget import reserve_daily_budget
+except ModuleNotFoundError:  # direct ``python scripts/openrouter_paired_canary.py``
+    from openrouter_budget import DEFAULT_BATCH_MAX_USD
+    from openrouter_budget import DEFAULT_DAILY_MAX_USD
+    from openrouter_budget import reserve_daily_budget
 
 QUERY_TEXT = "Tell a long and happy story about the history of the world."
 DEFAULT_MAX_TOKENS = 64
@@ -69,6 +79,11 @@ def write_json(path: Path, value: Any) -> None:
     with path.open("w", encoding="utf-8") as handle:
         json.dump(value, handle, indent=2, sort_keys=True)
         handle.write("\n")
+
+
+def stable_hash(value: Any) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _safe_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
@@ -119,6 +134,17 @@ def _attempt(
     deadline_seconds: int,
 ) -> dict[str, Any]:
     run_ts = datetime.now(timezone.utc).isoformat()
+    effective_request = {
+        "transport_provider": decision.transport_provider,
+        "transport_model_id": decision.transport_model_id,
+        "route_provider_slug": decision.route_provider_slug,
+        "source_provider": decision.source_provider,
+        "source_model_id": decision.source_model_id,
+        "prompt": QUERY_TEXT,
+        "max_tokens": max_tokens,
+        "temperature": runner.TEMPERATURE,
+        "protocol_version": runner.PROTOCOL_VERSION,
+    }
     try:
         _, metrics = runner._generate_and_validate(
             decision,
@@ -129,11 +155,28 @@ def _attempt(
             if decision.transport_provider == "openrouter"
             else None,
         )
-        return {"status": "success", "metrics": _safe_metrics(metrics)}
+        return {
+            "status": "success",
+            "metrics": _safe_metrics(metrics),
+            "effective_request": effective_request,
+            "effective_request_hash": stable_hash(effective_request),
+        }
     except runner.AttemptFailure as exc:
-        return {"status": "error", "stage": exc.stage, "error": exc.message}
+        return {
+            "status": "error",
+            "stage": exc.stage,
+            "error": exc.message,
+            "effective_request": effective_request,
+            "effective_request_hash": stable_hash(effective_request),
+        }
     except Exception as exc:  # noqa: BLE001 - preserve per-attempt evidence
-        return {"status": "error", "stage": "generate", "error": f"{type(exc).__name__}: {exc}"}
+        return {
+            "status": "error",
+            "stage": "generate",
+            "error": f"{type(exc).__name__}: {exc}",
+            "effective_request": effective_request,
+            "effective_request_hash": stable_hash(effective_request),
+        }
 
 
 def _percentile(values: list[float], percentile: float) -> float | None:
@@ -338,6 +381,10 @@ def run_canary(
         raise ValueError("pairs_count must be at least 1")
     if required_pairs < 1 or pairs_count < required_pairs:
         raise ValueError("pairs_count must be at least required_pairs")
+    if pairs_count > 30 or required_pairs > 30:
+        raise ValueError("promotion canaries are capped at 30 paired requests")
+    if pricing is None:
+        raise ValueError("paired canary requires direct and OpenRouter pricing evidence")
     candidate = _candidate(report, provider, model_id)
     canary_id = f"canary:{provider}:{model_id}:{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
     route_decision = _active_canary_decision(candidate, canary_id)
@@ -369,6 +416,15 @@ def run_canary(
         "route_model_id": candidate["route_model_id"],
         "route_provider_slug": candidate["route_provider_slug"],
         "benchmark_profile_id": "cloud-default-v1",
+        "profile_hash": stable_hash(
+            {
+                "profile_id": "cloud-default-v1",
+                "prompt": QUERY_TEXT,
+                "max_tokens": max_tokens,
+                "temperature": runner.TEMPERATURE,
+                "protocol_version": runner.PROTOCOL_VERSION,
+            }
+        ),
         "max_tokens": max_tokens,
         "pairs_requested": pairs_count,
         "deadline_seconds": deadline_seconds,
@@ -407,7 +463,39 @@ def main() -> int:
     parser.add_argument("--max-route-ttft-ratio", type=float, default=DEFAULT_MAX_ROUTE_TTFT_RATIO)
     parser.add_argument("--max-route-error-delta", type=float, default=DEFAULT_MAX_ROUTE_ERROR_DELTA)
     parser.add_argument("--max-route-cost-ratio", type=float, default=DEFAULT_MAX_ROUTE_COST_RATIO)
+    parser.add_argument("--max-cost-usd", type=float, default=5.0)
+    parser.add_argument("--batch-max-cost-usd", type=float, default=DEFAULT_BATCH_MAX_USD)
+    parser.add_argument("--daily-max-cost-usd", type=float, default=DEFAULT_DAILY_MAX_USD)
+    parser.add_argument("--daily-ledger-json", type=Path)
     args = parser.parse_args()
+    pricing = load_json(args.pricing_json) if args.pricing_json else None
+    if not isinstance(pricing, dict):
+        raise ValueError("--pricing-json is required for bounded promotion canaries")
+    if args.max_cost_usd <= 0:
+        raise ValueError("--max-cost-usd must be positive")
+    if not args.daily_ledger_json:
+        raise ValueError("live canaries require --daily-ledger-json shared budget ledger")
+    if args.max_cost_usd > args.batch_max_cost_usd:
+        raise ValueError("--max-cost-usd cannot exceed --batch-max-cost-usd")
+    # A deliberately conservative upper bound. The actual usage cost is
+    # recorded per attempt and the evaluation still requires complete pricing.
+    max_rate = max(
+        float(pricing.get("direct", {}).get("input_per_token", 0) or 0),
+        float(pricing.get("direct", {}).get("output_per_token", 0) or 0),
+        float(pricing.get("openrouter", {}).get("input_per_token", 0) or 0),
+        float(pricing.get("openrouter", {}).get("output_per_token", 0) or 0),
+    )
+    estimated_input_tokens = max(1, ceil(len(QUERY_TEXT) / 4))
+    estimated_cost = args.pairs * 2 * (estimated_input_tokens + args.max_tokens) * max_rate
+    if estimated_cost > args.max_cost_usd:
+        raise ValueError(f"estimated canary cost ${estimated_cost:.4f} exceeds cap ${args.max_cost_usd:.4f}")
+    ledger = reserve_daily_budget(
+        args.daily_ledger_json,
+        amount_usd=min(args.max_cost_usd, estimated_cost),
+        batch_max_usd=args.batch_max_cost_usd,
+        daily_max_usd=args.daily_max_cost_usd,
+        operation=f"paired-canary:{args.provider}/{args.model_id}",
+    )
     result = run_canary(
         load_json(args.decisions_json),
         provider=args.provider,
@@ -422,8 +510,17 @@ def main() -> int:
         min_success_rate=args.min_success_rate,
         max_route_error_delta=args.max_route_error_delta,
         max_route_cost_ratio=args.max_route_cost_ratio,
-        pricing=load_json(args.pricing_json) if args.pricing_json else None,
+        pricing=pricing,
     )
+    result["budget"] = {
+        "estimated_input_tokens": estimated_input_tokens,
+        "estimated_cost_usd": estimated_cost,
+        "max_cost_usd": args.max_cost_usd,
+        "batch_max_cost_usd": args.batch_max_cost_usd,
+        "daily_max_cost_usd": args.daily_max_cost_usd,
+        "daily_ledger": str(args.daily_ledger_json),
+        "daily_reserved_usd": ledger["reserved_usd"],
+    }
     write_json(args.output, result)
     print(json.dumps(result["evaluation"], sort_keys=True))
     print(f"wrote {args.output}")

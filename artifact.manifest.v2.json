@@ -1,0 +1,47 @@
+{
+  "schema": "drose.artifact-manifest.v1",
+  "artifact_id": "llm-benchmarks/openrouter-consolidation",
+  "version": "v2",
+  "description": "Live hardened OpenRouter identity, probe, canary, and 241-row reconciliation evidence.",
+  "created_at": "2026-08-10T15:13:20-04:00",
+  "primary_store": {
+    "mc_alias": "cube-artifacts",
+    "bucket": "artifacts",
+    "prefix": "llm-benchmarks/openrouter-consolidation/v2"
+  },
+  "objects": {
+    "source": [
+      {
+        "key": "source/our_models_fresh.json",
+        "sha256": "05c0d2050abcc9767cb6b6521a1b49f9afbe547c56f2d1feda14441c0a8c780d",
+        "size_bytes": 31734,
+        "role": "frozen 241-row enabled source catalog"
+      },
+      {
+        "key": "source/or_models_fresh.json",
+        "sha256": "02bf3d644019604f37a388f29bcb7b98e6584df5fa8bbf22f7c4657dd678be66",
+        "size_bytes": 1028971,
+        "role": "frozen 400-row OpenRouter public discovery catalog"
+      },
+      {
+        "key": "source/or_endpoints_fresh.tar.gz",
+        "sha256": "536487902b6a6b21b18b46456ebc4ebe683b611f83d7f542ea2de7a69f2ba8d8",
+        "size_bytes": 70752,
+        "role": "frozen endpoint listing responses"
+      }
+    ],
+    "derived": [
+      {"key":"derived/openrouter-model-aliases.v1.json","sha256":"495335ca90c1c775c48c711dbf1a21c23d14ad7eff9f5113e19838528a722412","size_bytes":15776,"role":"two-reviewer identity alias table with hash-addressed evidence manifest"},
+      {"key":"derived/or_coverage_live_v5.json","sha256":"3511c462cad2c1fc410b95b6bd19a2130d4e2f97c88fc0f4ecdbd82a23af976a","size_bytes":753643,"role":"hardened live 241-row coverage audit with fail-closed catalog stability and resolved identity evidence"},
+      {"key":"derived/or_probe_live_v2.json","sha256":"5cc9129608fbe439f409f3092def6b0935c4e5b0e499f62fa56d8e125ed22aa6","size_bytes":347587,"role":"bounded live availability probes with profile/request hashes"},
+      {"key":"derived/or_route_decisions_live.json","sha256":"c40d2fa44425a710f4625dcbc6193c20409bf8c946ea5b5aa8693c9caed66817","size_bytes":153825,"role":"guarded candidate and direct route decisions"},
+      {"key":"derived/or_canary_gpt-4o-mini_live.json","sha256":"22cc85aa810c2cf6cfcef2931609b855400db6a270b22abaf34519c4b77a17a7","size_bytes":93793,"role":"live 30-pair costed paired canary"},
+      {"key":"derived/gpt4o-mini-pricing.json","sha256":"fccb2e151b2bb28dccf87518e1bc14faf96efb27bded66dc970dcef98b1e100b","size_bytes":609,"role":"direct and OpenRouter pricing evidence"},
+      {"key":"derived/or_route_openai_gpt-4o-mini_active_live.json","sha256":"515f676bb5020af37d4adb571314bfe89fb35af0f977ee224fdbcf8c0a155c4d","size_bytes":1814,"role":"expiring promoted route with immutable v2 canary URI and evidence hashes"},
+      {"key":"derived/or_final_decisions_live.json","sha256":"46d34d03046ed40b3d31c76f6e76c34b31474ff6b5fb5b4fb938442904d6804a","size_bytes":152872,"role":"terminal 241-row decision set"},
+      {"key":"derived/or_reconciliation_live.json","sha256":"4d1e3c7be06adc536dc171fe11e67da874e76e92055cd3b9c8d03c00d2a4a70f","size_bytes":164285,"role":"idempotent reconciliation run manifest with delta support"}
+    ],
+    "blobs": {"count": 0, "role": "none"}
+  },
+  "cache": {"required_for_query": []}
+}

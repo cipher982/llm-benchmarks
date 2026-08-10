@@ -9,9 +9,12 @@ const healthColl = process.env.MONGODB_COLLECTION_MODEL_HEALTH || 'bench_model_h
 const heartbeatsColl = process.env.MONGODB_COLLECTION_SCHEDULER_HEARTBEATS || 'bench_scheduler_heartbeats';
 const statusColl = process.env.MONGODB_COLLECTION_MODEL_STATUS || 'model_status';
 const routeDecisionsColl = process.env.MONGODB_COLLECTION_ROUTE_DECISIONS || 'bench_route_decisions';
+const routeRevocationsColl = process.env.MONGODB_COLLECTION_ROUTE_REVOCATIONS || 'bench_route_revocations';
+const routeReconciliationsColl = process.env.MONGODB_COLLECTION_ROUTE_RECONCILIATIONS || 'bench_route_reconciliations';
+const routeAuditColl = process.env.MONGODB_COLLECTION_ROUTE_AUDIT || 'bench_route_decision_audit';
 
 print(`Using DB: ${db.getName()}`);
-print(`Collections: models=${modelsColl}, metrics=${metricsColl}, errors=${errorsColl}, jobs=${jobsColl}, health=${healthColl}, heartbeats=${heartbeatsColl}, status=${statusColl}, route_decisions=${routeDecisionsColl}`);
+print(`Collections: models=${modelsColl}, metrics=${metricsColl}, errors=${errorsColl}, jobs=${jobsColl}, health=${healthColl}, heartbeats=${heartbeatsColl}, status=${statusColl}, route_decisions=${routeDecisionsColl}, route_revocations=${routeRevocationsColl}, route_reconciliations=${routeReconciliationsColl}, route_audit=${routeAuditColl}`);
 
 // models
 // Optimized index: put enabled first since queries filter on it
@@ -89,3 +92,16 @@ db.getCollection(routeDecisionsColl).createIndex(
     { unique: true },
 );
 print('Created unique index on route decisions (source provider/model/snapshot)');
+
+db.getCollection(routeRevocationsColl).createIndex(
+    { source_provider: 1, source_model_id: 1, generation: -1 },
+    { unique: true },
+);
+print('Created unique index on route revocations (source provider/model/generation)');
+
+db.getCollection(routeReconciliationsColl).createIndex({ run_id: 1 }, { unique: true });
+db.getCollection(routeAuditColl).createIndex(
+    { run_id: 1, source_provider: 1, source_model_id: 1 },
+    { unique: true },
+);
+print('Created reconciliation and historical route-audit indexes');

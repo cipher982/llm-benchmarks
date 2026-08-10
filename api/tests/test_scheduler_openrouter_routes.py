@@ -28,6 +28,9 @@ def active_snapshot(**overrides):
         "canary_ttft_ci95_upper": 1.2,
         "canary_cost_ci95_upper": 1.05,
         "expires_at": "2099-08-10T00:00:00+00:00",
+        "profile_hash": "b" * 64,
+        "direct_effective_request_hash": "c" * 64,
+        "routed_effective_request_hash": "d" * 64,
     }
     value.update(overrides)
     return value

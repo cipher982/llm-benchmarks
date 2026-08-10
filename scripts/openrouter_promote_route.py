@@ -67,6 +67,7 @@ def promote_decision(
     evidence_uri: str | None = None,
     now: datetime | None = None,
     expires_hours: float = 24.0,
+    revocation_generation: int | None = None,
 ) -> dict[str, Any]:
     """Build and validate one active route from a passing canary artifact."""
 
@@ -81,6 +82,20 @@ def promote_decision(
     route_first = sum(1 for pair in pairs if pair.get("order") == ["openrouter", "direct"])
     if direct_first != 15 or route_first != 15:
         raise ValueError("canary order is not balanced")
+    direct_hashes = {
+        str(pair.get("attempts", {}).get("direct", {}).get("effective_request_hash"))
+        for pair in pairs
+        if pair.get("attempts", {}).get("direct", {}).get("effective_request_hash")
+    }
+    routed_hashes = {
+        str(pair.get("attempts", {}).get("openrouter", {}).get("effective_request_hash"))
+        for pair in pairs
+        if pair.get("attempts", {}).get("openrouter", {}).get("effective_request_hash")
+    }
+    if len(direct_hashes) != 1 or len(routed_hashes) != 1:
+        raise ValueError("promotion requires stable direct and routed effective request hashes")
+    if not canary.get("profile_hash"):
+        raise ValueError("promotion requires effective request profile evidence")
     if candidate.get("source_provider") != canary.get("source_provider") or candidate.get(
         "source_model_id"
     ) != canary.get("source_model_id"):
@@ -112,6 +127,10 @@ def promote_decision(
     if not evidence_uri or not evidence_uri.startswith("s3://"):
         raise ValueError("promotion requires a durable s3:// evidence URI")
     digest = sha256_file(evidence_path)
+    candidate_generation = int(candidate.get("route_revocation_generation", 0) or 0)
+    generation = candidate_generation if revocation_generation is None else int(revocation_generation)
+    if generation < candidate_generation or generation < 0:
+        raise ValueError("route revocation generation cannot move backwards")
 
     route = dict(candidate)
     route.update(
@@ -132,9 +151,13 @@ def promote_decision(
             "canary_cost_ci95_upper": float(evaluation["route_cost_ratio_ci95"][1]),
             "canary_route_error_delta": float(evaluation["route_error_delta"]),
             "canary_route_metadata_verified": int(evaluation["route_metadata_verified"]),
+            "profile_hash": canary.get("profile_hash"),
+            "direct_effective_request_hash": next(iter(direct_hashes)),
+            "routed_effective_request_hash": next(iter(routed_hashes)),
             "promoted_at": now.isoformat(),
             "expires_at": expires_at.isoformat(),
             "recheck_at": expires_at.isoformat(),
+            "route_revocation_generation": generation,
         }
     )
     decision = RouteDecision.from_snapshot(
@@ -167,6 +190,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--evidence-uri")
     parser.add_argument("--expires-hours", type=float, default=24.0)
+    parser.add_argument("--revocation-generation", type=int)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--yes", action="store_true")
     args = parser.parse_args()
@@ -178,6 +202,7 @@ def main() -> int:
         evidence_path=args.canary_json,
         evidence_uri=args.evidence_uri,
         expires_hours=args.expires_hours,
+        revocation_generation=args.revocation_generation,
     )
     write_json(args.output, route)
     print(json.dumps({"state": route["state"], "expires_at": route["expires_at"]}, sort_keys=True))

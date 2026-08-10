@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import signal
 import time
@@ -181,6 +183,10 @@ def log_error_mongo(
                 "route_canary_evidence_sha256",
                 "route_canary_promotion_gate",
                 "route_expires_at",
+                "route_revocation_generation",
+                "profile_id",
+                "profile_hash",
+                "effective_request_hash",
                 "route_state",
                 "route_reason",
                 "transport_attempt",
@@ -239,6 +245,11 @@ def profile_max_tokens(profile_id: str) -> int:
     it resolves to the default rather than to zero or to whatever it names.
     """
     return int(BENCHMARK_PROFILES.get(profile_id, BENCHMARK_PROFILES[DEFAULT_PROFILE_ID])["max_tokens"])
+
+
+def stable_hash(value: Any) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def log_success_mongo(config: CloudConfig, metrics: dict[str, Any], *, sample_role: str) -> None:
@@ -430,7 +441,7 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
 
     decision = effective_job_route(job)
     route_attempted = decision.transport_provider == OPENROUTER_TRANSPORT
-    fallback_reason = None
+    fallback_reason = job.get("route_fallback_reason")
 
     try:
         route_timeout_seconds = None
@@ -453,6 +464,7 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
                 error_kind=error_kind,
                 error_message=failure.message,
                 transport_provider=decision.transport_provider,
+                fallback_reason=fallback_reason,
             )
 
         _record_attempt_failure(
@@ -497,6 +509,28 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
     # with no way to tell from the row itself.
     metrics["sample_role"] = sample_role
     metrics["benchmark_profile_id"] = profile_id
+    metrics["profile_hash"] = stable_hash(
+        {
+            "profile_id": profile_id,
+            "query": QUERY_TEXT,
+            "max_tokens": max_tokens,
+            "temperature": TEMPERATURE,
+            "protocol_version": PROTOCOL_VERSION,
+        }
+    )
+    metrics["effective_request_hash"] = stable_hash(
+        {
+            "source_provider": decision.source_provider,
+            "source_model_id": decision.source_model_id,
+            "transport_provider": decision.transport_provider,
+            "transport_model_id": decision.transport_model_id,
+            "route_provider_slug": decision.route_provider_slug,
+            "query": QUERY_TEXT,
+            "max_tokens": max_tokens,
+            "temperature": TEMPERATURE,
+            "protocol_version": PROTOCOL_VERSION,
+        }
+    )
     metrics["requested_max_tokens"] = max_tokens
     metrics["protocol_version"] = PROTOCOL_VERSION
     metrics["attempt_group"] = str(job.get("_id"))
