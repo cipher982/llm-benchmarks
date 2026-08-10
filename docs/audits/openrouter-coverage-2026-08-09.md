@@ -89,6 +89,10 @@ The immutable evidence bundle is now preserved under the artifact manifest
 the frozen source inputs, 83 endpoint responses, audit outputs, route decisions,
 and the paired canary report.
 
+Re-running `scripts/openrouter_coverage_audit.py` from those frozen inputs
+produced 241 unique decisions, exactly 56 `route-or` and 185 `keep-direct`
+rows. The per-row decision fields matched the stored report exactly.
+
 Re-running the audit requires a new source snapshot and a new OpenRouter
 catalog snapshot. The route result must not be copied into production model
 configuration. The first paired canary is recorded in
