@@ -85,5 +85,6 @@ The temporary raw evidence is retained for this session at:
 
 Re-running the audit requires a new source snapshot and a new OpenRouter
 catalog snapshot. The route result must not be copied into production model
-configuration. The next gate is a paired direct-versus-pinned canary that
-compares measurement semantics and cost before any scheduler change.
+configuration. The first paired canary is recorded in
+`docs/audits/openrouter-canary-2026-08-10.md`; its output and performance checks
+passed, while cost remains unverified.

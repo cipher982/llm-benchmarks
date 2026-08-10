@@ -1,6 +1,6 @@
 # Epic: conservative OpenRouter consolidation
 
-Status: guarded implementation, route decisions materializable, activation pending canary
+Status: guarded implementation, first canary complete, activation pending cost review
 Owner: LLM Bench
 Started: 2026-08-09
 
