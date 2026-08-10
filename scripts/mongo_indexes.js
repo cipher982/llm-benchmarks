@@ -8,9 +8,10 @@ const jobsColl = process.env.MONGODB_COLLECTION_BENCH_JOBS || 'bench_jobs';
 const healthColl = process.env.MONGODB_COLLECTION_MODEL_HEALTH || 'bench_model_health';
 const heartbeatsColl = process.env.MONGODB_COLLECTION_SCHEDULER_HEARTBEATS || 'bench_scheduler_heartbeats';
 const statusColl = process.env.MONGODB_COLLECTION_MODEL_STATUS || 'model_status';
+const routeDecisionsColl = process.env.MONGODB_COLLECTION_ROUTE_DECISIONS || 'bench_route_decisions';
 
 print(`Using DB: ${db.getName()}`);
-print(`Collections: models=${modelsColl}, metrics=${metricsColl}, errors=${errorsColl}, jobs=${jobsColl}, health=${healthColl}, heartbeats=${heartbeatsColl}, status=${statusColl}`);
+print(`Collections: models=${modelsColl}, metrics=${metricsColl}, errors=${errorsColl}, jobs=${jobsColl}, health=${healthColl}, heartbeats=${heartbeatsColl}, status=${statusColl}, route_decisions=${routeDecisionsColl}`);
 
 // models
 // Optimized index: put enabled first since queries filter on it
@@ -47,3 +48,10 @@ print('Created index on bench_scheduler_heartbeats (component unique)');
 db.getCollection(statusColl).createIndex({ provider: 1, model_id: 1 }, { unique: true });
 db.getCollection(statusColl).createIndex({ status: 1, computed_at: -1 });
 print('Created indexes on model_status (provider/model_id unique, status/computed_at)');
+
+// reviewed route decisions
+db.getCollection(routeDecisionsColl).createIndex(
+    { source_provider: 1, source_model_id: 1, route_snapshot_at: -1 },
+    { unique: true },
+);
+print('Created unique index on route decisions (source provider/model/snapshot)');

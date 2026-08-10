@@ -1,6 +1,6 @@
 # Epic: conservative OpenRouter consolidation
 
-Status: guarded implementation, activation pending canary
+Status: guarded implementation, route decisions materializable, activation pending canary
 Owner: LLM Bench
 Started: 2026-08-09
 
@@ -140,6 +140,14 @@ route_snapshot_at, expires_at/recheck_at
 
 Availability probes populate `route_probe_id`; they do not populate the
 passed canary fields. Missing, stale, or invalid records stay direct.
+
+The report-only audit can be materialized with
+`PYTHONPATH=api uv run python scripts/openrouter_route_decisions.py`. It writes
+one decision per audited source row, uses `state=candidate` and
+`canary_state=availability_passed` for availability-qualified routes, and keeps
+every other row direct. The command only writes MongoDB when both `--apply` and
+`--yes` are supplied. A materialized candidate remains direct until a paired
+measurement canary promotes it.
 
 ## Measurement contract
 

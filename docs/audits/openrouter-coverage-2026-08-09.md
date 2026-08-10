@@ -67,6 +67,12 @@ The audit tooling is:
 - `scripts/openrouter_route_probe.py`, which runs the bounded streaming probes
   and records usage, finish status, response ID, selected provider metadata,
   visible output, and errors.
+- `scripts/openrouter_route_decisions.py`, which materializes one guarded route
+  decision per source row. The 56 availability-qualified rows become
+  `candidate` records with `canary_state=availability_passed`; all 185 other
+  rows become direct records. Applying these records does not activate a
+  route, because the scheduler still requires an active record and a passed
+  measurement canary.
 
 The temporary raw evidence is retained for this session at:
 
