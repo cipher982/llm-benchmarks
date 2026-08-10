@@ -93,8 +93,8 @@ snapshot. The live run is deliberately conservative:
   successful provider-identified responses. A successful probe alone did not
   activate a route.
 - One paired 30-request canary passed for `openai/gpt-4o-mini` and was
-  materialized as an active dry-run route. Its throughput ratio was 0.987,
-  TTFT ratio 1.003, cost ratio 1.000, with zero errors.
+  materialized as an active dry-run route. The runner-compatible evidence is
+  1.114 throughput, 1.045 TTFT, cost ratio 1.000, and zero errors.
 - The final 241-row reconciliation has 1 `route-approved` row and 240 direct
   rows: 21 policy-excluded, 5 incompatible, 2 probe-failed, and 212 unknown.
   The unknown category includes rows hidden by the limited public catalog and

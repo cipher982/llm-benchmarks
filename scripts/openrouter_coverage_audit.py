@@ -157,7 +157,9 @@ def catalog_scope(payload: Any, *, observed_count: int) -> tuple[str, list[str]]
         or any(value != observed_count for value in repeated_counts)
     ):
         problems.append("catalog-repeat-evidence-missing")
-    return ("global" if not problems else scope), problems
+    if problems:
+        return ("public-discovery" if scope == "public-discovery" else "incomplete"), problems
+    return "global", problems
 
 
 def enabled_rows(payload: Any) -> list[dict[str, Any]]:

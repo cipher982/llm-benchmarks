@@ -13,7 +13,7 @@ complete OpenRouter catalog.
 - Catalog scope: public discovery, not proven global
 - Identity rule: `or-identity-v2`
 - Alias rule: `or-alias-v1`
-- Reconciliation run: `reconcile:6d5340b9366db01adbfa930c`
+- Reconciliation run: `reconcile:e0ed1a072a59dee3fd866cbe`
 - Alias review receipts:
   - Cursor Grok: `hatch_20260810T190002.855387000Z_cdf9d525f035c771`
   - Hatch Sol: `hatch_20260810T190518.377100000Z_14d6d714301fc525`
@@ -30,8 +30,8 @@ complete OpenRouter catalog.
 | **Total** | **241** |
 
 The one approved route is `openai/gpt-4o-mini`. It passed 30 paired requests
-with 30 successful route responses, zero errors, throughput ratio 0.9868,
-TTFT ratio 1.0025, and cost ratio 1.0000. It is represented by a dry-run
+with 30 successful route responses, zero errors, throughput ratio 1.1141,
+TTFT ratio 1.0451, and cost ratio 1.0000. It is represented by a dry-run
 active route artifact with revocation generation 0.
 
 The availability probe observed 55 successful responses from 59 scheduled
@@ -53,7 +53,7 @@ and reconciliation report. The reconciliation run is deterministic and
 idempotent for the same input hashes.
 
 The promoted route points to the v2 canary URI
-`s3://artifacts/llm-benchmarks/openrouter-consolidation/v2/derived/or_canary_gpt-4o-mini_live.json`.
+`s3://artifacts/llm-benchmarks/openrouter-consolidation/v2/derived/or_canary_gpt-4o-mini_live_v2.json`.
 The manifest was re-verified after that URI correction and after adding the
 hash-addressed alias evidence manifest.
 

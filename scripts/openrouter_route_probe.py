@@ -22,9 +22,14 @@ from urllib.error import HTTPError
 from urllib.request import Request
 from urllib.request import urlopen
 
-from openrouter_budget import DEFAULT_BATCH_MAX_USD
-from openrouter_budget import DEFAULT_DAILY_MAX_USD
-from openrouter_budget import reserve_daily_budget
+try:
+    from openrouter_budget import DEFAULT_BATCH_MAX_USD
+    from openrouter_budget import DEFAULT_DAILY_MAX_USD
+    from openrouter_budget import reserve_daily_budget
+except ModuleNotFoundError:  # package imports from the repository root
+    from scripts.openrouter_budget import DEFAULT_BATCH_MAX_USD
+    from scripts.openrouter_budget import DEFAULT_DAILY_MAX_USD
+    from scripts.openrouter_budget import reserve_daily_budget
 from openrouter_coverage_audit import PROVIDER_SLUGS
 from openrouter_coverage_audit import norm
 from openrouter_coverage_audit import utc_now

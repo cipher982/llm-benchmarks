@@ -140,7 +140,7 @@ def _attempt(
         "route_provider_slug": decision.route_provider_slug,
         "source_provider": decision.source_provider,
         "source_model_id": decision.source_model_id,
-        "prompt": QUERY_TEXT,
+        "query": QUERY_TEXT,
         "max_tokens": max_tokens,
         "temperature": runner.TEMPERATURE,
         "protocol_version": runner.PROTOCOL_VERSION,
@@ -419,7 +419,7 @@ def run_canary(
         "profile_hash": stable_hash(
             {
                 "profile_id": "cloud-default-v1",
-                "prompt": QUERY_TEXT,
+                "query": QUERY_TEXT,
                 "max_tokens": max_tokens,
                 "temperature": runner.TEMPERATURE,
                 "protocol_version": runner.PROTOCOL_VERSION,

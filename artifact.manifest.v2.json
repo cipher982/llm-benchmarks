@@ -35,11 +35,11 @@
       {"key":"derived/or_coverage_live_v5.json","sha256":"3511c462cad2c1fc410b95b6bd19a2130d4e2f97c88fc0f4ecdbd82a23af976a","size_bytes":753643,"role":"hardened live 241-row coverage audit with fail-closed catalog stability and resolved identity evidence"},
       {"key":"derived/or_probe_live_v2.json","sha256":"5cc9129608fbe439f409f3092def6b0935c4e5b0e499f62fa56d8e125ed22aa6","size_bytes":347587,"role":"bounded live availability probes with profile/request hashes"},
       {"key":"derived/or_route_decisions_live.json","sha256":"c40d2fa44425a710f4625dcbc6193c20409bf8c946ea5b5aa8693c9caed66817","size_bytes":153825,"role":"guarded candidate and direct route decisions"},
-      {"key":"derived/or_canary_gpt-4o-mini_live.json","sha256":"22cc85aa810c2cf6cfcef2931609b855400db6a270b22abaf34519c4b77a17a7","size_bytes":93793,"role":"live 30-pair costed paired canary"},
+      {"key":"derived/or_canary_gpt-4o-mini_live_v2.json","sha256":"b422a0835b5174b91b7fe13c1e1ec4bcf8612300a686404010abb8cc6addda7a","size_bytes":94058,"role":"live 30-pair costed paired canary with runner-compatible request hashes"},
       {"key":"derived/gpt4o-mini-pricing.json","sha256":"fccb2e151b2bb28dccf87518e1bc14faf96efb27bded66dc970dcef98b1e100b","size_bytes":609,"role":"direct and OpenRouter pricing evidence"},
-      {"key":"derived/or_route_openai_gpt-4o-mini_active_live.json","sha256":"515f676bb5020af37d4adb571314bfe89fb35af0f977ee224fdbcf8c0a155c4d","size_bytes":1814,"role":"expiring promoted route with immutable v2 canary URI and evidence hashes"},
-      {"key":"derived/or_final_decisions_live.json","sha256":"46d34d03046ed40b3d31c76f6e76c34b31474ff6b5fb5b4fb938442904d6804a","size_bytes":152872,"role":"terminal 241-row decision set"},
-      {"key":"derived/or_reconciliation_live.json","sha256":"4d1e3c7be06adc536dc171fe11e67da874e76e92055cd3b9c8d03c00d2a4a70f","size_bytes":164285,"role":"idempotent reconciliation run manifest with delta support"}
+      {"key":"derived/or_route_openai_gpt-4o-mini_active_live.json","sha256":"1eff4f82686b3ebd1ebb2c8c230aab0fe0e54439d8edba14412941d92b1c9754","size_bytes":1817,"role":"expiring promoted route with runner-compatible v2 request hashes"},
+      {"key":"derived/or_final_decisions_live.json","sha256":"bfb27cd19b15274a55875416212f8b5235835bbe7a2d3c2b1d0e1fdda0aa1251","size_bytes":152875,"role":"terminal 241-row decision set"},
+      {"key":"derived/or_reconciliation_live.json","sha256":"adac9a2ed40fa9588cd7ff92976c1c17f77dbffb31507baf47bbe202771efa90","size_bytes":164288,"role":"idempotent reconciliation run manifest with delta support"}
     ],
     "blobs": {"count": 0, "role": "none"}
   },

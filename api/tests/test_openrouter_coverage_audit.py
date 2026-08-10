@@ -194,5 +194,5 @@ def test_catalog_repeat_evidence_must_match_observed_count():
         },
         observed_count=2,
     )
-    assert scope == "global"
+    assert scope == "incomplete"
     assert "catalog-repeat-evidence-missing" in problems

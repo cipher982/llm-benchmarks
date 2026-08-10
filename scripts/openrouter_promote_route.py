@@ -131,8 +131,8 @@ def promote_decision(
         raise ValueError("promotion requires the current route revocation generation")
     candidate_generation = int(candidate.get("route_revocation_generation", 0) or 0)
     generation = int(revocation_generation)
-    if generation < candidate_generation or generation < 0:
-        raise ValueError("route revocation generation cannot move backwards")
+    if generation != candidate_generation or generation < 0:
+        raise ValueError("promotion generation must match the candidate's current generation")
 
     route = dict(candidate)
     route.update(
