@@ -10,7 +10,7 @@ Detailed error investigation patterns and solutions.
 
 ```bash
 # Errors in last 24 hours by provider
-ssh clifford 'mongosh "mongodb://writer:PASSWORD@localhost:27017/llm-bench?authSource=llm-bench" --quiet --eval "
+ssh clifford 'mongosh "mongodb://writer:<PASSWORD>@localhost:27017/llm-bench?authSource=llm-bench" --quiet --eval "
 var yesterday = new Date(Date.now() - 24*60*60*1000);
 db.errors_cloud.aggregate([
   {\$match: {ts: {\$gte: yesterday}}},
