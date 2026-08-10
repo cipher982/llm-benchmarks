@@ -628,3 +628,22 @@ Final plan review receipts:
 
 - Hatch Sol: `hatch_20260810T185345.257155000Z_8af2fbb944ad96a2`, `READY`.
 - Cursor Grok: `hatch_20260810T185412.164616000Z_b1da3ccb6be50963`, `READY`.
+
+## Final implementation and evidence gate
+
+The shipped workflow and live evidence were independently rechecked after the
+last fixes:
+
+- Hatch Sol: `hatch_20260810T194902.393020000Z_7bfddf20f2b38662`, `READY`.
+- Cursor Grok: `hatch_20260810T194902.123731000Z_ac87bc993c06a93b`, `READY`.
+- Reconciliation: `reconcile:2c0c6ae773cc6e91bbede569`.
+- Terminal result: 1 `route-approved`, 21 `direct-policy-excluded`, 5
+  `direct-incompatible`, 2 `direct-probe-failed`, and 212 `direct-unknown`,
+  covering all 241 rows.
+- Availability probe: 55 of 59 scheduled candidates succeeded.
+- Paired canary: 30 of 30 paired requests succeeded, with throughput ratio
+  1.1141, TTFT ratio 1.0451, cost ratio 1.0000, and zero errors.
+- Artifact manifest: 12 of 12 objects hash and size verified in object storage.
+- Production activation was not applied. The active route artifact is a
+  dry-run release candidate, and routing remains disabled until an operator
+  supplies the production Mongo apply gate and explicitly enables the feature.
