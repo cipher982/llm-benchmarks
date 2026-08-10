@@ -300,7 +300,8 @@ def main() -> int:
         route_slug = provider_slug(str(row["provider"]), provider_map)
         if route_slug:
             candidates.append({**row, "route_provider_slug": route_slug})
-    max_by_budget = min(args.max_probes, int(args.max_cost_usd / args.estimated_cost_per_probe))
+    estimated_cost_per_row = args.attempts * args.estimated_cost_per_probe
+    max_by_budget = min(args.max_probes, int(args.max_cost_usd / estimated_cost_per_row))
     if args.limit:
         max_by_budget = min(max_by_budget, args.limit)
     unprobed = candidates[max_by_budget:]

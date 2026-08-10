@@ -127,8 +127,10 @@ def promote_decision(
     if not evidence_uri or not evidence_uri.startswith("s3://"):
         raise ValueError("promotion requires a durable s3:// evidence URI")
     digest = sha256_file(evidence_path)
+    if revocation_generation is None:
+        raise ValueError("promotion requires the current route revocation generation")
     candidate_generation = int(candidate.get("route_revocation_generation", 0) or 0)
-    generation = candidate_generation if revocation_generation is None else int(revocation_generation)
+    generation = int(revocation_generation)
     if generation < candidate_generation or generation < 0:
         raise ValueError("route revocation generation cannot move backwards")
 
@@ -190,7 +192,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--evidence-uri")
     parser.add_argument("--expires-hours", type=float, default=24.0)
-    parser.add_argument("--revocation-generation", type=int)
+    parser.add_argument("--revocation-generation", type=int, required=True)
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--yes", action="store_true")
     args = parser.parse_args()

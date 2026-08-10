@@ -154,6 +154,7 @@ def catalog_scope(payload: Any, *, observed_count: int) -> tuple[str, list[str]]
         or len(repeated_counts) < 2
         or len({value for value in repeated_counts if isinstance(value, int)}) != 1
         or any(not isinstance(value, int) for value in repeated_counts)
+        or any(value != observed_count for value in repeated_counts)
     ):
         problems.append("catalog-repeat-evidence-missing")
     return ("global" if not problems else scope), problems

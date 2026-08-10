@@ -1,3 +1,4 @@
+from scripts.openrouter_coverage_audit import catalog_scope
 from scripts.openrouter_coverage_audit import decide
 from scripts.openrouter_coverage_audit import diagnostic_stem
 
@@ -181,3 +182,17 @@ def test_exact_identity_can_use_canonical_official_or_record():
 def test_diagnostic_stem_preserves_version_dots_and_bedrock_orgs():
     assert diagnostic_stem("Qwen/Qwen2.5-72B-Instruct") == "qwen2.5-72b-instruct"
     assert diagnostic_stem("us.anthropic.claude-opus-4-1-20250805-v1:0") == "claude-opus-4-1"
+
+
+def test_catalog_repeat_evidence_must_match_observed_count():
+    scope, problems = catalog_scope(
+        {
+            "total_count": 2,
+            "catalog_scope": "global",
+            "stable_repeated_count": True,
+            "stable_repeated_counts": [2, 3],
+        },
+        observed_count=2,
+    )
+    assert scope == "global"
+    assert "catalog-repeat-evidence-missing" in problems

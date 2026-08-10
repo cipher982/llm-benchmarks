@@ -182,6 +182,7 @@ def test_promotion_requires_passing_costed_canary_and_sets_expiry(tmp_path):
         evidence_path=evidence,
         evidence_uri="s3://artifacts/test/canary.json",
         now=datetime(2026, 8, 10, tzinfo=timezone.utc),
+        revocation_generation=0,
     )
 
     assert route["state"] == "active"
