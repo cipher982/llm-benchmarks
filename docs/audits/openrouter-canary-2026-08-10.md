@@ -14,15 +14,17 @@ request used the exact `openai/gpt-4o-mini` model ID, provider restriction
 | --- | ---: |
 | Successful paired requests | 2 / 2 |
 | Output validation | passed |
-| OpenRouter/direct generated-throughput ratio | 1.36x |
-| OpenRouter/direct TTFT ratio | 0.76x |
+| OpenRouter/direct generated-throughput ratio, descriptive n=2 | 1.36x |
+| OpenRouter/direct TTFT ratio, descriptive n=2 | 0.76x |
 | Minimum throughput ratio | 0.50x |
 | Maximum TTFT ratio | 3.00x |
 | Cost comparison | unverified |
 
 OpenRouter reported `observed_provider_slug=openai` and verified provider
-metadata on both routed attempts. The result is
-`measurement_passed_cost_unverified`, not a promotion record. Cost remains a
-required human-reviewed gate because the current direct-provider metric
-contract does not expose a comparable cost field. The raw evidence is retained
-at `/tmp/or_canary_gpt-4o-mini_balanced.json`.
+metadata on both routed attempts. The ratios above are point estimates from
+two pairs, not statistically confident effect sizes. They have no confidence
+interval and should not be interpreted as proof that either transport is
+faster. The result is `measurement_passed_cost_unverified`, not a promotion
+record. Cost remains a required human-reviewed gate because the current
+direct-provider metric contract does not expose a comparable cost field. The
+raw evidence is retained at `/tmp/or_canary_gpt-4o-mini_balanced.json`.
