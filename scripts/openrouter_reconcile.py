@@ -93,6 +93,8 @@ def reconcile(
                 raise ValueError("route-approved row must be an active OpenRouter route")
         elif row.get("state") != "direct" or row.get("transport_provider") != "direct":
             raise ValueError(f"{terminal} row must remain on direct transport")
+        if terminal == "route-approved" and row.get("profile_hash") != profile_hash:
+            raise ValueError("reconciliation profile hash does not match an approved route")
     current_by_key = {(str(row.get("source_provider")), str(row.get("source_model_id"))): row for row in rows}
     previous_rows = previous.get("decisions", []) if isinstance(previous, dict) else []
     previous_by_key = {

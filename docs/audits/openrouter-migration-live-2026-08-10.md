@@ -13,7 +13,7 @@ complete OpenRouter catalog.
 - Catalog scope: public discovery, not proven global
 - Identity rule: `or-identity-v2`
 - Alias rule: `or-alias-v1`
-- Reconciliation run: `reconcile:e0ed1a072a59dee3fd866cbe`
+- Reconciliation run: `reconcile:2c0c6ae773cc6e91bbede569`
 - Alias review receipts:
   - Cursor Grok: `hatch_20260810T190002.855387000Z_cdf9d525f035c771`
   - Hatch Sol: `hatch_20260810T190518.377100000Z_14d6d714301fc525`

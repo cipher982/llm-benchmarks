@@ -1,3 +1,6 @@
+import time
+
+from llm_bench.scheduler import policies
 from llm_bench.scheduler.runner import RunnerResult
 from llm_bench.scheduler.runner import run_job_in_child
 
@@ -58,6 +61,7 @@ def test_smoke_hang_timeout_kills_child(monkeypatch):
 
     monkeypatch.setattr("llm_bench.scheduler.runner.log_error_mongo", fake_log_error_mongo)
 
+    started = time.monotonic()
     result = run_job_in_child(
         {
             "_id": "smoke_hang:openai:fake-hang",
@@ -72,12 +76,14 @@ def test_smoke_hang_timeout_kills_child(monkeypatch):
     assert result.status == "timeout"
     assert result.error_kind == "timeout"
     assert logged[0]["stage"] == "timeout"
+    assert time.monotonic() - started < policies.LEASE_GRACE_SECONDS
 
 
 def test_routed_child_timeout_marks_route_attempted(monkeypatch):
     monkeypatch.setenv("OPENROUTER_ROUTING_ENABLED", "1")
     monkeypatch.setattr("llm_bench.scheduler.runner.log_error_mongo", lambda **kwargs: "timeout")
 
+    started = time.monotonic()
     result = run_job_in_child(
         {
             "_id": "smoke_hang:deepinfra:routed",
@@ -93,3 +99,4 @@ def test_routed_child_timeout_marks_route_attempted(monkeypatch):
     assert result.status == "timeout"
     assert result.route_attempted is True
     assert result.transport_provider == "openrouter"
+    assert time.monotonic() - started < policies.LEASE_GRACE_SECONDS

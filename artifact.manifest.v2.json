@@ -39,7 +39,7 @@
       {"key":"derived/gpt4o-mini-pricing.json","sha256":"fccb2e151b2bb28dccf87518e1bc14faf96efb27bded66dc970dcef98b1e100b","size_bytes":609,"role":"direct and OpenRouter pricing evidence"},
       {"key":"derived/or_route_openai_gpt-4o-mini_active_live.json","sha256":"1eff4f82686b3ebd1ebb2c8c230aab0fe0e54439d8edba14412941d92b1c9754","size_bytes":1817,"role":"expiring promoted route with runner-compatible v2 request hashes"},
       {"key":"derived/or_final_decisions_live.json","sha256":"bfb27cd19b15274a55875416212f8b5235835bbe7a2d3c2b1d0e1fdda0aa1251","size_bytes":152875,"role":"terminal 241-row decision set"},
-      {"key":"derived/or_reconciliation_live.json","sha256":"adac9a2ed40fa9588cd7ff92976c1c17f77dbffb31507baf47bbe202771efa90","size_bytes":164288,"role":"idempotent reconciliation run manifest with delta support"}
+      {"key":"derived/or_reconciliation_live.json","sha256":"6b75353d0df541f2294496c044053799b1337f40e6e054c95d91a28d5a672860","size_bytes":164288,"role":"idempotent reconciliation run manifest with delta support and matching route profile hash"}
     ],
     "blobs": {"count": 0, "role": "none"}
   },

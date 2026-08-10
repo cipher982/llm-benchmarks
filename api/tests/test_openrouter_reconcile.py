@@ -118,3 +118,28 @@ def test_reconciliation_reports_delta_against_previous_run():
         "stale": [],
         "removed": ["openai/old"],
     }
+
+
+def test_reconciliation_rejects_stale_approved_profile():
+    with pytest.raises(ValueError, match="profile hash"):
+        reconcile(
+            {"generated_at": "2026-08-10T00:00:00+00:00"},
+            {
+                "finalized": True,
+                "decisions": [
+                    {
+                        "source_provider": "openai",
+                        "source_model_id": "gpt-4o-mini",
+                        "state": "active",
+                        "transport_provider": "openrouter",
+                        "terminal_state": "route-approved",
+                        "profile_hash": "old",
+                    }
+                ],
+            },
+            source_snapshot_hash="a",
+            catalog_snapshot_hash="b",
+            alias_rule_version="or-alias-v1",
+            profile_hash="new",
+            expected_source_count=1,
+        )
