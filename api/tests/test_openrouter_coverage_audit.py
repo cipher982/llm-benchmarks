@@ -196,3 +196,13 @@ def test_catalog_repeat_evidence_must_match_observed_count():
     )
     assert scope == "incomplete"
     assert "catalog-repeat-evidence-missing" in problems
+
+
+def test_provider_match_accepts_slug_carried_in_endpoint_tag():
+    from scripts.openrouter_coverage_audit import provider_matches
+
+    endpoint = {"provider_name": "Google", "tag": "google-vertex/global", "status": 0}
+    assert provider_matches("vertex", endpoint) is True
+    assert provider_matches("deepinfra", endpoint) is False
+    studio = {"provider_name": "Google AI Studio", "tag": "google-ai-studio", "status": 0}
+    assert provider_matches("vertex", studio) is False

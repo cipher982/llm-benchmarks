@@ -393,9 +393,17 @@ def endpoint_provider_name(endpoint: dict[str, Any]) -> str:
 
 
 def provider_matches(source_provider: str, endpoint: dict[str, Any]) -> bool:
+    slugs = {norm(x) for x in PROVIDER_SLUGS.get(source_provider, ())}
     observed_slug = norm(endpoint_provider_slug(endpoint) or "")
-    if observed_slug and observed_slug in {norm(x) for x in PROVIDER_SLUGS.get(source_provider, ())}:
+    if observed_slug and observed_slug in slugs:
         return True
+    # OpenRouter moved the machine-readable slug into ``tag`` for some
+    # providers (e.g. provider_name "Google", tag "google-vertex/global").
+    tag = endpoint.get("tag")
+    if isinstance(tag, str) and tag.strip():
+        tag_slug = norm(tag.split("/", 1)[0])
+        if tag_slug in slugs:
+            return True
     observed_name = norm(endpoint_provider_name(endpoint)).replace("_", " ")
     aliases = {norm(x) for x in PROVIDER_DISPLAY_ALIASES.get(source_provider, ())}
     return observed_name in aliases

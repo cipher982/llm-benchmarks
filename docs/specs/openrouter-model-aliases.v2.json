@@ -1,0 +1,1866 @@
+{
+ "schema_version": 2,
+ "rule_version": "or-alias-v2",
+ "reviewed_candidate_count": 130,
+ "review_artifacts": [
+  "s3://artifacts/llm-benchmarks/openrouter-consolidation/v4/reviews/review_verdict_claude-opus.json",
+  "s3://artifacts/llm-benchmarks/openrouter-consolidation/v4/reviews/review_verdict_cursor-grok.json"
+ ],
+ "evidence_manifest": {
+  "v4-catalog": {
+   "uri": "s3://artifacts/llm-benchmarks/openrouter-consolidation/v4/source/or_models_v4.json",
+   "sha256": "fcecf1a2a157d322c1064b5fd429cd01a829dee739fe60cf84c0b68deaae7fee"
+  },
+  "v4-endpoints": {
+   "uri": "s3://artifacts/llm-benchmarks/openrouter-consolidation/v4/source/or_endpoints_v4.tar.gz",
+   "sha256": "5cbea0f10d00d7a2c0a97f5a4c5b1c8ae64a7e3f3d201f8937e4129baf234498"
+  },
+  "v4-candidates": {
+   "uri": "s3://artifacts/llm-benchmarks/openrouter-consolidation/v4/source/candidates.json",
+   "sha256": "82fff5eb6c36dee713c83a041f7102fceec8e891c46ef2438f2139ac0a3a80f7"
+  }
+ },
+ "review_receipts": {
+  "claude-opus": {
+   "run_id": "hatch_20260810T234201.355557000Z_7b7956473b299352",
+   "uri": "s3://artifacts/llm-benchmarks/openrouter-consolidation/v4/reviews/review_verdict_claude-opus.json",
+   "sha256": "06ccafc29745c37b7780f4534485cdf55f338a7ece48be9b82f4bc8c3762378a",
+   "verdict": "approved",
+   "reviewed_count": 133
+  },
+  "cursor-grok": {
+   "run_id": "hatch_20260810T234202.319309000Z_74146841a01db006",
+   "uri": "s3://artifacts/llm-benchmarks/openrouter-consolidation/v4/reviews/review_verdict_cursor-grok.json",
+   "sha256": "995cdbf3badf0c2dcda3fde32b52a5b7a991943513b6fca022e2c75c369ad4a3",
+   "verdict": "approved",
+   "reviewed_count": 133
+  }
+ },
+ "dropped_by_review": [
+  "anthropic/claude-opus-4-5-20251101",
+  "together/meta-llama/Llama-3.3-70B-Instruct-Turbo",
+  "together/qwen/Qwen2.5-7B-Instruct-Turbo"
+ ],
+ "aliases": [
+  {
+   "source_key": "anthropic/claude-fable-5",
+   "target_or_model_id": "anthropic/claude-fable-5",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "anthropic/claude-haiku-4-5-20251001",
+   "target_or_model_id": "anthropic/claude-haiku-4.5",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "anthropic/claude-opus-4-6",
+   "target_or_model_id": "anthropic/claude-opus-4.6",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "anthropic/claude-opus-4-7",
+   "target_or_model_id": "anthropic/claude-opus-4.7",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "anthropic/claude-opus-4-8",
+   "target_or_model_id": "anthropic/claude-opus-4.8",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "anthropic/claude-opus-5",
+   "target_or_model_id": "anthropic/claude-opus-5",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "anthropic/claude-sonnet-4-6",
+   "target_or_model_id": "anthropic/claude-sonnet-4.6",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "anthropic/claude-sonnet-5",
+   "target_or_model_id": "anthropic/claude-sonnet-5",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "cerebras/gemma-4-31b",
+   "target_or_model_id": "google/gemma-4-31b-it",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/MiniMaxAI/MiniMax-M2.7",
+   "target_or_model_id": "minimax/minimax-m2.7",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/Qwen/Qwen2.5-72B-Instruct",
+   "target_or_model_id": "qwen/qwen-2.5-72b-instruct",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/Qwen/Qwen3-14B",
+   "target_or_model_id": "qwen/qwen3-14b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/Qwen/Qwen3-235B-A22B-Thinking-2507",
+   "target_or_model_id": "qwen/qwen3-235b-a22b-thinking-2507",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/Qwen/Qwen3-30B-A3B",
+   "target_or_model_id": "qwen/qwen3-30b-a3b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/Qwen/Qwen3-32B",
+   "target_or_model_id": "qwen/qwen3-32b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/Qwen/Qwen3-Coder-480B-A35B-Instruct",
+   "target_or_model_id": "qwen/qwen3-coder",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/Qwen/Qwen3-Next-80B-A3B-Instruct",
+   "target_or_model_id": "qwen/qwen3-next-80b-a3b-instruct",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/Qwen/Qwen3-VL-235B-A22B-Instruct",
+   "target_or_model_id": "qwen/qwen3-vl-235b-a22b-instruct",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/Qwen/Qwen3-VL-30B-A3B-Instruct",
+   "target_or_model_id": "qwen/qwen3-vl-30b-a3b-instruct",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/Qwen/Qwen3.5-122B-A10B",
+   "target_or_model_id": "qwen/qwen3.5-122b-a10b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/Qwen/Qwen3.5-27B",
+   "target_or_model_id": "qwen/qwen3.5-27b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/Qwen/Qwen3.5-35B-A3B",
+   "target_or_model_id": "qwen/qwen3.5-35b-a3b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/Qwen/Qwen3.5-397B-A17B",
+   "target_or_model_id": "qwen/qwen3.5-397b-a17b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/Qwen/Qwen3.6-27B",
+   "target_or_model_id": "qwen/qwen3.6-27b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/Qwen/Qwen3.6-35B-A3B",
+   "target_or_model_id": "qwen/qwen3.6-35b-a3b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/XiaomiMiMo/MiMo-V2.5",
+   "target_or_model_id": "xiaomi/mimo-v2.5",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/XiaomiMiMo/MiMo-V2.5-Pro",
+   "target_or_model_id": "xiaomi/mimo-v2.5-pro",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/deepseek-ai/DeepSeek-R1-0528",
+   "target_or_model_id": "deepseek/deepseek-r1-0528",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/deepseek-ai/DeepSeek-V3",
+   "target_or_model_id": "deepseek/deepseek-chat",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/deepseek-ai/DeepSeek-V3.1",
+   "target_or_model_id": "deepseek/deepseek-chat-v3.1",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/deepseek-ai/DeepSeek-V3.1-Terminus",
+   "target_or_model_id": "deepseek/deepseek-v3.1-terminus",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/deepseek-ai/DeepSeek-V3.2",
+   "target_or_model_id": "deepseek/deepseek-v3.2",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/deepseek-ai/DeepSeek-V4-Flash",
+   "target_or_model_id": "deepseek/deepseek-v4-flash",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/deepseek-ai/DeepSeek-V4-Pro",
+   "target_or_model_id": "deepseek/deepseek-v4-pro",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/deepseek-ai/deepseek-v4-flash-0731",
+   "target_or_model_id": "deepseek/deepseek-v4-flash-0731",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/google/gemma-3-12b-it",
+   "target_or_model_id": "google/gemma-3-12b-it",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/google/gemma-3-27b-it",
+   "target_or_model_id": "google/gemma-3-27b-it",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/google/gemma-3-4b-it",
+   "target_or_model_id": "google/gemma-3-4b-it",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/google/gemma-4-26B-A4B-it",
+   "target_or_model_id": "google/gemma-4-26b-a4b-it",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/google/gemma-4-31B-it",
+   "target_or_model_id": "google/gemma-4-31b-it",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/meta-llama/Llama-3.3-70B-Instruct",
+   "target_or_model_id": "meta-llama/llama-3.3-70b-instruct",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/meta-llama/Llama-Guard-4-12B",
+   "target_or_model_id": "meta-llama/llama-guard-4-12b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/meta-llama/Meta-Llama-3.1-70B-Instruct",
+   "target_or_model_id": "meta-llama/llama-3.1-70b-instruct",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/meta-llama/Meta-Llama-3.1-8B-Instruct",
+   "target_or_model_id": "meta-llama/llama-3.1-8b-instruct",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/microsoft/phi-4",
+   "target_or_model_id": "microsoft/phi-4",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/minimaxai/minimax-m3",
+   "target_or_model_id": "minimax/minimax-m3",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/mistralai/Mistral-Nemo-Instruct-2407",
+   "target_or_model_id": "mistralai/mistral-nemo",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/mistralai/Mistral-Small-24B-Instruct-2501",
+   "target_or_model_id": "mistralai/mistral-small-24b-instruct-2501",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/mistralai/Mistral-Small-3.2-24B-Instruct-2506",
+   "target_or_model_id": "mistralai/mistral-small-3.2-24b-instruct",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/moonshotai/Kimi-K2.5",
+   "target_or_model_id": "moonshotai/kimi-k2.5",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/moonshotai/Kimi-K2.6",
+   "target_or_model_id": "moonshotai/kimi-k2.6",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/moonshotai/kimi-k2.7-code",
+   "target_or_model_id": "moonshotai/kimi-k2.7-code",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/nvidia/NVIDIA-Nemotron-3-Super-120B-A12B",
+   "target_or_model_id": "nvidia/nemotron-3-super-120b-a12b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B",
+   "target_or_model_id": "nvidia/nemotron-3-ultra-550b-a55b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/nvidia/Nemotron-3-Nano-30B-A3B",
+   "target_or_model_id": "nvidia/nemotron-3-nano-30b-a3b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/nvidia/nvidia-nemotron-3-ultra-550b-a55b-bf16",
+   "target_or_model_id": "nvidia/nemotron-3-ultra-550b-a55b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/openai/gpt-oss-120b",
+   "target_or_model_id": "openai/gpt-oss-120b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/openai/gpt-oss-20b",
+   "target_or_model_id": "openai/gpt-oss-20b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/stepfun-ai/step-3.7-flash",
+   "target_or_model_id": "stepfun/step-3.7-flash",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/tencent/hy3",
+   "target_or_model_id": "tencent/hy3",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/thinkingmachines/inkling",
+   "target_or_model_id": "thinkingmachines/inkling",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/thinkingmachines/inkling-small",
+   "target_or_model_id": "thinkingmachines/inkling-small",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/zai-org/GLM-4.6",
+   "target_or_model_id": "z-ai/glm-4.6",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/zai-org/GLM-4.7",
+   "target_or_model_id": "z-ai/glm-4.7",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/zai-org/GLM-4.7-Flash",
+   "target_or_model_id": "z-ai/glm-4.7-flash",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/zai-org/GLM-5",
+   "target_or_model_id": "z-ai/glm-5",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/zai-org/GLM-5.1",
+   "target_or_model_id": "z-ai/glm-5.1",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "deepinfra/zai-org/glm-5.2",
+   "target_or_model_id": "z-ai/glm-5.2",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "fireworks/accounts/fireworks/models/deepseek-v4-flash",
+   "target_or_model_id": "deepseek/deepseek-v4-flash",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "fireworks/accounts/fireworks/models/deepseek-v4-flash-0731",
+   "target_or_model_id": "deepseek/deepseek-v4-flash-0731",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "fireworks/accounts/fireworks/models/deepseek-v4-pro",
+   "target_or_model_id": "deepseek/deepseek-v4-pro",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "fireworks/accounts/fireworks/models/glm-5p2",
+   "target_or_model_id": "z-ai/glm-5.2",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "fireworks/accounts/fireworks/models/gpt-oss-20b",
+   "target_or_model_id": "openai/gpt-oss-20b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "fireworks/accounts/fireworks/models/kimi-k2p6",
+   "target_or_model_id": "moonshotai/kimi-k2.6",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "fireworks/accounts/fireworks/models/kimi-k3",
+   "target_or_model_id": "moonshotai/kimi-k3",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "fireworks/accounts/fireworks/models/minimax-m2p7",
+   "target_or_model_id": "minimax/minimax-m2.7",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "groq/llama-3.1-8b-instant",
+   "target_or_model_id": "meta-llama/llama-3.1-8b-instruct",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "groq/llama-3.3-70b-versatile",
+   "target_or_model_id": "meta-llama/llama-3.3-70b-instruct",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "groq/openai/gpt-oss-safeguard-20b",
+   "target_or_model_id": "openai/gpt-oss-safeguard-20b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-3.5-turbo",
+   "target_or_model_id": "openai/gpt-3.5-turbo",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-4",
+   "target_or_model_id": "openai/gpt-4",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-4-turbo",
+   "target_or_model_id": "openai/gpt-4-turbo",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-4.1",
+   "target_or_model_id": "openai/gpt-4.1",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-4.1-mini",
+   "target_or_model_id": "openai/gpt-4.1-mini",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-4.1-nano",
+   "target_or_model_id": "openai/gpt-4.1-nano",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-4o",
+   "target_or_model_id": "openai/gpt-4o",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-4o-mini",
+   "target_or_model_id": "openai/gpt-4o-mini",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-5",
+   "target_or_model_id": "openai/gpt-5",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-5-mini",
+   "target_or_model_id": "openai/gpt-5-mini",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-5-nano",
+   "target_or_model_id": "openai/gpt-5-nano",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-5-pro",
+   "target_or_model_id": "openai/gpt-5-pro",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-5.1",
+   "target_or_model_id": "openai/gpt-5.1",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-5.2",
+   "target_or_model_id": "openai/gpt-5.2",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-5.2-pro",
+   "target_or_model_id": "openai/gpt-5.2-pro",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-5.3-codex",
+   "target_or_model_id": "openai/gpt-5.3-codex",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-5.4",
+   "target_or_model_id": "openai/gpt-5.4",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-5.4-mini",
+   "target_or_model_id": "openai/gpt-5.4-mini",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-5.4-nano",
+   "target_or_model_id": "openai/gpt-5.4-nano",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-5.4-pro",
+   "target_or_model_id": "openai/gpt-5.4-pro",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-5.5",
+   "target_or_model_id": "openai/gpt-5.5",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-5.5-pro",
+   "target_or_model_id": "openai/gpt-5.5-pro",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-5.6-luna",
+   "target_or_model_id": "openai/gpt-5.6-luna",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-5.6-sol",
+   "target_or_model_id": "openai/gpt-5.6-sol",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/gpt-5.6-terra",
+   "target_or_model_id": "openai/gpt-5.6-terra",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/o1",
+   "target_or_model_id": "openai/o1",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/o3",
+   "target_or_model_id": "openai/o3",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/o3-mini",
+   "target_or_model_id": "openai/o3-mini",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/o3-pro",
+   "target_or_model_id": "openai/o3-pro",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "openai/o4-mini",
+   "target_or_model_id": "openai/o4-mini",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "together/Qwen/Qwen3.5-9B",
+   "target_or_model_id": "qwen/qwen3.5-9b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "together/deepseek-ai/DeepSeek-V4-Pro",
+   "target_or_model_id": "deepseek/deepseek-v4-pro",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "together/deepseek-ai/deepseek-v4-flash-0731",
+   "target_or_model_id": "deepseek/deepseek-v4-flash-0731",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "together/google/gemma-3n-E4B-it",
+   "target_or_model_id": "google/gemma-3n-e4b-it",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "together/google/gemma-4-31B-it",
+   "target_or_model_id": "google/gemma-4-31b-it",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "together/meta-llama/Llama-Guard-4-12B",
+   "target_or_model_id": "meta-llama/llama-guard-4-12b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "together/minimaxai/minimax-m3",
+   "target_or_model_id": "minimax/minimax-m3",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "together/moonshotai/Kimi-K2.6",
+   "target_or_model_id": "moonshotai/kimi-k2.6",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "together/moonshotai/kimi-k2.7-code",
+   "target_or_model_id": "moonshotai/kimi-k2.7-code",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "together/moonshotai/kimi-k3",
+   "target_or_model_id": "moonshotai/kimi-k3",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "together/nvidia/nemotron-3-ultra-550b-a55b",
+   "target_or_model_id": "nvidia/nemotron-3-ultra-550b-a55b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "together/openai/gpt-oss-120b",
+   "target_or_model_id": "openai/gpt-oss-120b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "together/openai/gpt-oss-20b",
+   "target_or_model_id": "openai/gpt-oss-20b",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "together/pearl-ai/gemma-4-31b-it",
+   "target_or_model_id": "google/gemma-4-31b-it",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "together/thinkingmachines/Inkling-Small",
+   "target_or_model_id": "thinkingmachines/inkling-small",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "together/thinkingmachines/inkling",
+   "target_or_model_id": "thinkingmachines/inkling",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "together/zai-org/glm-5.2",
+   "target_or_model_id": "z-ai/glm-5.2",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "vertex/gemini-2.5-flash",
+   "target_or_model_id": "google/gemini-2.5-flash",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "vertex/gemini-2.5-flash-image",
+   "target_or_model_id": "google/gemini-2.5-flash-image",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "vertex/gemini-2.5-flash-lite",
+   "target_or_model_id": "google/gemini-2.5-flash-lite",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  },
+  {
+   "source_key": "vertex/gemini-2.5-pro",
+   "target_or_model_id": "google/gemini-2.5-pro",
+   "evidence_refs": [
+    "v4-catalog",
+    "v4-endpoints",
+    "v4-candidates"
+   ],
+   "reviewers": [
+    "claude-opus",
+    "cursor-grok"
+   ],
+   "rule_version": "or-alias-v2"
+  }
+ ]
+}
