@@ -125,9 +125,7 @@ def test_selected_endpoint_metadata_and_timeout_are_parsed(monkeypatch):
             _chunk(
                 "answer",
                 finish_reason="stop",
-                metadata={
-                    "endpoints": {"available": [{"selected": True, "provider": "DeepInfra", "slug": "deepinfra"}]}
-                },
+                metadata={"endpoints": {"available": [{"selected": True, "provider_name": "DeepInfra"}]}},
             ),
             _chunk(usage=usage),
         ]

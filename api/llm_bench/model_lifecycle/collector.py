@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
+from dataclasses import field
+from datetime import datetime
+from datetime import timedelta
+from datetime import timezone
 from enum import Enum
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict
+from typing import Iterable
+from typing import List
+from typing import Optional
+from typing import Sequence
+from typing import Tuple
 
 from pymongo import MongoClient
-
 
 UTC = timezone.utc
 
@@ -89,6 +96,7 @@ class LifecycleSnapshot:
     successes: SuccessMetrics
     errors: ErrorMetrics
     catalog_state: CatalogState = CatalogState.UNKNOWN
+    transport_provider: str = "direct"
 
     @property
     def display_name(self) -> str:
@@ -166,16 +174,20 @@ def collect_lifecycle_snapshots(
         success_map = _load_success_metrics(db[metrics_coll_name], providers, now)
         error_map = _load_error_metrics(db[errors_coll_name], providers, now)
 
-        keys = set(metadata_map.keys()) | set(success_map.keys()) | set(error_map.keys())
+        keys = (
+            {(provider, model_id, "direct") for provider, model_id in metadata_map.keys()}
+            | set(success_map.keys())
+            | set(error_map.keys())
+        )
         snapshots: List[LifecycleSnapshot] = []
 
-        for provider, model_id in sorted(keys):
+        for provider, model_id, transport_provider in sorted(keys):
             metadata = metadata_map.get(
                 (provider, model_id),
                 ModelMetadata(provider=provider, model_id=model_id, display_name=model_id),
             )
-            successes = success_map.get((provider, model_id), SuccessMetrics())
-            errors = error_map.get((provider, model_id), ErrorMetrics())
+            successes = success_map.get((provider, model_id, transport_provider), SuccessMetrics())
+            errors = error_map.get((provider, model_id, transport_provider), ErrorMetrics())
 
             snapshots.append(
                 LifecycleSnapshot(
@@ -184,6 +196,7 @@ def collect_lifecycle_snapshots(
                     metadata=metadata,
                     successes=successes,
                     errors=errors,
+                    transport_provider=transport_provider,
                 )
             )
 
@@ -248,7 +261,11 @@ def _load_model_metadata(collection, providers: Optional[Sequence[str]]) -> Dict
     return metadata
 
 
-def _load_success_metrics(collection, providers: Optional[Sequence[str]], now: datetime) -> Dict[Tuple[str, str], SuccessMetrics]:
+def _load_success_metrics(
+    collection,
+    providers: Optional[Sequence[str]],
+    now: datetime,
+) -> Dict[Tuple[str, str, str], SuccessMetrics]:
     seven_ago = now - timedelta(days=7)
     thirty_ago = now - timedelta(days=30)
     one_twenty_ago = now - timedelta(days=120)
@@ -276,6 +293,7 @@ def _load_success_metrics(collection, providers: Optional[Sequence[str]], now: d
             "$project": {
                 "provider": 1,
                 "model_name": 1,
+                "transport_provider": {"$ifNull": ["$transport_provider", "direct"]},
                 "_ts": 1,
                 "success_7d": {"$cond": [{"$gte": ["$_ts", seven_ago]}, 1, 0]},
                 "success_30d": {"$cond": [{"$gte": ["$_ts", thirty_ago]}, 1, 0]},
@@ -284,7 +302,11 @@ def _load_success_metrics(collection, providers: Optional[Sequence[str]], now: d
         },
         {
             "$group": {
-                "_id": {"provider": "$provider", "model": "$model_name"},
+                "_id": {
+                    "provider": "$provider",
+                    "model": "$model_name",
+                    "transport": "$transport_provider",
+                },
                 "last_success": {"$max": "$_ts"},
                 "successes_7d": {"$sum": "$success_7d"},
                 "successes_30d": {"$sum": "$success_30d"},
@@ -293,7 +315,7 @@ def _load_success_metrics(collection, providers: Optional[Sequence[str]], now: d
         },
     ]
 
-    metrics: Dict[Tuple[str, str], SuccessMetrics] = {}
+    metrics: Dict[Tuple[str, str, str], SuccessMetrics] = {}
     try:
         cursor = collection.aggregate(pipeline)
     except Exception:
@@ -303,10 +325,11 @@ def _load_success_metrics(collection, providers: Optional[Sequence[str]], now: d
         key_doc = doc.get("_id", {})
         provider = key_doc.get("provider")
         model_id = key_doc.get("model")
+        transport_provider = key_doc.get("transport") or "direct"
         if not provider or not model_id:
             continue
 
-        metrics[(provider, model_id)] = SuccessMetrics(
+        metrics[(provider, model_id, transport_provider)] = SuccessMetrics(
             last_success=_ensure_utc(doc.get("last_success")),
             successes_7d=int(doc.get("successes_7d", 0)),
             successes_30d=int(doc.get("successes_30d", 0)),
@@ -316,7 +339,11 @@ def _load_success_metrics(collection, providers: Optional[Sequence[str]], now: d
     return metrics
 
 
-def _load_error_metrics(collection, providers: Optional[Sequence[str]], now: datetime) -> Dict[Tuple[str, str], ErrorMetrics]:
+def _load_error_metrics(
+    collection,
+    providers: Optional[Sequence[str]],
+    now: datetime,
+) -> Dict[Tuple[str, str, str], ErrorMetrics]:
     seven_ago = now - timedelta(days=7)
     thirty_ago = now - timedelta(days=30)
 
@@ -350,6 +377,7 @@ def _load_error_metrics(collection, providers: Optional[Sequence[str]], now: dat
             "$project": {
                 "provider": 1,
                 "model_name": 1,
+                "transport_provider": {"$ifNull": ["$transport_provider", "direct"]},
                 "_ts": 1,
                 "_message": 1,
                 "_kind": 1,
@@ -360,7 +388,11 @@ def _load_error_metrics(collection, providers: Optional[Sequence[str]], now: dat
         {"$sort": {"provider": 1, "model_name": 1, "_ts": -1}},
         {
             "$group": {
-                "_id": {"provider": "$provider", "model": "$model_name"},
+                "_id": {
+                    "provider": "$provider",
+                    "model": "$model_name",
+                    "transport": "$transport_provider",
+                },
                 "last_error": {"$max": "$_ts"},
                 "errors_7d": {"$sum": "$error_7d"},
                 "errors_30d": {"$sum": "$error_30d"},
@@ -377,7 +409,7 @@ def _load_error_metrics(collection, providers: Optional[Sequence[str]], now: dat
         },
     ]
 
-    metrics: Dict[Tuple[str, str], ErrorMetrics] = {}
+    metrics: Dict[Tuple[str, str, str], ErrorMetrics] = {}
     try:
         cursor = collection.aggregate(pipeline)
     except Exception:
@@ -387,6 +419,7 @@ def _load_error_metrics(collection, providers: Optional[Sequence[str]], now: dat
         key_doc = doc.get("_id", {})
         provider = key_doc.get("provider")
         model_id = key_doc.get("model")
+        transport_provider = key_doc.get("transport") or "direct"
         if not provider or not model_id:
             continue
 
@@ -427,7 +460,7 @@ def _load_error_metrics(collection, providers: Optional[Sequence[str]], now: dat
             if idx < 10:
                 recent_messages.append(ErrorMessage(timestamp=ts, message=message_raw, kind=kind))
 
-        metrics[(provider, model_id)] = ErrorMetrics(
+        metrics[(provider, model_id, transport_provider)] = ErrorMetrics(
             last_error=last_error,
             errors_7d=errors_7d,
             errors_30d=errors_30d,

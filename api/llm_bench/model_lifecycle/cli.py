@@ -61,6 +61,7 @@ def _serialize_decision(snapshot: LifecycleSnapshot, decision: LifecycleDecision
     return {
         "provider": snapshot.provider,
         "model_id": snapshot.model_id,
+        "transport_provider": snapshot.transport_provider,
         "display_name": snapshot.display_name,
         "status": decision.status.value,
         "confidence": decision.confidence,
@@ -112,7 +113,11 @@ def _write_results(docs: List[Dict], collection_name: str) -> None:
             update_doc = dict(doc)
             update_doc.setdefault("computed_at", now)
             coll.update_one(
-                {"provider": doc["provider"], "model_id": doc["model_id"]},
+                {
+                    "provider": doc["provider"],
+                    "model_id": doc["model_id"],
+                    "transport_provider": doc.get("transport_provider", "direct"),
+                },
                 {
                     "$set": update_doc,
                     "$setOnInsert": {"created_at": now},

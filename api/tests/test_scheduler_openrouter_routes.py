@@ -110,6 +110,39 @@ def test_completed_request_provider_identity_wins_over_snapshot(monkeypatch):
     assert written["metrics"]["observed_provider_slug"] == "deepinfra"
 
 
+def test_openrouter_uses_variable_output_validation_for_strict_source(monkeypatch):
+    written = {}
+    snapshot = active_snapshot(
+        source_provider="anthropic",
+        source_model_id="claude-test",
+        route_model_id="anthropic/claude-test",
+        route_provider_slug="anthropic",
+        observed_provider="Anthropic",
+        observed_provider_slug="anthropic",
+    )
+
+    def load(provider):
+        return lambda config, run_config: metrics(
+            output_tokens=1,
+            observed_provider="Anthropic",
+            observed_provider_slug="anthropic",
+            provider_metadata_verified=True,
+        )
+
+    monkeypatch.setenv("OPENROUTER_ROUTING_ENABLED", "1")
+    monkeypatch.setattr(runner, "load_provider_func", load)
+    monkeypatch.setattr(
+        runner,
+        "log_success_mongo",
+        lambda config, metrics, *, sample_role: written.update(config=config, metrics=metrics),
+    )
+
+    result = runner.run_benchmark_job(job(provider="anthropic", model_id="claude-test", route_snapshot=snapshot))
+
+    assert result.status == "success"
+    assert written["metrics"]["validation_policy"] == "visible_nonzero"
+
+
 def test_route_snapshot_stays_direct_when_activation_is_disabled(monkeypatch):
     calls = []
     written = {}

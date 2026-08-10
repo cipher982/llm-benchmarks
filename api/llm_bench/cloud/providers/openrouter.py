@@ -23,6 +23,27 @@ logger = logging.getLogger(__name__)
 
 NON_CHAT_MODELS: list[str] = []
 
+# OpenRouter's streaming metadata has historically exposed provider display
+# names rather than routing slugs. This is deliberately a small reviewed map,
+# shared only by provider families that the bench can route. Unknown names stay
+# unverified and therefore fail closed in the runner.
+REVIEWED_PROVIDER_DISPLAY_SLUGS: dict[str, tuple[str, ...]] = {
+    "anthropic": ("anthropic",),
+    "openai": ("openai",),
+    "deepinfra": ("deepinfra",),
+    "deep infra": ("deepinfra",),
+    "fireworks": ("fireworks", "fireworks-ai"),
+    "fireworks ai": ("fireworks", "fireworks-ai"),
+    "together": ("together", "togetherai"),
+    "together ai": ("together", "togetherai"),
+    "togetherai": ("together", "togetherai"),
+    "groq": ("groq",),
+    "cerebras": ("cerebras",),
+    "google vertex": ("google-vertex", "vertex"),
+    "google-vertex": ("google-vertex", "vertex"),
+    "vertex": ("google-vertex", "vertex"),
+}
+
 
 def process_non_chat_model(client, config, run_config):
     raise NotImplementedError
@@ -151,10 +172,17 @@ def _metadata_from_chunk(chunk: Any) -> Mapping[str, Any] | None:
     for key, value in direct.items():
         merged.setdefault(key, value)
     return merged or None
-    return None
 
 
-def _observed_provider(metadata: Mapping[str, Any] | None) -> tuple[str | None, str | None]:
+def _provider_key(value: Any) -> str:
+    return " ".join(str(value).casefold().replace("_", " ").replace("-", " ").split())
+
+
+def _observed_provider(
+    metadata: Mapping[str, Any] | None,
+    *,
+    expected_slug: str | None = None,
+) -> tuple[str | None, str | None]:
     if not metadata:
         return None, None
     provider = metadata.get("provider") or metadata.get("provider_name") or metadata.get("selected_provider")
@@ -164,7 +192,13 @@ def _observed_provider(metadata: Mapping[str, Any] | None) -> tuple[str | None, 
     selected = next((item for item in available if isinstance(item, Mapping) and item.get("selected")), None)
     if selected:
         provider = provider or selected.get("provider") or selected.get("provider_name") or selected.get("name")
-        slug = slug or selected.get("provider_slug") or selected.get("slug") or selected.get("provider")
+        slug = slug or selected.get("provider_slug") or selected.get("slug")
+    if provider and not slug:
+        candidates = REVIEWED_PROVIDER_DISPLAY_SLUGS.get(_provider_key(provider), ())
+        if expected_slug and expected_slug.casefold() in {candidate.casefold() for candidate in candidates}:
+            slug = expected_slug
+        elif len(candidates) == 1:
+            slug = candidates[0]
     return (str(provider) if provider else None, str(slug) if slug else None)
 
 
@@ -254,7 +288,10 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         }
     )
 
-    observed_provider, observed_provider_slug = _observed_provider(route_metadata)
+    observed_provider, observed_provider_slug = _observed_provider(
+        route_metadata,
+        expected_slug=config.misc.get("route_provider_slug"),
+    )
     if observed_provider is not None:
         metrics["observed_provider"] = observed_provider
     if observed_provider_slug is not None:

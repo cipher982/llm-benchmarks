@@ -271,6 +271,17 @@ def job_requires_openrouter(job: dict[str, Any]) -> bool:
     return openrouter_routing_enabled() and resolve_job_route(job).transport_provider == OPENROUTER_TRANSPORT
 
 
+def effective_job_route(job: dict[str, Any]) -> RouteDecision:
+    decision = resolve_job_route(job)
+    if decision.transport_provider == OPENROUTER_TRANSPORT and not openrouter_routing_enabled():
+        return RouteDecision.direct(
+            decision.source_provider,
+            decision.source_model_id,
+            reason="route-activation-disabled",
+        )
+    return decision
+
+
 def _transport_provider(decision: RouteDecision) -> str:
     return decision.source_provider if decision.transport_provider == DIRECT_TRANSPORT else decision.transport_provider
 
@@ -323,7 +334,8 @@ def _generate_and_validate(
     if not metrics:
         raise AttemptFailure("validate", "empty metrics")
 
-    ok, why = validate_metrics(decision.source_provider, metrics, max_tokens)
+    validation_provider = _transport_provider(decision)
+    ok, why = validate_metrics(validation_provider, metrics, max_tokens)
     if not ok:
         raise AttemptFailure("validate", str(why))
 
@@ -346,8 +358,12 @@ def _record_attempt_failure(
     failure: AttemptFailure,
     stage_prefix: str = "",
     decision: RouteDecision | None = None,
+    provenance_extra: dict[str, Any] | None = None,
 ) -> str:
     stage = f"{stage_prefix}_{failure.stage}" if stage_prefix else failure.stage
+    provenance = decision.metric_fields() if decision is not None else {}
+    if provenance_extra:
+        provenance.update(provenance_extra)
     try:
         return log_error_mongo(
             provider=provider,
@@ -356,7 +372,7 @@ def _record_attempt_failure(
             message=failure.message,
             tb=traceback.format_exc(limit=5),
             exc_type=type(failure).__name__,
-            provenance=decision.metric_fields() if decision is not None else None,
+            provenance=provenance or None,
         )
     except Exception as exc:
         print(
@@ -407,9 +423,7 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
         "max_tokens": max_tokens,
     }
 
-    decision = resolve_job_route(job)
-    if decision.transport_provider == OPENROUTER_TRANSPORT and not openrouter_routing_enabled():
-        decision = RouteDecision.direct(provider, model_id, reason="route-activation-disabled")
+    decision = effective_job_route(job)
     route_attempted = decision.transport_provider == OPENROUTER_TRANSPORT
     fallback_reason = None
 
@@ -453,7 +467,13 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
                 max_tokens=max_tokens,
             )
         except AttemptFailure as direct_failure:
-            error_kind = _record_attempt_failure(provider=provider, model_id=model_id, failure=direct_failure)
+            error_kind = _record_attempt_failure(
+                provider=provider,
+                model_id=model_id,
+                failure=direct_failure,
+                decision=decision,
+                provenance_extra={"fallback_reason": fallback_reason},
+            )
             print(f"Error {provider}:{model_id} - {direct_failure.message}", flush=True)
             return RunnerResult(
                 status="error",
@@ -465,7 +485,7 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
             )
 
     _annotate_metrics(metrics, decision, fallback_reason=fallback_reason)
-    metrics.setdefault("validation_policy", validation_policy(provider))
+    metrics.setdefault("validation_policy", validation_policy(_transport_provider(decision)))
     # Provenance every sample carries, so a row can always be traced back to the
     # rules that produced it and to the group of attempts it came from. The
     # spike found 975 of 1,182 Together rows came from multi-attempt retries
@@ -557,12 +577,14 @@ def run_job_in_child(job: dict[str, Any], *, deadline_seconds: int) -> RunnerRes
         model_id = str(job.get("model_id"))
         message = f"benchmark timed out after {deadline_seconds}s"
         try:
+            timeout_decision = effective_job_route(job)
             log_error_mongo(
                 provider=provider,
                 model_id=model_id,
                 stage="timeout",
                 message=message,
                 exc_type="TimeoutError",
+                provenance=timeout_decision.metric_fields(),
             )
         except Exception as exc:
             print(f"Failed to log timeout for {provider}:{model_id}: {exc}", flush=True)
