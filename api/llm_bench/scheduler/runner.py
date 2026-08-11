@@ -316,6 +316,8 @@ def _config_for_decision(
         misc["route_model_id"] = decision.route_model_id
         misc["route_probe_id"] = decision.route_probe_id
         misc["route_snapshot_at"] = decision.route_snapshot_at
+        if decision.route_reasoning_exclude:
+            misc["route_reasoning_exclude"] = True
     if timeout_seconds is not None:
         misc["timeout_seconds"] = timeout_seconds
         misc["bounded_timeout"] = True

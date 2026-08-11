@@ -258,3 +258,70 @@ def test_metric_writer_keeps_source_identity_for_routed_config(monkeypatch):
     assert inserted["provider"] == "deepinfra"
     assert inserted["model_name"] == "Qwen/Qwen3-32B"
     assert inserted["transport_provider"] == "openrouter"
+
+
+def _promotion_snapshot(**overrides):
+    snapshot = {
+        "source_provider": "deepinfra",
+        "source_model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        "route_decision_version": "or-route-v1",
+        "state": "active",
+        "transport_provider": "openrouter",
+        "route_policy": "pinned-provider",
+        "canary_id": "canary-1",
+        "canary_state": "passed",
+        "canary_successes": 30,
+        "canary_required_successes": 29,
+        "canary_promotion_gate": "passed",
+        "canary_cost_status": "verified",
+        "canary_evidence_uri": "s3://artifacts/evidence/canary.json",
+        "canary_evidence_sha256": "a" * 64,
+        "canary_tps_ci95_lower": 0.95,
+        "canary_cost_ci95_upper": 1.0,
+        "expires_at": "2099-01-01T00:00:00+00:00",
+        "route_model_id": "meta-llama/llama-3.1-8b-instruct",
+        "route_provider_slug": "deepinfra",
+        "observed_provider_slug": "deepinfra",
+        "route_snapshot_at": "2026-08-10T00:00:00+00:00",
+        "route_probe_id": "probe-1",
+        "provider_metadata_verified": True,
+        "profile_hash": "b" * 64,
+        "direct_effective_request_hash": "c" * 64,
+        "routed_effective_request_hash": "d" * 64,
+    }
+    snapshot.update(overrides)
+    return snapshot
+
+
+def test_ttft_waiver_allows_promotion_without_ttft_ci():
+    snapshot = _promotion_snapshot(canary_ttft_waived_direct_unmeasured=True)
+    decision = RouteDecision.from_snapshot("deepinfra", "meta-llama/Meta-Llama-3.1-8B-Instruct", snapshot)
+    assert decision.transport_provider == "openrouter"
+    assert decision.state == "active"
+
+
+def test_missing_ttft_ci_without_waiver_stays_direct():
+    snapshot = _promotion_snapshot()
+    decision = RouteDecision.from_snapshot("deepinfra", "meta-llama/Meta-Llama-3.1-8B-Instruct", snapshot)
+    assert decision.transport_provider == "direct"
+    assert decision.reason == "canary-statistical-evidence-missing"
+
+
+def test_ttft_bound_still_enforced_when_measured():
+    snapshot = _promotion_snapshot(canary_ttft_ci95_upper=2.0)
+    decision = RouteDecision.from_snapshot("deepinfra", "meta-llama/Meta-Llama-3.1-8B-Instruct", snapshot)
+    assert decision.transport_provider == "direct"
+    assert decision.reason == "canary-ttft-bound-failed"
+
+
+def test_route_reasoning_exclude_flows_from_snapshot():
+    snapshot = _promotion_snapshot(canary_ttft_waived_direct_unmeasured=True, route_reasoning_exclude=True)
+    decision = RouteDecision.from_snapshot("deepinfra", "meta-llama/Meta-Llama-3.1-8B-Instruct", snapshot)
+    assert decision.transport_provider == "openrouter"
+    assert decision.route_reasoning_exclude is True
+    plain = RouteDecision.from_snapshot(
+        "deepinfra",
+        "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        _promotion_snapshot(canary_ttft_waived_direct_unmeasured=True),
+    )
+    assert plain.route_reasoning_exclude is False

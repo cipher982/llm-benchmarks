@@ -73,6 +73,7 @@ class RouteDecision:
     route_canary_promotion_gate: str | None = None
     route_expires_at: str | None = None
     route_revocation_generation: int = 0
+    route_reasoning_exclude: bool = False
     profile_hash: str | None = None
     direct_effective_request_hash: str | None = None
     routed_effective_request_hash: str | None = None
@@ -166,15 +167,25 @@ class RouteDecision:
                 return cls.direct(source_provider, source_model_id, reason="canary-evidence-not-immutable")
             try:
                 tps_lower = float(snapshot["canary_tps_ci95_lower"])
-                ttft_upper = float(snapshot["canary_ttft_ci95_upper"])
                 cost_upper = float(snapshot["canary_cost_ci95_upper"])
             except (KeyError, TypeError, ValueError):
                 return cls.direct(source_provider, source_model_id, reason="canary-statistical-evidence-missing")
-            if not all(isfinite(value) for value in (tps_lower, ttft_upper, cost_upper)):
+            # The TTFT bound applies unless the canary explicitly recorded that
+            # the direct lane measured TTFT on zero pairs; a missing value with
+            # no waiver flag remains fail-closed.
+            ttft_waived = snapshot.get("canary_ttft_waived_direct_unmeasured") is True
+            ttft_upper: float | None = None
+            if not ttft_waived:
+                try:
+                    ttft_upper = float(snapshot["canary_ttft_ci95_upper"])
+                except (KeyError, TypeError, ValueError):
+                    return cls.direct(source_provider, source_model_id, reason="canary-statistical-evidence-missing")
+            checked = (tps_lower, cost_upper) if ttft_waived else (tps_lower, ttft_upper, cost_upper)
+            if not all(isfinite(value) for value in checked):
                 return cls.direct(source_provider, source_model_id, reason="canary-statistical-evidence-nonfinite")
             if tps_lower < MIN_PROMOTION_TPS_CI95:
                 return cls.direct(source_provider, source_model_id, reason="canary-tps-bound-failed")
-            if ttft_upper > MAX_PROMOTION_TTFT_CI95:
+            if ttft_upper is not None and ttft_upper > MAX_PROMOTION_TTFT_CI95:
                 return cls.direct(source_provider, source_model_id, reason="canary-ttft-bound-failed")
             if cost_upper > MAX_PROMOTION_COST_CI95:
                 return cls.direct(source_provider, source_model_id, reason="canary-cost-bound-failed")
@@ -225,6 +236,7 @@ class RouteDecision:
             route_canary_promotion_gate=snapshot.get("canary_promotion_gate"),
             route_expires_at=str(expiry),
             route_revocation_generation=snapshot_generation,
+            route_reasoning_exclude=snapshot.get("route_reasoning_exclude") is True,
             profile_hash=snapshot.get("profile_hash"),
             direct_effective_request_hash=snapshot.get("direct_effective_request_hash"),
             routed_effective_request_hash=snapshot.get("routed_effective_request_hash"),

@@ -151,7 +151,12 @@ def promote_decision(
             "canary_evidence_uri": evidence_uri,
             "canary_evidence_sha256": digest,
             "canary_tps_ci95_lower": float(evaluation["route_tps_ratio_ci95"][0]),
-            "canary_ttft_ci95_upper": float(evaluation["route_ttft_ratio_ci95"][1]),
+            "canary_ttft_ci95_upper": (
+                float(evaluation["route_ttft_ratio_ci95"][1])
+                if evaluation.get("route_ttft_ratio_ci95") is not None
+                else None
+            ),
+            "canary_ttft_waived_direct_unmeasured": bool(evaluation.get("ttft_waived_direct_unmeasured")),
             "canary_cost_ci95_upper": float(evaluation["route_cost_ratio_ci95"][1]),
             "canary_route_error_delta": float(evaluation["route_error_delta"]),
             "canary_route_metadata_verified": int(evaluation["route_metadata_verified"]),

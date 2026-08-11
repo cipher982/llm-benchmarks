@@ -77,13 +77,19 @@ def _route_options(config: CloudConfig) -> dict[str, Any]:
     route_slug = config.misc.get("route_provider_slug")
     if not route_slug:
         return {}
-    return {
+    options: dict[str, Any] = {
         "provider": {
             "only": [str(route_slug)],
             "allow_fallbacks": False,
             "require_parameters": True,
         }
     }
+    if config.misc.get("route_reasoning_exclude"):
+        # Parity with direct lanes that measure non-reasoning visible output:
+        # some OpenRouter lanes default frontier models into thinking mode,
+        # which consumes the whole published-profile token budget invisibly.
+        options["reasoning"] = {"exclude": True, "effort": "minimal"}
+    return options
 
 
 def _request_stream(client: OpenAI, config: CloudConfig, run_config: dict[str, Any]):

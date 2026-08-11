@@ -64,10 +64,24 @@ def load_endpoint_evidence(path: Path) -> dict[str, dict[str, Any]]:
     return evidence
 
 
+# Source providers whose OpenRouter slug differs from the bench provider name.
+SOURCE_ROUTE_SLUGS = {"vertex": "google-vertex"}
+
+
+def _endpoint_matches_slug(endpoint: dict[str, Any], route_slug: str) -> bool:
+    if _provider_key(endpoint.get("provider_name")) == _provider_key(route_slug):
+        return True
+    tag = endpoint.get("tag")
+    if isinstance(tag, str) and tag.strip():
+        return _provider_key(tag.split("/", 1)[0]) == _provider_key(route_slug)
+    return False
+
+
 def derive(candidate: dict[str, Any], data: dict[str, Any], *, source_uri: str) -> dict[str, Any]:
     source_provider = str(candidate.get("source_provider") or "")
     route_slug = str(candidate.get("route_provider_slug") or "")
-    if _provider_key(source_provider) != _provider_key(route_slug):
+    expected_slug = SOURCE_ROUTE_SLUGS.get(_provider_key(source_provider), _provider_key(source_provider))
+    if expected_slug != _provider_key(route_slug):
         raise ValueError(
             f"cannot derive same-provider pricing for {source_provider}/{candidate.get('source_model_id')} "
             f"with route slug {route_slug}"
@@ -77,14 +91,14 @@ def derive(candidate: dict[str, Any], data: dict[str, Any], *, source_uri: str) 
         for endpoint in data.get("endpoints", [])
         if isinstance(endpoint, dict)
         and endpoint.get("status", 0) == 0
-        and _provider_key(endpoint.get("provider_name")) == _provider_key(route_slug)
+        and _endpoint_matches_slug(endpoint, route_slug)
     ]
     status_fallback = False
     if not endpoints:
         endpoints = [
             endpoint
             for endpoint in data.get("endpoints", [])
-            if isinstance(endpoint, dict) and _provider_key(endpoint.get("provider_name")) == _provider_key(route_slug)
+            if isinstance(endpoint, dict) and _endpoint_matches_slug(endpoint, route_slug)
         ]
         status_fallback = bool(endpoints)
     if not endpoints:
