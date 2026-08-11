@@ -17,9 +17,12 @@ from typing import Tuple
 import typer
 from pymongo import MongoClient
 
-
 UTC = timezone.utc
 app = typer.Typer(help="Reliability operations (recommendations-only by default).")
+
+# Mirrors runner.DEFAULT_PROFILE_ID; this module deliberately imports nothing
+# from llm_bench so it stays a standalone CLI.
+_DEFAULT_PROFILE_ID = "cloud-default-v1"
 
 
 def _mongo() -> Tuple[str, str]:
@@ -81,7 +84,16 @@ def _hard_errors_since(
     query: Dict[str, Any] = {"provider": provider, "model_name": model, "error_kind": kind}
     if since is not None:
         query["ts"] = {"$gte": since}
-    cur = db[errors_coll].find(query, {"ts": 1, "normalized_message": 1, "message": 1, "http_status": 1}).sort("ts", 1).limit(limit)
+    # Failures from a non-default benchmark profile (long or reasoning runs)
+    # are not evidence about the published measurement; a model that serves 64
+    # tokens must never be quarantined for failing a 512-token long run.
+    query["$or"] = [{"profile_id": {"$exists": False}}, {"profile_id": _DEFAULT_PROFILE_ID}]
+    cur = (
+        db[errors_coll]
+        .find(query, {"ts": 1, "normalized_message": 1, "message": 1, "http_status": 1})
+        .sort("ts", 1)
+        .limit(limit)
+    )
     return list(cur)
 
 
@@ -138,7 +150,6 @@ def recommend(
             model_query["provider"] = {"$in": provider_filter}
 
         recs: List[Recommendation] = []
-        now = datetime.now(UTC)
 
         for model_doc in db[models_coll].find(model_query, {"provider": 1, "model_id": 1, "enabled": 1, "_id": 0}):
             prov = model_doc.get("provider")
@@ -147,8 +158,12 @@ def recommend(
                 continue
 
             last_success = _last_success_ts(db=db, provider=prov, model=mid, lookback_days=lookback_success_days)
-            hard_model_errors = _hard_errors_since(db=db, provider=prov, model=mid, since=last_success, kind="hard_model")
-            hard_cap_errors = _hard_errors_since(db=db, provider=prov, model=mid, since=last_success, kind="hard_capability")
+            hard_model_errors = _hard_errors_since(
+                db=db, provider=prov, model=mid, since=last_success, kind="hard_model"
+            )
+            hard_cap_errors = _hard_errors_since(
+                db=db, provider=prov, model=mid, since=last_success, kind="hard_capability"
+            )
 
             if hard_cap_errors:
                 sample = _unique_messages(hard_cap_errors, limit=3)
@@ -158,7 +173,10 @@ def recommend(
                         model_id=mid,
                         action="investigate_capability",
                         confidence="medium",
-                        reasons=["Hard capability errors detected (likely endpoint/capability mismatch; do not disable automatically)."],
+                        reasons=[
+                            "Hard capability errors detected "
+                            "(likely endpoint/capability mismatch; do not disable automatically)."
+                        ],
                         evidence={
                             "last_success": last_success.isoformat() if last_success else None,
                             "hard_capability_failures": len(hard_cap_errors),
@@ -188,7 +206,9 @@ def recommend(
                 f"Failures span ~{span_minutes} minutes.",
             ]
             if not last_success:
-                reasons.append("No recent success in lookback window; treat as manual review (could be bad ID or configuration).")
+                reasons.append(
+                    "No recent success in lookback window; treat as manual review (could be bad ID or configuration)."
+                )
 
             recs.append(
                 Recommendation(

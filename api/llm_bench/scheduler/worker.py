@@ -222,6 +222,10 @@ def run_worker_loop(
                         result = run_job_in_child(job, deadline_seconds=remaining)
                 now = datetime.now(timezone.utc)
                 model_id = str(job.get("model_id"))
+                # From the job doc, not the result: error results do not carry
+                # a sample role, and a long run's failure must be attributed to
+                # the long profile, never to the model's primary health.
+                is_long = str(job.get("sample_role") or "") == runner.SAMPLE_ROLE_LONG
                 persist_route_cooldown(db, job=job, result=result, now=now)
 
                 if result.status == "success":
@@ -229,16 +233,27 @@ def run_worker_loop(
                         # A probe or shadow sample is not evidence that this
                         # model is being measured for the site. Counting it
                         # would make freshness reflect what we tried, not what
-                        # we publish.
+                        # we publish. A long sample publishes rows but not
+                        # freshness — a model failing the default profile must
+                        # not look fresh because its long runs succeed.
                         publishes = result.sample_role not in runner.NON_PUBLISHING_ROLES
-                        if job.get("job_kind") != "smoke_hang" and publishes:
-                            health.record_success(
-                                db,
-                                provider=provider,
-                                model_id=model_id,
-                                cadence_seconds=cadence_seconds,
-                                now=now,
-                            )
+                        if job.get("job_kind") != "smoke_hang":
+                            if is_long:
+                                health.record_long_profile_attempt(
+                                    db,
+                                    provider=provider,
+                                    model_id=model_id,
+                                    status="success",
+                                    now=now,
+                                )
+                            elif publishes:
+                                health.record_success(
+                                    db,
+                                    provider=provider,
+                                    model_id=model_id,
+                                    cadence_seconds=cadence_seconds,
+                                    now=now,
+                                )
                     print(f"Completed job {job['_id']} status=success", flush=True)
                     continue
 
@@ -253,15 +268,29 @@ def run_worker_loop(
                     now=now,
                 )
                 if next_status:
-                    health.record_error(
-                        db,
-                        provider=provider,
-                        model_id=model_id,
-                        cadence_seconds=cadence_seconds,
-                        error_kind=error_kind,
-                        error_message=error_message,
-                        now=now,
-                    )
+                    if is_long:
+                        # A model that fails only long runs keeps failing them
+                        # quietly; the outcome lives on long_profile_state and
+                        # never increments consecutive_failures.
+                        health.record_long_profile_attempt(
+                            db,
+                            provider=provider,
+                            model_id=model_id,
+                            status="error",
+                            error_kind=error_kind,
+                            error_message=error_message,
+                            now=now,
+                        )
+                    else:
+                        health.record_error(
+                            db,
+                            provider=provider,
+                            model_id=model_id,
+                            cadence_seconds=cadence_seconds,
+                            error_kind=error_kind,
+                            error_message=error_message,
+                            now=now,
+                        )
                 print(f"Completed job {job['_id']} status={result.status} next_status={next_status}", flush=True)
             except Exception as exc:
                 # A database outage during result bookkeeping must not kill

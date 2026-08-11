@@ -46,6 +46,7 @@ OPTIONAL_METRIC_FIELDS = (
     # contract wrote 92 rows carrying none of it.
     "sample_role",
     "benchmark_profile_id",
+    "requested_max_tokens",
     "protocol_version",
     "attempt_group",
     "attempt",

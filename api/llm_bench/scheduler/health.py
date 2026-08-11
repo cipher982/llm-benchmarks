@@ -341,6 +341,43 @@ def record_error(
     )
 
 
+def record_long_profile_attempt(
+    db: Database,
+    *,
+    provider: str,
+    model_id: str,
+    status: str,
+    error_kind: str | None = None,
+    error_message: str | None = None,
+    now: datetime | None = None,
+) -> None:
+    """Record a long-profile outcome without touching primary model health.
+
+    A model that serves 64 tokens but fails 512-token runs keeps its published
+    series and its freshness; the long outcome lives in `long_profile_state`
+    only, never in `consecutive_failures` or `last_success_at`. Dotted paths on
+    purpose: a later failure must not erase `last_success_at` inside the state.
+    """
+    now = now or utcnow()
+    updates: dict[str, Any] = {
+        "long_profile_state.last_attempt_at": now,
+        "long_profile_state.last_status": status,
+        "long_profile_state.last_error_kind": error_kind,
+        "long_profile_state.last_error_message": (error_message or "")[:2000] or None,
+        "updated_at": now,
+    }
+    if status == "success":
+        updates["long_profile_state.last_success_at"] = now
+    health_collection(db).update_one(
+        {"provider": provider, "model_id": model_id},
+        {
+            "$setOnInsert": {"_id": scheduled_job_id(provider, model_id)},
+            "$set": updates,
+        },
+        upsert=True,
+    )
+
+
 def heartbeat(
     db: Database,
     *,

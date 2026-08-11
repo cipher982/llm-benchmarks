@@ -210,9 +210,13 @@ def log_error_mongo(
 
 
 # Sample roles. Only PUBLISHED reaches the site and counts as freshness.
+# LONG writes to the published collection — its rows must be queryable next to
+# default rows for the generate_time-vs-tokens regression — but it never counts
+# as freshness and its failures never touch primary model health.
 SAMPLE_ROLE_PUBLISHED = "published"
 SAMPLE_ROLE_PROBE = "probe"
 SAMPLE_ROLE_SHADOW = "shadow"
+SAMPLE_ROLE_LONG = "long"
 NON_PUBLISHING_ROLES = frozenset({SAMPLE_ROLE_PROBE, SAMPLE_ROLE_SHADOW})
 
 # The measurement protocol a row was produced under. Bump when the request
@@ -220,6 +224,7 @@ NON_PUBLISHING_ROLES = frozenset({SAMPLE_ROLE_PROBE, SAMPLE_ROLE_SHADOW})
 # under different rules are never silently averaged together.
 PROTOCOL_VERSION = 1
 DEFAULT_PROFILE_ID = "cloud-default-v1"
+LONG_PROFILE_ID = "cloud-long-v1"
 OPENROUTER_ROUTING_ENABLED_ENV = "OPENROUTER_ROUTING_ENABLED"
 
 # Profiles differ only in what they ask for. Which profile produced a row is
@@ -232,9 +237,17 @@ OPENROUTER_ROUTING_ENABLED_ENV = "OPENROUTER_ROUTING_ENABLED"
 # It runs as a shadow sample, which writes to the probe collection and never
 # reaches the site. Whether these belong on the same chart as 64-token rows is a
 # publication decision; collecting the numbers is not.
+# `cloud-long-v1` is the default profile with a 512-token budget. One sample
+# per model every few hours gives a downstream estimator a second point on the
+# generate_time-vs-tokens line: slope is steady-state tok/s, intercept is floor
+# latency. Unlike the reasoning profile it writes to the published collection —
+# the rows must be queryable next to default rows — and the dashboard's
+# transform drops any row whose profile is not the published one, so they are
+# invisible to current charts by construction.
 BENCHMARK_PROFILES: dict[str, dict[str, Any]] = {
     DEFAULT_PROFILE_ID: {"max_tokens": MAX_TOKENS},
     "cloud-reasoning-v1": {"max_tokens": int(os.getenv("BENCHMARK_REASONING_MAX_TOKENS", "2048"))},
+    LONG_PROFILE_ID: {"max_tokens": int(os.getenv("BENCHMARK_LONG_PROFILE_MAX_TOKENS", "512"))},
 }
 
 
@@ -445,6 +458,10 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
     decision = effective_job_route(job)
     route_attempted = decision.transport_provider == OPENROUTER_TRANSPORT
     fallback_reason = job.get("route_fallback_reason")
+    # Failures from a non-default profile carry the profile on the error row,
+    # so quarantine and reliability tooling can tell "the model is broken" from
+    # "the model serves 64 tokens but not this profile's budget".
+    profile_provenance = {"profile_id": profile_id} if profile_id != DEFAULT_PROFILE_ID else None
 
     try:
         route_timeout_seconds = None
@@ -460,7 +477,9 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
         )
     except AttemptFailure as failure:
         if not route_attempted:
-            error_kind = _record_attempt_failure(provider=provider, model_id=model_id, failure=failure)
+            error_kind = _record_attempt_failure(
+                provider=provider, model_id=model_id, failure=failure, provenance_extra=profile_provenance
+            )
             print(f"Error {provider}:{model_id} - {failure.message}", flush=True)
             return RunnerResult(
                 status="error",
@@ -476,6 +495,7 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
             failure=failure,
             stage_prefix="route",
             decision=decision,
+            provenance_extra=profile_provenance,
         )
         fallback_reason = failure.message
         decision = RouteDecision.direct(provider, model_id, reason="route-fallback")
@@ -492,7 +512,7 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
                 model_id=model_id,
                 failure=direct_failure,
                 decision=decision,
-                provenance_extra={"fallback_reason": fallback_reason},
+                provenance_extra={**(profile_provenance or {}), "fallback_reason": fallback_reason},
             )
             print(f"Error {provider}:{model_id} - {direct_failure.message}", flush=True)
             return RunnerResult(
@@ -621,6 +641,10 @@ def run_job_in_child(job: dict[str, Any], *, deadline_seconds: float) -> RunnerR
         provider = str(job.get("provider"))
         model_id = str(job.get("model_id"))
         message = f"benchmark timed out after {deadline_seconds}s"
+        timeout_provenance = timeout_decision.metric_fields()
+        timeout_profile_id = str(job.get("benchmark_profile_id") or DEFAULT_PROFILE_ID)
+        if timeout_profile_id != DEFAULT_PROFILE_ID:
+            timeout_provenance["profile_id"] = timeout_profile_id
         try:
             log_error_mongo(
                 provider=provider,
@@ -628,7 +652,7 @@ def run_job_in_child(job: dict[str, Any], *, deadline_seconds: float) -> RunnerR
                 stage="timeout",
                 message=message,
                 exc_type="TimeoutError",
-                provenance=timeout_decision.metric_fields(),
+                provenance=timeout_provenance,
             )
         except Exception as exc:
             print(f"Failed to log timeout for {provider}:{model_id}: {exc}", flush=True)
