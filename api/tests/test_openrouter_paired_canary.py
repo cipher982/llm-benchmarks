@@ -129,3 +129,71 @@ def test_attempt_uses_one_deadline_across_retries(monkeypatch):
     assert result["status"] == "error"
     assert result["retry_count"] == 0
     assert elapsed < 1.5
+
+
+def _pair(direct_metrics, route_metrics, index=0):
+    return {
+        "pair_index": index,
+        "order": "direct-first",
+        "attempts": {
+            "direct": {"status": "success", "metrics": direct_metrics},
+            "openrouter": {"status": "success", "metrics": route_metrics},
+        },
+    }
+
+
+def test_missing_direct_ttft_does_not_erase_metadata_or_cost_evidence():
+    from scripts.openrouter_paired_canary import evaluate
+
+    route_metrics = {
+        "tokens_per_second": 21.0,
+        "time_to_first_token": 0.4,
+        "provider_metadata_verified": True,
+        "observed_provider_slug": "deepinfra",
+        "input_tokens": 20,
+        "output_tokens": 64,
+    }
+    direct_metrics = {
+        "tokens_per_second": 20.0,
+        "time_to_first_token": None,
+        "input_tokens": 20,
+        "output_tokens": 64,
+    }
+    pairs = [_pair(direct_metrics, route_metrics, i) for i in range(30)]
+    rates = {"input_per_token": 1e-7, "output_per_token": 2e-7}
+    result = evaluate(
+        pairs,
+        min_route_tps_ratio=0.8,
+        max_route_ttft_ratio=1.5,
+        pricing={"direct": rates, "openrouter": rates},
+        expected_route_provider_slug="deepinfra",
+    )
+    assert result["ttft_waived_direct_unmeasured"] is True
+    assert result["direct_ttft_measured_pairs"] == 0
+    assert result["metadata_valid"] is True
+    assert result["cost_status"] == "verified"
+    assert result["performance_valid"] is True
+    assert result["promotion_valid"] is True
+
+
+def test_measured_direct_ttft_still_enforces_ttft_bound():
+    from scripts.openrouter_paired_canary import evaluate
+
+    route_metrics = {
+        "tokens_per_second": 21.0,
+        "time_to_first_token": 2.0,
+        "provider_metadata_verified": True,
+        "observed_provider_slug": "deepinfra",
+        "input_tokens": 20,
+        "output_tokens": 64,
+    }
+    direct_metrics = {
+        "tokens_per_second": 20.0,
+        "time_to_first_token": 0.5,
+        "input_tokens": 20,
+        "output_tokens": 64,
+    }
+    pairs = [_pair(direct_metrics, route_metrics, i) for i in range(30)]
+    result = evaluate(pairs, min_route_tps_ratio=0.8, max_route_ttft_ratio=1.5)
+    assert result["ttft_waived_direct_unmeasured"] is False
+    assert result["performance_valid"] is False

@@ -272,6 +272,7 @@ def evaluate(
     paired_tps: list[float] = []
     paired_ttft: list[float] = []
     paired_cost: list[float] = []
+    direct_ttft_measured = 0
     direct_failures = 0
     route_failures = 0
     route_metadata_verified = 0
@@ -292,19 +293,25 @@ def evaluate(
             continue
         direct_metrics = direct_attempt.get("metrics", {})
         route_metrics = route_attempt.get("metrics", {})
+        # Each evidence stream accumulates independently: a lane that does not
+        # measure one metric must not erase the pair's other evidence.
         try:
             direct_tps = float(direct_metrics["tokens_per_second"])
             route_tps = float(route_metrics["tokens_per_second"])
-            if direct_tps <= 0 or route_tps <= 0:
-                continue
-            paired_tps.append(route_tps / direct_tps)
-            direct_ttft = float(direct_metrics["time_to_first_token"])
-            route_ttft = float(route_metrics["time_to_first_token"])
-            if direct_ttft <= 0 or route_ttft <= 0:
-                continue
-            paired_ttft.append(route_ttft / direct_ttft)
+            if direct_tps > 0 and route_tps > 0:
+                paired_tps.append(route_tps / direct_tps)
         except (KeyError, TypeError, ValueError):
-            continue
+            pass
+        direct_ttft_raw = direct_metrics.get("time_to_first_token")
+        if direct_ttft_raw is not None:
+            direct_ttft_measured += 1
+        try:
+            direct_ttft = float(direct_ttft_raw)
+            route_ttft = float(route_metrics["time_to_first_token"])
+            if direct_ttft > 0 and route_ttft > 0:
+                paired_ttft.append(route_ttft / direct_ttft)
+        except (KeyError, TypeError, ValueError):
+            pass
         if (
             route_metrics.get("provider_metadata_verified") is True
             and route_metrics.get("observed_provider_slug")
@@ -332,12 +339,13 @@ def evaluate(
     direct_error_rate = direct_failures / len(pairs) if pairs else 1.0
     route_error_delta = route_error_rate - direct_error_rate
     metadata_valid = route_metadata_verified == successful_pairs and successful_pairs > 0
-    performance_valid = (
-        tps_ci95 is not None
-        and tps_ci95[0] >= min_route_tps_ratio
-        and ttft_ci95 is not None
-        and ttft_ci95[1] <= max_route_ttft_ratio
-    )
+    # The TTFT bound is enforceable only when the direct lane measures TTFT.
+    # A provider client with no TTFT capture (non-streaming direct call) makes
+    # the bound structurally unmeasurable, and the published direct data for
+    # that provider carries no TTFT either, so routing cannot corrupt it.
+    ttft_waived_direct_unmeasured = successful_pairs > 0 and direct_ttft_measured == 0
+    ttft_gate_valid = ttft_waived_direct_unmeasured or (ttft_ci95 is not None and ttft_ci95[1] <= max_route_ttft_ratio)
+    performance_valid = tps_ci95 is not None and tps_ci95[0] >= min_route_tps_ratio and ttft_gate_valid
     error_valid = route_error_delta <= max_route_error_delta
     cost_status = "verified" if pricing and len(paired_cost) == successful_pairs else "unverified"
     cost_valid = cost_status == "verified" and cost_ci95 is not None and cost_ci95[1] <= max_route_cost_ratio
@@ -361,6 +369,8 @@ def evaluate(
         "route_error_delta": route_error_delta,
         "max_route_error_delta": max_route_error_delta,
         "route_metadata_verified": route_metadata_verified,
+        "direct_ttft_measured_pairs": direct_ttft_measured,
+        "ttft_waived_direct_unmeasured": ttft_waived_direct_unmeasured,
         "metadata_valid": metadata_valid,
         "performance_valid": performance_valid,
         "error_valid": error_valid,
