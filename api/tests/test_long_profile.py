@@ -13,7 +13,10 @@ from datetime import timezone
 
 import mongomock
 import pytest
+from llm_bench.ops import desired_set
+from llm_bench.ops import invariants
 from llm_bench.ops import long_profile
+from llm_bench.ops.reliability_cli import _last_success_ts
 from llm_bench.scheduler import health
 from llm_bench.scheduler import queue
 from llm_bench.scheduler import runner
@@ -299,6 +302,161 @@ class TestHealthIsolation:
         assert doc["last_success_at"] == NOW.replace(tzinfo=None) - timedelta(minutes=5) or doc[
             "last_success_at"
         ] == NOW - timedelta(minutes=5)
+
+    def test_long_only_success_does_not_satisfy_recent_counts(self, db):
+        """successes_24h means the published series, not any row in the collection."""
+        _long_row(db, "groq", "llama-fast", age=timedelta(hours=1))
+        db["errors_cloud"].insert_one(
+            {
+                "provider": "groq",
+                "model_name": "llama-fast",
+                "ts": NOW - timedelta(hours=1),
+                "error_kind": "timeout",
+                "profile_id": long_profile.PROFILE_ID,
+            }
+        )
+
+        successes, failures, deadline_misses = health._recent_counts(
+            db, provider="groq", model_id="llama-fast", now=NOW
+        )
+        assert (successes, failures, deadline_misses) == (0, 0, 0)
+
+        # Pre-profile rows carry no profile field and must still count.
+        db[metrics_collection_name()].insert_one(
+            {"provider": "groq", "model_name": "llama-fast", "run_ts": NOW - timedelta(minutes=30)}
+        )
+        successes, _, _ = health._recent_counts(db, provider="groq", model_id="llama-fast", now=NOW)
+        assert successes == 1
+
+    def test_long_only_rows_do_not_backfill_freshness(self, db):
+        _model(db, "groq", "llama-fast")
+        _long_row(db, "groq", "llama-fast", age=timedelta(minutes=10))
+
+        health.backfill_from_metrics(db, cadence_seconds=1800, now=NOW)
+
+        doc = db.bench_model_health.find_one({"provider": "groq", "model_id": "llama-fast"})
+        assert doc["last_success_at"] is None
+        assert doc["freshness_status"] == "never_run"
+
+    def test_long_only_rows_are_not_lane_progress(self, db):
+        _long_row(db, "groq", "llama-fast", age=timedelta(minutes=5))
+
+        progress = health.provider_progress(db, providers=["groq"], now=NOW)
+        assert progress["groq"]["latest_completed_at"] is None
+
+        db[metrics_collection_name()].insert_one(
+            {"provider": "groq", "model_name": "llama-fast", "run_ts": NOW - timedelta(minutes=5)}
+        )
+        progress = health.provider_progress(db, providers=["groq"], now=NOW)
+        assert progress["groq"]["latest_completed_at"] is not None
+
+    def test_long_rows_do_count_as_process_liveness(self, db):
+        """Deliberate exception: a completed long run proves the process is
+        alive, and restarting the container would not fix a published-series
+        gap. Process liveness is not published progress."""
+        _long_row(db, "groq", "llama-fast", age=timedelta(minutes=5))
+        db["bench_scheduler_heartbeats"].insert_one({"_id": "scheduler", "updated_at": NOW - timedelta(minutes=1)})
+
+        healthy, details = health.liveness_status(db, max_idle_seconds=900, now=NOW)
+        assert healthy is True
+        assert details["reason"] == "ok"
+
+
+class TestPublishedProgressIsolation:
+    """A model succeeding only at cloud-long-v1 is not being measured for the site."""
+
+    def test_long_only_success_is_still_starved_for_the_invariants(self, db):
+        db.models.insert_one({"provider": "groq", "model_id": "long-only", "enabled": True})
+        desired_set.capture(db, now=NOW - timedelta(hours=6))
+        db[metrics_collection_name()].insert_one(
+            {
+                "provider": "groq",
+                "model_name": "long-only",
+                "benchmark_profile_id": long_profile.PROFILE_ID,
+                "run_ts": NOW - timedelta(minutes=5),
+            }
+        )
+        ctx = invariants.Context(db=db, now=NOW)
+
+        starved = invariants.desired_models_are_being_measured(ctx)
+        assert [v.subject for v in starved] == ["groq/long-only"]
+
+        stalled = invariants.every_provider_is_progressing(ctx)
+        assert [v.subject for v in stalled] == ["groq"]
+
+        # A published row clears both.
+        db[metrics_collection_name()].insert_one(
+            {"provider": "groq", "model_name": "long-only", "run_ts": NOW - timedelta(minutes=5)}
+        )
+        ctx = invariants.Context(db=db, now=NOW)
+        assert invariants.desired_models_are_being_measured(ctx) == []
+        assert invariants.every_provider_is_progressing(ctx) == []
+
+    def test_long_success_does_not_advance_last_success_for_quarantine(self, db):
+        """A long success advancing "since last success" would hide default-
+        profile hard failures from catalog_quarantine's evidence window."""
+        db[metrics_collection_name()].insert_one(
+            {
+                "provider": "groq",
+                "model_name": "llama-fast",
+                "benchmark_profile_id": long_profile.PROFILE_ID,
+                "run_ts": NOW - timedelta(hours=1),
+            }
+        )
+        assert _last_success_ts(db=db, provider="groq", model="llama-fast", lookback_days=30) is None
+
+        published_at = NOW - timedelta(hours=3)
+        db[metrics_collection_name()].insert_one(
+            {"provider": "groq", "model_name": "llama-fast", "run_ts": published_at}
+        )
+        found = _last_success_ts(db=db, provider="groq", model="llama-fast", lookback_days=30)
+        assert found is not None
+        assert found.replace(tzinfo=timezone.utc) == published_at
+
+    def test_lifecycle_collector_ignores_long_rows_and_long_errors(self, db):
+        from llm_bench.model_lifecycle.collector import _load_error_metrics
+        from llm_bench.model_lifecycle.collector import _load_success_metrics
+
+        # Naive datetimes throughout: real Mongo returns naive UTC, and the
+        # collector's pipeline comparisons cannot mix naive and aware.
+        naive_now = NOW.replace(tzinfo=None)
+        db[metrics_collection_name()].insert_one(
+            {
+                "provider": "groq",
+                "model_name": "long-only",
+                "benchmark_profile_id": long_profile.PROFILE_ID,
+                "run_ts": naive_now - timedelta(hours=1),
+            }
+        )
+        db[metrics_collection_name()].insert_one(
+            {"provider": "groq", "model_name": "published", "run_ts": naive_now - timedelta(hours=1)}
+        )
+        db["errors_cloud"].insert_one(
+            {
+                "provider": "groq",
+                "model_name": "long-only",
+                "ts": naive_now - timedelta(hours=1),
+                "error_kind": "timeout",
+                "message": "timed out",
+                "profile_id": long_profile.PROFILE_ID,
+            }
+        )
+        db["errors_cloud"].insert_one(
+            {
+                "provider": "groq",
+                "model_name": "published",
+                "ts": naive_now - timedelta(hours=1),
+                "error_kind": "timeout",
+                "message": "timed out",
+            }
+        )
+        successes = _load_success_metrics(db[metrics_collection_name()], None, naive_now)
+        assert ("groq", "published", "direct") in successes
+        assert not any(model == "long-only" for _, model, _ in successes)
+
+        errors = _load_error_metrics(db["errors_cloud"], None, naive_now)
+        assert ("groq", "published", "direct") in errors
+        assert not any(model == "long-only" for _, model, _ in errors)
 
     def test_worker_routes_long_outcomes_to_long_profile_state(self, monkeypatch):
         """Success records long state, failure never reaches record_error."""

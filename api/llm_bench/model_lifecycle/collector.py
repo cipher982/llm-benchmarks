@@ -18,6 +18,10 @@ from pymongo import MongoClient
 
 UTC = timezone.utc
 
+# Mirrors scheduler.mongo.PUBLISHED_PROFILE_ID; this module deliberately
+# imports nothing from the scheduler so it stays usable standalone.
+_PUBLISHED_PROFILE_ID = "cloud-default-v1"
+
 
 def _ensure_utc(value: Optional[datetime]) -> Optional[datetime]:
     if value is None:
@@ -30,7 +34,9 @@ def _ensure_utc(value: Optional[datetime]) -> Optional[datetime]:
 def _within(window: timedelta, now: datetime, ts: Optional[datetime]) -> bool:
     if ts is None:
         return False
-    return now - ts <= window
+    # Row timestamps are normalized to aware UTC before they reach here, so
+    # `now` must be too or a naive caller value raises on subtraction.
+    return _ensure_utc(now) - _ensure_utc(ts) <= window
 
 
 class CatalogState(str, Enum):
@@ -280,6 +286,13 @@ def _load_success_metrics(
             "provider": {"$exists": True},
             "model_name": {"$exists": True},
         }
+    # Lifecycle verdicts are about the published series. A model succeeding
+    # only under cloud-long-v1 must not look alive here while its 64-token
+    # series is dead. Pre-profile rows lack the field and count as published.
+    match_stage["$or"] = [
+        {"benchmark_profile_id": {"$exists": False}},
+        {"benchmark_profile_id": _PUBLISHED_PROFILE_ID},
+    ]
 
     pipeline = [
         {"$match": match_stage},
@@ -357,6 +370,13 @@ def _load_error_metrics(
             "provider": {"$exists": True},
             "model_name": {"$exists": True},
         }
+    # Same boundary as the success side: a model failing only long runs is not
+    # failing the published series, so its long errors must not push it toward
+    # a deprecation verdict.
+    match_stage["$or"] = [
+        {"profile_id": {"$exists": False}},
+        {"profile_id": _PUBLISHED_PROFILE_ID},
+    ]
 
     pipeline = [
         {"$match": match_stage},

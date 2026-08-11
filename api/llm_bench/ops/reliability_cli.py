@@ -62,7 +62,23 @@ def _last_success_ts(
     metrics_coll = _coll("MONGODB_COLLECTION_CLOUD", "metrics_cloud_v2")
     since = datetime.now(UTC) - timedelta(days=lookback_days)
     doc = db[metrics_coll].find_one(
-        {"provider": provider, "model_name": model, "$or": [{"gen_ts": {"$gte": since}}, {"run_ts": {"$gte": since}}]},
+        {
+            "provider": provider,
+            "model_name": model,
+            # "Since last success" anchors quarantine evidence, so it must mean
+            # the published series: a long-profile success advancing it would
+            # hide default-profile hard failures from quarantine. Pre-profile
+            # rows carry no profile field and count as published.
+            "$and": [
+                {"$or": [{"gen_ts": {"$gte": since}}, {"run_ts": {"$gte": since}}]},
+                {
+                    "$or": [
+                        {"benchmark_profile_id": {"$exists": False}},
+                        {"benchmark_profile_id": _DEFAULT_PROFILE_ID},
+                    ]
+                },
+            ],
+        },
         {"gen_ts": 1, "run_ts": 1},
         sort=[("gen_ts", -1), ("run_ts", -1)],
     )

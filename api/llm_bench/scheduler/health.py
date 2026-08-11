@@ -13,6 +13,7 @@ from llm_bench.scheduler.mongo import health_collection_name
 from llm_bench.scheduler.mongo import heartbeats_collection_name
 from llm_bench.scheduler.mongo import metrics_collection_name
 from llm_bench.scheduler.mongo import models_collection_name
+from llm_bench.scheduler.mongo import published_profile_filter
 from llm_bench.scheduler.queue import scheduled_job_id
 
 
@@ -98,15 +99,25 @@ def compute_freshness_status(
 
 
 def _recent_counts(db: Database, *, provider: str, model_id: str, now: datetime) -> tuple[int, int, int]:
+    # Published-profile rows only, on both sides. These counts describe the
+    # model's primary health: a model succeeding only at 512 tokens is not
+    # being measured for the site, and a model failing only long runs is not
+    # failing the site. Long-profile outcomes live on long_profile_state.
     since = now - timedelta(hours=24)
     successes = db[metrics_collection_name()].count_documents(
-        {"provider": provider, "model_name": model_id, "run_ts": {"$gte": since}}
+        {"provider": provider, "model_name": model_id, "run_ts": {"$gte": since}, **published_profile_filter()}
     )
     failures = db[errors_collection_name()].count_documents(
-        {"provider": provider, "model_name": model_id, "ts": {"$gte": since}}
+        {"provider": provider, "model_name": model_id, "ts": {"$gte": since}, **published_profile_filter("profile_id")}
     )
     deadline_misses = db[errors_collection_name()].count_documents(
-        {"provider": provider, "model_name": model_id, "ts": {"$gte": since}, "error_kind": "timeout"}
+        {
+            "provider": provider,
+            "model_name": model_id,
+            "ts": {"$gte": since},
+            "error_kind": "timeout",
+            **published_profile_filter("profile_id"),
+        }
     )
     return successes, failures, deadline_misses
 
@@ -199,7 +210,10 @@ def backfill_from_metrics(db: Database, *, cadence_seconds: int, now: datetime |
         if existing and existing.get("last_success_at"):
             continue
         latest = db[metrics_collection_name()].find_one(
-            {"provider": provider, "model_name": model_id},
+            # Backfilled freshness must mean "published series has data", so a
+            # long-profile row cannot seed last_success_at for a model whose
+            # 64-token series never ran.
+            {"provider": provider, "model_name": model_id, **published_profile_filter()},
             {"run_ts": 1},
             sort=[("run_ts", -1)],
         )
@@ -421,7 +435,11 @@ def provider_progress(
     # against every Mongo-alike the tests use.
     for provider in sorted(providers):
         latest = metrics.find_one(
-            {"provider": provider},
+            # Published rows only: this feeds the lane-health invariants, and a
+            # lane producing nothing but long-profile rows has a dead published
+            # series even though its worker is demonstrably alive. Process
+            # aliveness is liveness_status's question, not this one.
+            {"provider": provider, **published_profile_filter()},
             {"gen_ts": 1, "run_ts": 1},
             sort=[("gen_ts", -1), ("run_ts", -1)],
         )
@@ -449,6 +467,11 @@ def liveness_status(
     process that is working fine for every other provider.
     """
     now = _as_utc(now or utcnow())
+    # Deliberately NOT filtered to the published profile: this drives process
+    # exit (BENCHMARK_LIVENESS_*), and a completed long-profile run is real
+    # proof the process is making progress. Process liveness is not published
+    # progress — the per-series checks (provider_progress and the coverage
+    # invariants) are the ones that must not count long rows.
     query: dict[str, Any] = {}
     if providers:
         query["provider"] = {"$in": providers}

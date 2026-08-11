@@ -36,6 +36,7 @@ from llm_bench.scheduler.mongo import collection_name
 from llm_bench.scheduler.mongo import jobs_collection_name
 from llm_bench.scheduler.mongo import metrics_collection_name
 from llm_bench.scheduler.mongo import models_collection_name
+from llm_bench.scheduler.mongo import published_profile_filter
 
 # Thresholds are versioned so a check run records which rules produced it.
 THRESHOLD_VERSION = 4
@@ -269,7 +270,15 @@ def every_provider_is_progressing(ctx: Context) -> list[Violation]:
     """
     desired = ctx.desired
     cutoff = ctx.now - PROVIDER_PROGRESS_MAX_AGE
-    recent = set(ctx.db[metrics_collection_name()].distinct("provider", {"run_ts": {"$gte": cutoff}}))
+    # Published rows only. A lane emitting nothing but long-profile rows has a
+    # dead published series; counting those rows here would hide exactly the
+    # stall this check exists to catch. (Process liveness deliberately does
+    # count them — see health.liveness_status.)
+    recent = set(
+        ctx.db[metrics_collection_name()].distinct(
+            "provider", {"run_ts": {"$gte": cutoff}, **published_profile_filter()}
+        )
+    )
     return [
         Violation(
             subject=provider,
@@ -394,7 +403,14 @@ def desired_models_are_being_measured(ctx: Context) -> list[Violation]:
     """
     desired = ctx.desired
     horizon = ctx.now - MODEL_MEASUREMENT_PERIOD * MODEL_STALENESS_MULTIPLIER
-    fresh = set(ctx.db[metrics_collection_name()].distinct("model_name", {"run_ts": {"$gte": horizon}}))
+    # Published rows only: a model succeeding only at the long profile is
+    # starved for the series the site actually shows, which is the exact
+    # condition this check must report.
+    fresh = set(
+        ctx.db[metrics_collection_name()].distinct(
+            "model_name", {"run_ts": {"$gte": horizon}, **published_profile_filter()}
+        )
+    )
     still_enabled = set(desired_set_module.capture_view(ctx.db))
     unmeasurable = _unmeasurable_by_profile(ctx)
 

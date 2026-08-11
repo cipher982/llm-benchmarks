@@ -22,6 +22,29 @@ def collection_name(env_name: str, default: str) -> str:
     return os.getenv(env_name, default)
 
 
+# The profile whose rows the site publishes. Lives here rather than in the
+# runner so freshness/coverage readers can filter without importing the runner
+# (which would be a circular import); runner.DEFAULT_PROFILE_ID re-exports it.
+PUBLISHED_PROFILE_ID = "cloud-default-v1"
+
+
+def published_profile_filter(field: str = "benchmark_profile_id") -> dict:
+    """Query fragment matching only rows measured under the published profile.
+
+    Rows written before profiles existed carry no profile field at all, so
+    absence must count as published — otherwise every historical row vanishes
+    from freshness the moment this filter lands. Long-profile rows share
+    metrics_cloud_v2 by design (the regression needs them queryable next to
+    default rows), which is exactly why every published-progress reader has to
+    say which series it means: a model succeeding only at 512 tokens must not
+    look measured while its published 64-token series is dead.
+
+    Returns an `$or`; callers whose query already uses `$or` must wrap both in
+    an `$and`.
+    """
+    return {"$or": [{field: {"$exists": False}}, {field: PUBLISHED_PROFILE_ID}]}
+
+
 def jobs_collection_name() -> str:
     return collection_name("MONGODB_COLLECTION_BENCH_JOBS", "bench_jobs")
 

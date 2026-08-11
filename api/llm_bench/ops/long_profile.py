@@ -24,6 +24,12 @@ simply keeps failing them quietly.
 Out of scope on purpose: Bedrock (separate EC2 runner), models the reasoning
 shadow profile already measures at 2048 tokens, and anything listed in
 `BENCHMARK_LONG_PROFILE_EXCLUDE`.
+
+Spend bound for a later audit: volume is at most one 512-token generation per
+eligible model per window — fleet_size / BENCHMARK_LONG_PROFILE_HOURS runs per
+hour (≈300 models / 6h ≈ 50 runs/hour, ≈1,200/day), additionally rate-limited
+by the per-pass cap. Failed attempts count against the window, so a broken
+model costs one attempt per window, not one per pass.
 """
 
 from __future__ import annotations
