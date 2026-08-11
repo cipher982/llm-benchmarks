@@ -149,3 +149,14 @@ def test_selected_endpoint_metadata_and_timeout_are_parsed(monkeypatch):
     assert metrics["observed_provider"] == "DeepInfra"
     assert metrics["observed_provider_slug"] == "deepinfra"
     assert metrics["provider_metadata_verified"] is True
+
+
+def test_google_display_name_resolves_via_expected_pinned_slug():
+    from llm_bench.cloud.providers.openrouter import _observed_provider
+
+    provider, slug = _observed_provider({"provider": "Google"}, expected_slug="google-vertex")
+    assert provider == "Google"
+    assert slug == "google-vertex"
+    # Without a pin expectation the ambiguity must not default.
+    provider, slug = _observed_provider({"provider": "Google"})
+    assert slug is None

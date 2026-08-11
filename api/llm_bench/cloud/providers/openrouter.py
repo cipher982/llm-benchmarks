@@ -42,6 +42,10 @@ REVIEWED_PROVIDER_DISPLAY_SLUGS: dict[str, tuple[str, ...]] = {
     "google vertex": ("google-vertex", "vertex"),
     "google-vertex": ("google-vertex", "vertex"),
     "vertex": ("google-vertex", "vertex"),
+    # OpenRouter reports the Vertex lane's display name as plain "Google";
+    # the ambiguity against AI Studio resolves through the expected pinned
+    # slug, never by defaulting.
+    "google": ("google-vertex", "google-ai-studio"),
 }
 
 
