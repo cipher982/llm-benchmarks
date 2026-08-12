@@ -531,3 +531,15 @@ class TestPublishedProgressIsolation:
         )
 
         assert recorded == [("long", "success"), ("long", "error")]
+
+
+def test_workerless_provider_models_are_never_enqueued(db):
+    """Bedrock has no worker on this host; a long job for it would sit queued
+    forever and trip no_job_is_stuck_in_queue. Same class as the admission
+    probe leak, and it appeared the moment the long sampler launched."""
+    _model(db, "bedrock", "us.anthropic.claude-sonnet-4-6")
+    _model(db, "groq", "qwen/qwen3.6-27b")
+    enqueued = long_profile.enqueue_long_samples(db, now=NOW)
+    assert enqueued == ["groq/qwen/qwen3.6-27b"]
+    assert db[queue.jobs_collection_name()].count_documents({"provider": "bedrock"}) == 0
+    assert db[queue.jobs_collection_name()].count_documents({"provider": "groq"}) == 1

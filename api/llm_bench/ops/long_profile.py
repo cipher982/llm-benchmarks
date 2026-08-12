@@ -43,6 +43,7 @@ from pymongo.database import Database
 
 from llm_bench.ops import reasoning_shadow
 from llm_bench.scheduler import health
+from llm_bench.scheduler import policies
 from llm_bench.scheduler import queue
 from llm_bench.scheduler.mongo import metrics_collection_name
 from llm_bench.scheduler.mongo import models_collection_name
@@ -149,11 +150,17 @@ def _pending_long_job(db: Database, *, provider: str, model_id: str) -> bool:
 
 
 def find_due(db: Database, *, now: datetime) -> list[tuple[datetime, str, str]]:
-    """Models owed a long sample, oldest activity first."""
+    """Models owed a long sample, oldest activity first.
+
+    Excluded providers (bedrock by default) have no worker on this host, so a
+    long job for them would sit in the queue forever; their measurement happens
+    on the dedicated runner.
+    """
     if not enabled():
         return []
     window = timedelta(hours=interval_hours())
     excluded = excluded_keys()
+    workerless_providers = policies.excluded_providers()
     shadowed = _shadow_measured(db, now=now)
     due: list[tuple[datetime, str, str]] = []
     for doc in db[models_collection_name()].find(
@@ -161,7 +168,7 @@ def find_due(db: Database, *, now: datetime) -> list[tuple[datetime, str, str]]:
         {"provider": 1, "model_id": 1},
     ):
         provider, model_id = doc["provider"], doc["model_id"]
-        if f"{provider}/{model_id}" in excluded:
+        if provider in workerless_providers or f"{provider}/{model_id}" in excluded:
             continue
         if (provider, model_id) in shadowed:
             continue
