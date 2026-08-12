@@ -21,6 +21,7 @@ from llm_bench.logging import log_mongo
 from llm_bench.ops.error_rollups import upsert_error_rollup
 from llm_bench.ops.error_taxonomy import classify_error
 from llm_bench.scheduler import policies
+from llm_bench.scheduler.mongo import PUBLISHED_PROFILE_ID
 from llm_bench.scheduler.mongo import error_rollups_collection_name
 from llm_bench.scheduler.mongo import errors_collection_name
 from llm_bench.scheduler.mongo import metrics_collection_name
@@ -223,7 +224,7 @@ NON_PUBLISHING_ROLES = frozenset({SAMPLE_ROLE_PROBE, SAMPLE_ROLE_SHADOW})
 # shape changes — cap, retry policy, reasoning controls — so rows measured
 # under different rules are never silently averaged together.
 PROTOCOL_VERSION = 1
-DEFAULT_PROFILE_ID = "cloud-default-v1"
+DEFAULT_PROFILE_ID = PUBLISHED_PROFILE_ID
 LONG_PROFILE_ID = "cloud-long-v1"
 OPENROUTER_ROUTING_ENABLED_ENV = "OPENROUTER_ROUTING_ENABLED"
 
