@@ -15,6 +15,7 @@ from typing import Any
 
 from llm_bench.cloud.metrics import build_cloud_metrics
 from llm_bench.config import CloudConfig
+from llm_bench.scheduler.routing import OR_SERVED_POLICY
 from llm_bench.utils import get_current_timestamp
 from openai import OpenAI
 from tiktoken import get_encoding
@@ -78,6 +79,13 @@ def _nested_field(obj: Any, *names: str) -> Any:
 
 
 def _route_options(config: CloudConfig) -> dict[str, Any]:
+    # or-served (marketplace) lanes measure OpenRouter's default routing: the
+    # user does not pin, so neither do we. The observed provider is recorded
+    # from the response, not forced in the request.
+    if config.misc.get("route_policy") == OR_SERVED_POLICY:
+        if config.misc.get("route_reasoning_exclude"):
+            return {"reasoning": {"exclude": True, "effort": "minimal"}}
+        return {}
     route_slug = config.misc.get("route_provider_slug")
     if not route_slug:
         return {}

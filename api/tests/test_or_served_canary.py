@@ -193,3 +193,49 @@ def test_promote_or_served_rejects_failed_canary(tmp_path: Path):
             expires_hours=72,
             revocation_generation=0,
         )
+
+
+def test_route_options_do_not_pin_or_served_lanes():
+    from llm_bench.cloud.providers.openrouter import _route_options
+    from llm_bench.config import CloudConfig
+
+    or_served = CloudConfig(
+        provider="openrouter",
+        model_name="qwen/qwen3-235b-a22b",
+        run_ts="2026-08-12T00:00:00Z",
+        temperature=0.1,
+        misc={"route_policy": "or-served", "route_provider_slug": "alibaba"},
+        source_provider="deepinfra",
+        source_model_id="Qwen/Qwen3-235B-A22B",
+        transport_provider="openrouter",
+        transport_model_id="qwen/qwen3-235b-a22b",
+    )
+    assert _route_options(or_served) == {}
+
+    reasoning = CloudConfig(
+        provider="openrouter",
+        model_name="qwen/qwen3-max-thinking",
+        run_ts="2026-08-12T00:00:00Z",
+        temperature=0.1,
+        misc={"route_policy": "or-served", "route_provider_slug": "alibaba", "route_reasoning_exclude": True},
+        source_provider="deepinfra",
+        source_model_id="Qwen/Qwen3-Max-Thinking",
+        transport_provider="openrouter",
+        transport_model_id="qwen/qwen3-max-thinking",
+    )
+    opts = _route_options(reasoning)
+    assert "provider" not in opts
+    assert opts["reasoning"]["exclude"] is True
+
+    pinned = CloudConfig(
+        provider="openrouter",
+        model_name="qwen/qwen3-235b-a22b",
+        run_ts="2026-08-12T00:00:00Z",
+        temperature=0.1,
+        misc={"route_policy": "pinned-provider", "route_provider_slug": "deepinfra"},
+        source_provider="deepinfra",
+        source_model_id="Qwen/Qwen3-235B-A22B",
+        transport_provider="openrouter",
+        transport_model_id="qwen/qwen3-235b-a22b",
+    )
+    assert _route_options(pinned)["provider"]["only"] == ["deepinfra"]
