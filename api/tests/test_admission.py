@@ -356,3 +356,13 @@ class TestCaseDuplicates:
         promoted, _ = admission.evaluate_candidates(db, now=NOW)
 
         assert "groq/same" in promoted
+
+    def test_excluded_provider_candidates_are_not_probed(self, db):
+        """Probes for a provider with no worker here would sit queued forever
+        (bedrock is measured by its dedicated runner), tripping the queue
+        invariants. Admission must not enqueue them."""
+        candidate(db, "bedrock", "nvidia.nemotron-nano-12b-v2")
+        candidate(db, "groq", "qwen/qwen3.6-27b")
+        admission.enqueue_probes(db, now=NOW)
+        assert db.bench_jobs.count_documents({"provider": "bedrock"}) == 0
+        assert db.bench_jobs.count_documents({"provider": "groq"}) == 1

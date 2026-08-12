@@ -34,6 +34,7 @@ from typing import Any
 from pymongo.database import Database
 
 from llm_bench.ops import mutations
+from llm_bench.scheduler import policies
 from llm_bench.scheduler import queue
 from llm_bench.scheduler.mongo import models_collection_name
 from llm_bench.scheduler.mongo import probe_metrics_collection_name
@@ -187,8 +188,15 @@ def _probe_job_id(provider: str, model_id: str, now: datetime) -> str:
 
 
 def enqueue_probes(db: Database, *, now: datetime | None = None, limit: int = MAX_PROBES_PER_RUN) -> list[str]:
-    """Queue one probe per candidate that is due another sample."""
+    """Queue one probe per candidate that is due another sample.
+
+    Excluded providers (bedrock by default) have no worker on this host, so a
+    probe for them would sit in the queue forever and trip the
+    no_work_for_disabled_models / no_job_is_stuck_in_queue invariants. Their
+    measurement happens on the dedicated runner instead.
+    """
     now = now or utcnow()
+    excluded = policies.excluded_providers()
     enqueued = []
     for doc in db[models_collection_name()].find(
         {"status": CANDIDATE_STATUS},
@@ -197,6 +205,8 @@ def enqueue_probes(db: Database, *, now: datetime | None = None, limit: int = MA
         if len(enqueued) >= limit:
             break
         provider, model_id = doc["provider"], doc["model_id"]
+        if provider in excluded:
+            continue
         if not _needs_probe(db, provider=provider, model_id=model_id, now=now):
             continue
         job = queue._new_job_doc(
