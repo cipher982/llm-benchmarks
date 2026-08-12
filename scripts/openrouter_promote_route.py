@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from llm_bench.scheduler.mongo import route_decisions_collection_name
+from llm_bench.scheduler.routing import OR_SERVED_POLICY
 from llm_bench.scheduler.routing import RouteDecision
 from pymongo import MongoClient
 
@@ -184,6 +185,90 @@ def promote_decision(
     return route
 
 
+def promote_or_served_route(
+    candidate: dict[str, Any],
+    canary: dict[str, Any],
+    *,
+    evidence_path: Path,
+    evidence_uri: str | None = None,
+    now: datetime | None = None,
+    expires_hours: float = 72.0,
+    revocation_generation: int | None = None,
+) -> dict[str, Any]:
+    """Build and validate one or-served route from routed-only canary evidence.
+
+    Marketplace lanes (site policy 2026-08-12) measure what OpenRouter serves
+    without pinning to the source provider. The evidence standard is serving
+    reliability + verified, stable provider metadata; no direct lane and no
+    parity statistics are involved, so the fail-closed re-validation skips the
+    paired-canary statistical gates.
+    """
+    evaluation = canary.get("evaluation")
+    if not isinstance(evaluation, dict) or evaluation.get("mode") != "report-only-routed-canary":
+        raise ValueError("or-served promotion requires routed-only canary evidence")
+    if evaluation.get("promotion_valid") is not True or evaluation.get("canary_state") != "passed":
+        raise ValueError("routed-only canary did not pass")
+    observed_slug = evaluation.get("observed_provider_slug")
+    if not observed_slug:
+        raise ValueError("or-served canary did not record a stable observed provider")
+    if candidate.get("source_provider") != canary.get("source_provider") or candidate.get(
+        "source_model_id"
+    ) != canary.get("source_model_id"):
+        raise ValueError("canary source identity does not match candidate")
+    if candidate.get("route_model_id") != canary.get("route_model_id"):
+        raise ValueError("canary route model does not match candidate")
+    if expires_hours <= 0:
+        raise ValueError("expires_hours must be positive")
+    now = now or datetime.now(timezone.utc)
+    expires_at = now + timedelta(hours=expires_hours)
+    if not evidence_uri or not evidence_uri.startswith("s3://"):
+        raise ValueError("promotion requires a durable s3:// evidence URI")
+    digest = sha256_file(evidence_path)
+    if revocation_generation is None:
+        raise ValueError("promotion requires the current route revocation generation")
+    candidate_generation = int(candidate.get("route_revocation_generation", 0) or 0)
+    generation = int(revocation_generation)
+    if generation != candidate_generation or generation < 0:
+        raise ValueError("promotion generation must match the candidate's current generation")
+
+    route = dict(candidate)
+    route.update(
+        {
+            "state": "active",
+            "terminal_state": "route-approved",
+            "audit_decision": "route-or",
+            "audit_reason": "or-served-canary-promoted",
+            "transport_provider": "openrouter",
+            "route_policy": OR_SERVED_POLICY,
+            "route_provider_slug": observed_slug,
+            "observed_provider_slug": observed_slug,
+            "observed_provider": canary.get("observed_provider") or "",
+            "provider_metadata_verified": True,
+            "canary_id": canary.get("canary_id"),
+            "canary_state": "passed",
+            "canary_successes": int(evaluation["successful"]),
+            "canary_required_successes": int(evaluation["required"]),
+            "canary_promotion_gate": "passed",
+            "canary_evidence_uri": evidence_uri,
+            "canary_evidence_sha256": digest,
+            "promoted_at": now.isoformat(),
+            "expires_at": expires_at.isoformat(),
+            "recheck_at": expires_at.isoformat(),
+            "route_revocation_generation": generation,
+        }
+    )
+    decision = RouteDecision.from_snapshot(
+        str(route["source_provider"]),
+        str(route["source_model_id"]),
+        route,
+        now=now,
+        require_promotion_evidence=False,
+    )
+    if decision.transport_provider != "openrouter":
+        raise ValueError(f"promoted route failed fail-closed validation: {decision.reason}")
+    return route
+
+
 def apply_promotion(route: dict[str, Any], *, client: MongoClient, db_name: str) -> None:
     collection = client[db_name][route_decisions_collection_name()]
     key = {
@@ -204,19 +289,32 @@ def main() -> int:
     parser.add_argument("--evidence-uri")
     parser.add_argument("--expires-hours", type=float, default=24.0)
     parser.add_argument("--revocation-generation", type=int, required=True)
+    parser.add_argument("--or-served", action="store_true", help="promote from routed-only canary evidence")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--yes", action="store_true")
     args = parser.parse_args()
     if args.apply and not args.yes:
         raise ValueError("--apply requires --yes")
-    route = promote_decision(
-        _find_candidate(load_json(args.decisions_json), args.provider, args.model_id),
-        load_json(args.canary_json),
-        evidence_path=args.canary_json,
-        evidence_uri=args.evidence_uri,
-        expires_hours=args.expires_hours,
-        revocation_generation=args.revocation_generation,
-    )
+    candidate = _find_candidate(load_json(args.decisions_json), args.provider, args.model_id)
+    canary = load_json(args.canary_json)
+    if args.or_served:
+        route = promote_or_served_route(
+            candidate,
+            canary,
+            evidence_path=args.canary_json,
+            evidence_uri=args.evidence_uri,
+            expires_hours=args.expires_hours,
+            revocation_generation=args.revocation_generation,
+        )
+    else:
+        route = promote_decision(
+            candidate,
+            canary,
+            evidence_path=args.canary_json,
+            evidence_uri=args.evidence_uri,
+            expires_hours=args.expires_hours,
+            revocation_generation=args.revocation_generation,
+        )
     write_json(args.output, route)
     print(json.dumps({"state": route["state"], "expires_at": route["expires_at"]}, sort_keys=True))
     print(f"wrote {args.output}")
