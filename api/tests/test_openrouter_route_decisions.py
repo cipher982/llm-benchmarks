@@ -215,3 +215,55 @@ def test_promotion_rejects_self_declared_one_pair_verdict(tmp_path):
             },
             evidence_path=evidence,
         )
+
+
+def _valid_route_snapshot(*, provider: str, model_id: str) -> dict:
+    """A route document that would otherwise resolve active: full canary evidence."""
+    return {
+        "source_provider": provider,
+        "source_model_id": model_id,
+        "transport_provider": "openrouter",
+        "route_model_id": "vendor/model",
+        "route_provider_slug": provider,
+        "route_policy": "pinned-provider",
+        "route_decision_version": "or-route-v1",
+        "route_revocation_generation": 0,
+        "canary_state": "passed",
+        "canary_id": "canary:test",
+        "canary_successes": 30,
+        "canary_required_successes": 29,
+        "canary_promotion_gate": "passed",
+        "canary_cost_status": "verified",
+        "canary_evidence_uri": "s3://artifacts/llm-benchmarks/openrouter-consolidation/v4/derived/canaries/test.json",
+        "canary_evidence_sha256": "a" * 64,
+        "canary_tps_ci95_lower": 0.9,
+        "canary_cost_ci95_upper": 1.0,
+        "canary_ttft_ci95_upper": 1.2,
+        "provider_metadata_verified": True,
+        "observed_provider": "Vendor",
+        "observed_provider_slug": provider,
+        "route_snapshot_at": "2026-08-10T23:51:48.678006+00:00",
+        "route_probe_id": "coverage:test",
+        "profile_hash": "profile-hash",
+        "direct_effective_request_hash": "direct-hash",
+        "routed_effective_request_hash": "routed-hash",
+        "state": "active",
+        "expires_at": "2026-08-15T02:34:24.795384+00:00",
+    }
+
+
+@pytest.mark.parametrize("provider", ["openai", "vertex", "bedrock"])
+def test_direct_provider_route_docs_resolve_direct(provider):
+    """Site policy keeps openai/vertex/bedrock direct: even a fully valid route
+    document for those sources must resolve to the direct lane."""
+    snapshot = _valid_route_snapshot(provider=provider, model_id="some-model")
+    decision = RouteDecision.from_snapshot(provider, "some-model", snapshot)
+    assert decision.transport_provider == DIRECT_TRANSPORT
+    assert decision.reason == f"{provider}-kept-direct"
+
+
+def test_other_provider_route_doc_still_resolves_active():
+    snapshot = _valid_route_snapshot(provider="deepinfra", model_id="some-model")
+    decision = RouteDecision.from_snapshot("deepinfra", "some-model", snapshot)
+    assert decision.transport_provider != DIRECT_TRANSPORT
+    assert decision.reason == "active-pinned-route"

@@ -6,13 +6,13 @@ def test_unpromoted_candidates_become_direct_unknown():
         {
             "decisions": [
                 {
-                    "source_provider": "openai",
-                    "source_model_id": "gpt-4o",
+                    "source_provider": "deepinfra",
+                    "source_model_id": "Qwen3-32B",
                     "state": "candidate",
                     "transport_provider": "openrouter",
-                    "route_model_id": "openai/gpt-4o",
-                    "route_provider_slug": "openai",
-                    "observed_provider_slug": "openai",
+                    "route_model_id": "deepinfra/qwen3-32b",
+                    "route_provider_slug": "deepinfra",
+                    "observed_provider_slug": "deepinfra",
                     "route_probe_id": "probe:test",
                 }
             ]
@@ -31,29 +31,29 @@ def test_promoted_route_is_terminal_route_approved():
         {
             "decisions": [
                 {
-                    "source_provider": "openai",
-                    "source_model_id": "gpt-4o",
+                    "source_provider": "deepinfra",
+                    "source_model_id": "Qwen3-32B",
                     "state": "candidate",
                     "transport_provider": "openrouter",
-                    "route_model_id": "openai/gpt-4o",
-                    "route_provider_slug": "openai",
-                    "observed_provider_slug": "openai",
+                    "route_model_id": "deepinfra/qwen3-32b",
+                    "route_provider_slug": "deepinfra",
+                    "observed_provider_slug": "deepinfra",
                     "route_probe_id": "probe:test",
                 }
             ]
         },
         [
             {
-                "source_provider": "openai",
-                "source_model_id": "gpt-4o",
+                "source_provider": "deepinfra",
+                "source_model_id": "Qwen3-32B",
                 "state": "active",
                 "transport_provider": "openrouter",
-                "route_model_id": "openai/gpt-4o",
+                "route_model_id": "deepinfra/qwen3-32b",
                 "route_decision_version": "or-route-v1",
                 "route_policy": "pinned-provider",
-                "route_provider_slug": "openai",
-                "observed_provider_slug": "openai",
-                "observed_provider": "OpenAI",
+                "route_provider_slug": "deepinfra",
+                "observed_provider_slug": "deepinfra",
+                "observed_provider": "DeepInfra",
                 "provider_metadata_verified": True,
                 "route_snapshot_at": "2026-08-10T00:00:00+00:00",
                 "route_probe_id": "probe:test",
@@ -86,13 +86,13 @@ def test_failed_canary_becomes_terminal_direct_canary_failed():
         {
             "decisions": [
                 {
-                    "source_provider": "openai",
-                    "source_model_id": "gpt-4o",
+                    "source_provider": "deepinfra",
+                    "source_model_id": "Qwen3-32B",
                     "state": "candidate",
                     "transport_provider": "openrouter",
-                    "route_model_id": "openai/gpt-4o",
-                    "route_provider_slug": "openai",
-                    "observed_provider_slug": "openai",
+                    "route_model_id": "deepinfra/qwen3-32b",
+                    "route_provider_slug": "deepinfra",
+                    "observed_provider_slug": "deepinfra",
                     "route_probe_id": "probe:test",
                 }
             ]
@@ -100,8 +100,8 @@ def test_failed_canary_becomes_terminal_direct_canary_failed():
         [],
         [
             {
-                "source_provider": "openai",
-                "source_model_id": "gpt-4o",
+                "source_provider": "deepinfra",
+                "source_model_id": "Qwen3-32B",
                 "evaluation": {
                     "canary_state": "failed",
                     "promotion_valid": False,

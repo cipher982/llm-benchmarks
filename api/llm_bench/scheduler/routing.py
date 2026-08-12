@@ -27,6 +27,13 @@ MIN_PROMOTION_TPS_CI95 = 0.8
 MAX_PROMOTION_TTFT_CI95 = 1.5
 MAX_PROMOTION_COST_CI95 = 1.10
 
+# Direct lanes are reserved for providers consumed directly (site policy
+# 2026-08-12): the site publishes real numbers for these, and OpenRouter-served
+# lanes for everything else. Resolution refuses to route these even if a stale
+# route document exists, so the policy is enforced at runtime, not at
+# promotion time.
+DIRECT_PROVIDERS = frozenset({"bedrock", "openai", "vertex"})
+
 
 def _timestamp_is_expired(value: Any, *, now: datetime | None) -> bool:
     if not value:
@@ -113,8 +120,8 @@ class RouteDecision:
 
         if snapshot.get("route_decision_version") != ROUTE_DECISION_VERSION:
             return cls.direct(source_provider, source_model_id, reason="route-decision-version-mismatch")
-        if source_provider == "bedrock":
-            return cls.direct(source_provider, source_model_id, reason="bedrock-out-of-scope")
+        if source_provider in DIRECT_PROVIDERS:
+            return cls.direct(source_provider, source_model_id, reason=f"{source_provider}-kept-direct")
         try:
             snapshot_generation = int(snapshot.get("route_revocation_generation", 0))
         except (TypeError, ValueError):

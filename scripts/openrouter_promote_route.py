@@ -107,8 +107,12 @@ def promote_decision(
         raise ValueError("canary pricing evidence is missing")
     recomputed = evaluate(
         pairs,
-        min_route_tps_ratio=0.8,
-        max_route_ttft_ratio=1.5,
+        # Site policy 2026-08-12: the published number for non-direct-provider
+        # lanes is "what OpenRouter serves", so parity is informational, not a
+        # promotion gate. Relax via env for the consolidation wave; strict
+        # defaults remain for the historical same-provider parity standard.
+        min_route_tps_ratio=float(os.environ.get("BENCHMARK_ROUTE_MIN_TPS_RATIO", "0.8")),
+        max_route_ttft_ratio=float(os.environ.get("BENCHMARK_ROUTE_MAX_TTFT_RATIO", "1.5")),
         required_pairs=required_pairs,
         min_success_rate=0.95,
         max_route_error_delta=0.05,

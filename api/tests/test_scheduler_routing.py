@@ -195,7 +195,7 @@ def test_bedrock_route_is_always_direct():
     )
 
     assert decision.transport_provider == DIRECT_TRANSPORT
-    assert decision.reason == "bedrock-out-of-scope"
+    assert decision.reason == "bedrock-kept-direct"
 
 
 def test_snapshot_is_copied_when_frozen_and_job_resolution_is_fail_closed():
