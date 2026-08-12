@@ -21,6 +21,7 @@ from llm_bench.ops import llm_error_classifier
 from llm_bench.ops import long_profile
 from llm_bench.ops import reasoning_shadow
 from llm_bench.ops import reconciler
+from llm_bench.ops import route_renewal
 from llm_bench.ops import vertex_discovery
 from llm_bench.scheduler import health
 from llm_bench.scheduler import policies
@@ -550,6 +551,17 @@ def daemon(
         name="long-profile-loop",
         daemon=True,
     )
+    route_renewal_thread = threading.Thread(
+        target=route_renewal.run_renewal_loop,
+        kwargs={
+            "stop_event": stop_event,
+            # Well inside the renewal window, so a route is renewed at most an
+            # hour after it becomes due rather than a window later.
+            "interval_seconds": int(os.getenv("BENCHMARK_ROUTE_RENEW_INTERVAL_SECONDS", "3600")),
+        },
+        name="route-renewal-loop",
+        daemon=True,
+    )
     vertex_discovery_thread = threading.Thread(
         target=run_vertex_discovery_loop,
         kwargs={
@@ -570,6 +582,7 @@ def daemon(
     vertex_discovery_thread.start()
     shadow_thread.start()
     long_profile_thread.start()
+    route_renewal_thread.start()
     reconciler_thread.start()
     workers = start_provider_workers(providers=selected, cadence_seconds=cadence_seconds, stop_event=stop_event)
 
