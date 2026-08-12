@@ -267,3 +267,27 @@ def test_other_provider_route_doc_still_resolves_active():
     decision = RouteDecision.from_snapshot("deepinfra", "some-model", snapshot)
     assert decision.transport_provider != DIRECT_TRANSPORT
     assert decision.reason == "active-pinned-route"
+
+
+def test_or_served_route_resolves_active():
+    """Marketplace policy: an or-served route records who actually served and
+    does not pin to the source provider."""
+    snapshot = _valid_route_snapshot(provider="deepinfra", model_id="Qwen/Qwen3-235B-A22B")
+    snapshot["route_policy"] = "or-served"
+    snapshot["route_provider_slug"] = "alibaba"
+    snapshot["observed_provider_slug"] = "alibaba"
+    snapshot["observed_provider"] = "Alibaba"
+    decision = RouteDecision.from_snapshot("deepinfra", "Qwen/Qwen3-235B-A22B", snapshot)
+    assert decision.transport_provider != DIRECT_TRANSPORT
+    assert decision.route_policy == "or-served"
+    assert decision.reason == "active-pinned-route"
+
+
+def test_or_served_route_still_requires_matching_observed_evidence():
+    """An or-served route must still name the provider that actually served."""
+    snapshot = _valid_route_snapshot(provider="deepinfra", model_id="Qwen/Qwen3-235B-A22B")
+    snapshot["route_policy"] = "or-served"
+    snapshot["route_provider_slug"] = "alibaba"
+    snapshot["observed_provider_slug"] = "novita"
+    decision = RouteDecision.from_snapshot("deepinfra", "Qwen/Qwen3-235B-A22B", snapshot)
+    assert decision.transport_provider == DIRECT_TRANSPORT

@@ -23,6 +23,10 @@ DIRECT_TRANSPORT = "direct"
 OPENROUTER_TRANSPORT = "openrouter"
 DIRECT_POLICY = "direct"
 PINNED_PROVIDER_POLICY = "pinned-provider"
+# OpenRouter serves the model from whichever upstream it picks (marketplace
+# policy 2026-08-12): the route records who actually served (`observed`), which
+# becomes part of the published row. No pin is required or attempted.
+OR_SERVED_POLICY = "or-served"
 MIN_PROMOTION_TPS_CI95 = 0.8
 MAX_PROMOTION_TTFT_CI95 = 1.5
 MAX_PROMOTION_COST_CI95 = 1.10
@@ -134,7 +138,7 @@ class RouteDecision:
             return cls.direct(source_provider, source_model_id, reason="route-state-not-active")
         if snapshot.get("transport_provider") != OPENROUTER_TRANSPORT:
             return cls.direct(source_provider, source_model_id, reason="invalid-route-transport")
-        if snapshot.get("route_policy") != PINNED_PROVIDER_POLICY:
+        if snapshot.get("route_policy") not in (PINNED_PROVIDER_POLICY, OR_SERVED_POLICY):
             return cls.direct(source_provider, source_model_id, reason="invalid-route-policy")
         canary_state = snapshot.get("canary_state")
         canary_id = snapshot.get("canary_id")
@@ -229,7 +233,7 @@ class RouteDecision:
             route_provider_slug=str(snapshot["route_provider_slug"]),
             observed_provider=str(snapshot.get("observed_provider") or ""),
             observed_provider_slug=str(snapshot["observed_provider_slug"]),
-            route_policy=PINNED_PROVIDER_POLICY,
+            route_policy=str(snapshot["route_policy"]),
             route_snapshot_at=snapshot.get("route_snapshot_at"),
             route_probe_id=snapshot.get("route_probe_id"),
             route_decision_version=ROUTE_DECISION_VERSION,
