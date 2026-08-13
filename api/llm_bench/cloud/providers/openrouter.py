@@ -200,6 +200,7 @@ def _observed_provider(
     metadata: Mapping[str, Any] | None,
     *,
     expected_slug: str | None = None,
+    verify_catalog: bool = True,
 ) -> tuple[str | None, str | None]:
     if not metadata:
         return None, None
@@ -217,6 +218,12 @@ def _observed_provider(
             slug = expected_slug
         elif len(candidates) == 1:
             slug = candidates[0]
+        elif not verify_catalog:
+            # or-served (marketplace) lanes: the provider name comes from
+            # OpenRouter's own response metadata, which is the authority these
+            # lanes measure. Derive the label from it rather than failing
+            # closed against an allowlist written for pinned providers.
+            slug = _provider_key(provider)
     return (str(provider) if provider else None, str(slug) if slug else None)
 
 
@@ -309,6 +316,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     observed_provider, observed_provider_slug = _observed_provider(
         route_metadata,
         expected_slug=config.misc.get("route_provider_slug"),
+        verify_catalog=config.misc.get("route_policy") != OR_SERVED_POLICY,
     )
     if observed_provider is not None:
         metrics["observed_provider"] = observed_provider
@@ -316,8 +324,9 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         metrics["observed_provider_slug"] = observed_provider_slug
     if response_id is not None:
         metrics["openrouter_response_id"] = response_id
+    route_policy = str(config.misc.get("route_policy") or "pinned-provider")
     if config.misc.get("route_provider_slug"):
         metrics["route_provider_slug"] = config.misc["route_provider_slug"]
-        metrics["route_policy"] = "pinned-provider"
+        metrics["route_policy"] = route_policy
         metrics["provider_metadata_verified"] = bool(observed_provider and observed_provider_slug)
     return metrics

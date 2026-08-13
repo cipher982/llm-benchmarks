@@ -29,6 +29,7 @@ from llm_bench.scheduler.mongo import mongo_env
 from llm_bench.scheduler.mongo import probe_metrics_collection_name
 from llm_bench.scheduler.routing import DIRECT_TRANSPORT
 from llm_bench.scheduler.routing import OPENROUTER_TRANSPORT
+from llm_bench.scheduler.routing import OR_SERVED_POLICY
 from llm_bench.scheduler.routing import RouteDecision
 from llm_bench.scheduler.routing import resolve_job_route
 from llm_bench.utils import get_current_timestamp
@@ -377,7 +378,10 @@ def _generate_and_validate(
         observed_slug = metrics.get("observed_provider_slug")
         if metrics.get("provider_metadata_verified") is not True:
             raise AttemptFailure("validate", "OpenRouter provider metadata was not verified")
-        if observed_slug != decision.route_provider_slug:
+        # Marketplace lanes measure OpenRouter's default routing, which may
+        # rotate upstreams between runs; the observed provider is a fact about
+        # this run, not a match to enforce. Pinned lanes still must match.
+        if decision.route_policy != OR_SERVED_POLICY and observed_slug != decision.route_provider_slug:
             raise AttemptFailure(
                 "validate",
                 f"observed provider {observed_slug!r} does not match route {decision.route_provider_slug!r}",

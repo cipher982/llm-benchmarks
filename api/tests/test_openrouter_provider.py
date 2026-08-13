@@ -160,3 +160,51 @@ def test_google_display_name_resolves_via_expected_pinned_slug():
     # Without a pin expectation the ambiguity must not default.
     provider, slug = _observed_provider({"provider": "Google"})
     assert slug is None
+
+
+def test_or_served_metadata_verified_with_derived_slug(monkeypatch):
+    """Marketplace lanes take OpenRouter's display name as authoritative and
+    derive the route slug from it; the reviewed allowlist does not apply."""
+    usage = SimpleNamespace(completion_tokens=4, prompt_tokens=3, total_tokens=7, completion_tokens_details=None)
+    client = FakeClient(
+        [
+            _chunk("answer", finish_reason="stop", metadata={"provider": "Cloudflare"}),
+            _chunk(usage=usage),
+        ]
+    )
+    monkeypatch.setattr(openrouter, "OpenAI", lambda **kwargs: client)
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "https://openrouter.example/v1")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+
+    metrics = openrouter.generate(
+        _config(route_provider_slug="cloudflare", route_policy="or-served"),
+        {"query": "hi", "max_tokens": 64},
+    )
+
+    assert metrics["provider_metadata_verified"] is True
+    assert metrics["route_policy"] == "or-served"
+    assert metrics["observed_provider"] == "Cloudflare"
+    assert metrics["observed_provider_slug"] == "cloudflare"
+
+
+def test_pinned_route_unknown_provider_fails_closed(monkeypatch):
+    """Pinned lanes still resolve against the reviewed allowlist: an unknown
+    serving provider stays unverified and fails closed."""
+    usage = SimpleNamespace(completion_tokens=4, prompt_tokens=3, total_tokens=7, completion_tokens_details=None)
+    client = FakeClient(
+        [
+            _chunk("answer", finish_reason="stop", metadata={"provider": "Cloudflare"}),
+            _chunk(usage=usage),
+        ]
+    )
+    monkeypatch.setattr(openrouter, "OpenAI", lambda **kwargs: client)
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "https://openrouter.example/v1")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+
+    metrics = openrouter.generate(
+        _config(route_provider_slug="cloudflare"),
+        {"query": "hi", "max_tokens": 64},
+    )
+
+    assert metrics["provider_metadata_verified"] is False
+    assert metrics["route_policy"] == "pinned-provider"
