@@ -4,6 +4,7 @@ import time
 
 import tiktoken
 from llm_bench.cloud.metrics import build_cloud_metrics
+from llm_bench.cloud.visible_tokens import VisibleTokenClock
 from llm_bench.config import CloudConfig
 from openai import OpenAI
 
@@ -80,12 +81,13 @@ def _make_responses_request(
     raise last_err
 
 
-def _process_responses_stream(stream, time_0: float) -> tuple[str, float, list[float], object | None]:
+def _process_responses_stream(stream, time_0: float) -> tuple[str, float, list[float], float | None, object | None]:
     response_text = ""
     first_token_received = False
     previous_token_time = None
     times_between_tokens = []
     time_to_first_token = 0
+    visible_clock = VisibleTokenClock(time_0)
     response_obj = None
 
     for event in stream:
@@ -98,6 +100,7 @@ def _process_responses_stream(stream, time_0: float) -> tuple[str, float, list[f
 
             current_time = time.time()
             response_text += delta
+            visible_clock.add(delta, now=current_time)
 
             if not first_token_received:
                 time_to_first_token = current_time - time_0
@@ -110,7 +113,7 @@ def _process_responses_stream(stream, time_0: float) -> tuple[str, float, list[f
             response_obj = event.response
             break
 
-    return response_text, time_to_first_token, times_between_tokens, response_obj
+    return response_text, time_to_first_token, times_between_tokens, visible_clock.time_to_mark, response_obj
 
 
 def _attr(obj, name: str, default=None):
@@ -181,9 +184,13 @@ def _run_responses_model(client: OpenAI, config: CloudConfig, run_config: dict) 
                     reasoning_effort=reasoning_effort,
                     stream=True,
                 )
-                response_str, time_to_first_token, times_between_tokens, response_obj = _process_responses_stream(
-                    stream, time_0
-                )
+                (
+                    response_str,
+                    time_to_first_token,
+                    times_between_tokens,
+                    time_to_64_visible,
+                    response_obj,
+                ) = _process_responses_stream(stream, time_0)
             except Exception as exc:
                 last_error = exc
                 msg = str(exc).lower()
@@ -204,6 +211,7 @@ def _run_responses_model(client: OpenAI, config: CloudConfig, run_config: dict) 
                 generate_time=generate_time,
                 time_to_first_token=time_to_first_token if time_to_first_token > 0 else None,
                 times_between_tokens=times_between_tokens,
+                time_to_64_visible_tokens_seconds=time_to_64_visible,
                 token_source=usage_metrics["token_source"],
                 request_mode="openai_responses_stream",
                 response_id=_attr(response_obj, "id"),
@@ -237,6 +245,7 @@ def _run_legacy_completion(client: OpenAI, config: CloudConfig, run_config: dict
     previous_token_time = None
     times_between_tokens = []
     time_to_first_token = 0
+    visible_clock = VisibleTokenClock(time_0)
     response_str = ""
 
     stream = client.completions.create(
@@ -257,8 +266,8 @@ def _run_legacy_completion(client: OpenAI, config: CloudConfig, run_config: dict
             elif previous_token_time is not None:
                 times_between_tokens.append(current_time - previous_token_time)
 
-            previous_token_time = current_time
             response_str += content
+            visible_clock.add(content, now=current_time)
 
     generate_time = time.time() - time_0
     try:
@@ -276,6 +285,7 @@ def _run_legacy_completion(client: OpenAI, config: CloudConfig, run_config: dict
         generate_time=generate_time,
         time_to_first_token=time_to_first_token if time_to_first_token > 0 else None,
         times_between_tokens=times_between_tokens,
+        time_to_64_visible_tokens_seconds=visible_clock.time_to_mark,
         token_source="tiktoken_visible_text",
         request_mode="openai_legacy_completions_stream",
         max_output_tokens_attempted=run_config["max_tokens"],

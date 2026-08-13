@@ -8,6 +8,7 @@ from anthropic import AnthropicVertex
 from google.auth import default
 from google.auth import transport
 from llm_bench.cloud.metrics import build_cloud_metrics
+from llm_bench.cloud.visible_tokens import VisibleTokenClock
 from llm_bench.config import CloudConfig
 from vertexai.generative_models import GenerationConfig
 from vertexai.generative_models import GenerativeModel
@@ -91,11 +92,25 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     return calculate_metrics(run_config, token_details, generate_time, ttft, tbts, request_mode)
 
 
+def _visible_text_delta(item, *, is_anthropic: bool, is_openai: bool) -> str | None:
+    """Visible text carried by one stream item, per Vertex transport."""
+    if is_anthropic:
+        delta = getattr(item, "delta", None)
+        return getattr(delta, "text", None)
+    if is_openai:
+        choices = getattr(item, "choices", None)
+        if not choices:
+            return None
+        delta = getattr(choices[0], "delta", None)
+        return getattr(delta, "content", None)
+    return getattr(item, "text", None)
+
+
 def generate_tokens(stream, time_0, is_anthropic=False, is_openai=False):
     first_token_received = False
     previous_token_time = None
-    time_to_first_token = None
     times_between_tokens = []
+    visible_clock = VisibleTokenClock(time_0)
     token_details = {
         "generated_output_tokens": 0,
         "visible_output_tokens": None,
@@ -106,12 +121,14 @@ def generate_tokens(stream, time_0, is_anthropic=False, is_openai=False):
         "finish_reason": None,
         "response_id": None,
     }
-
     stream_iter = stream if is_anthropic or is_openai else stream
 
     item = None
     for item in stream_iter:
         current_time = time.time()
+        text_delta = _visible_text_delta(item, is_anthropic=is_anthropic, is_openai=is_openai)
+        if text_delta:
+            visible_clock.add(text_delta, now=current_time)
         if not first_token_received:
             time_to_first_token = current_time - time_0
             first_token_received = True
@@ -170,6 +187,7 @@ def generate_tokens(stream, time_0, is_anthropic=False, is_openai=False):
         if candidates:
             token_details["finish_reason"] = getattr(candidates[0], "finish_reason", None)
 
+    token_details["time_to_64_visible_tokens_seconds"] = visible_clock.time_to_mark
     return time_to_first_token, times_between_tokens, token_details
 
 
@@ -191,6 +209,7 @@ def calculate_metrics(
         generate_time=generate_time,
         time_to_first_token=time_to_first_token,
         times_between_tokens=times_between_tokens,
+        time_to_64_visible_tokens_seconds=token_details.get("time_to_64_visible_tokens_seconds"),
         token_source=token_details["token_source"],
         request_mode=request_mode,
         finish_reason=token_details["finish_reason"],

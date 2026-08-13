@@ -4,6 +4,7 @@ import time
 import boto3
 from botocore.exceptions import ClientError
 from llm_bench.cloud.metrics import build_cloud_metrics
+from llm_bench.cloud.visible_tokens import VisibleTokenClock
 from llm_bench.config import CloudConfig
 from tiktoken import get_encoding
 
@@ -70,6 +71,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     visible_text_parts = []
     reasoning_text_parts = []
     provider_usage_seen = False
+    visible_clock = VisibleTokenClock(time_0)
 
     try:
         response = bedrock_client.converse_stream(
@@ -97,8 +99,8 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
                         else:
                             assert previous_token_time is not None
                             times_between_tokens.append(current_time - previous_token_time)
-                        previous_token_time = current_time
                         visible_text_parts.append(text_delta)
+                        visible_clock.add(text_delta, now=current_time)
                         output_tokens += 1
 
                     if reasoning_delta:
@@ -152,6 +154,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         generate_time=generate_time,
         time_to_first_token=time_to_first_token,
         times_between_tokens=times_between_tokens,
+        time_to_64_visible_tokens_seconds=visible_clock.time_to_mark,
         token_source=token_source,
         request_mode="bedrock_converse_stream",
         reasoning_effort=reasoning_effort,

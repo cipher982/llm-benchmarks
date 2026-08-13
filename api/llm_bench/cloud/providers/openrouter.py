@@ -14,6 +14,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from llm_bench.cloud.metrics import build_cloud_metrics
+from llm_bench.cloud.visible_tokens import VisibleTokenClock
 from llm_bench.config import CloudConfig
 from llm_bench.scheduler.routing import OR_SERVED_POLICY
 from llm_bench.utils import get_current_timestamp
@@ -251,6 +252,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     previous_token_time = None
     times_between_tokens: list[float] = []
     time_to_first_token: float | None = None
+    visible_clock = VisibleTokenClock(time_0)
     usage = None
     finish_reason = None
     response_id = None
@@ -283,6 +285,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
             times_between_tokens.append(current_time - previous_token_time)
         previous_token_time = current_time
         response_text += str(content)
+        visible_clock.add(str(content), now=current_time)
 
     generate_time = time.time() - time_0
     usage_values = _usage_metrics(usage, response_text, reasoning_text, config.model_name)
@@ -297,6 +300,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         generate_time=generate_time,
         time_to_first_token=time_to_first_token,
         times_between_tokens=times_between_tokens,
+        time_to_64_visible_tokens_seconds=visible_clock.time_to_mark,
         token_source=usage_values["token_source"],
         request_mode="openrouter_chat_completions_stream",
         finish_reason=finish_reason,

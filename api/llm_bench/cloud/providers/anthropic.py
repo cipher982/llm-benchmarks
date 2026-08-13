@@ -4,6 +4,7 @@ import time
 
 from anthropic import Anthropic
 from llm_bench.cloud.metrics import build_cloud_metrics
+from llm_bench.cloud.visible_tokens import VisibleTokenClock
 from llm_bench.config import CloudConfig
 
 logger = logging.getLogger(__name__)
@@ -28,8 +29,8 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         }
     anthropic = Anthropic(**client_kwargs)
 
-    # Generate
     time_0 = time.time()
+    visible_clock = VisibleTokenClock(time_0)
     first_token_received = False
     previous_token_time = None
     output_tokens = 0
@@ -54,6 +55,12 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
                 if event_type == "RawMessageStartEvent":
                     first_token_received = False
                 elif event_type == "RawContentBlockDeltaEvent":
+                    # Reasoning models emit thinking deltas in the same stream.
+                    # Only visible text counts toward first-visible-token timing
+                    # and Delivered TPS; thinking tokens are time, never output.
+                    text_delta = getattr(getattr(event, "delta", None), "text", None)
+                    if not text_delta:
+                        continue
                     if not first_token_received:
                         time_to_first_token = current_time - time_0
                         first_token_received = True
@@ -61,6 +68,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
                         assert previous_token_time is not None
                         times_between_tokens.append(current_time - previous_token_time)
                     previous_token_time = current_time
+                    visible_clock.add(text_delta, now=current_time)
                 elif event_type == "MessageStopEvent":
                     usage = event.message.usage  # type: ignore
                     output_tokens = usage.output_tokens
@@ -82,6 +90,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         generate_time=generate_time,
         time_to_first_token=time_to_first_token,
         times_between_tokens=times_between_tokens,
+        time_to_64_visible_tokens_seconds=visible_clock.time_to_mark,
         token_source="provider_usage_output_tokens",
         request_mode="anthropic_messages_stream",
         finish_reason=finish_reason,

@@ -208,3 +208,40 @@ def test_pinned_route_unknown_provider_fails_closed(monkeypatch):
 
     assert metrics["provider_metadata_verified"] is False
     assert metrics["route_policy"] == "pinned-provider"
+
+
+def _visible_text_with_tokens(n: int) -> str:
+    from tiktoken import get_encoding
+
+    encoder = get_encoding("cl100k_base")
+    text = ""
+    while len(encoder.encode(text)) < n:
+        text += " benchmark"
+    return text
+
+
+def test_time_to_64th_visible_token_is_recorded(monkeypatch):
+    usage = SimpleNamespace(completion_tokens=70, prompt_tokens=3, total_tokens=73, completion_tokens_details=None)
+    text = _visible_text_with_tokens(64)
+    mid = len(text) // 2
+    client = FakeClient([_chunk(text[:mid]), _chunk(text[mid:], finish_reason="stop"), _chunk(usage=usage)])
+    monkeypatch.setattr(openrouter, "OpenAI", lambda **kwargs: client)
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "https://openrouter.example/v1")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+
+    metrics = openrouter.generate(_config(), {"query": "hi", "max_tokens": 512})
+
+    assert metrics["time_to_64_visible_tokens_seconds"] is not None
+    assert metrics["time_to_64_visible_tokens_seconds"] > 0
+
+
+def test_time_to_64th_visible_token_is_none_when_short(monkeypatch):
+    usage = SimpleNamespace(completion_tokens=10, prompt_tokens=3, total_tokens=13, completion_tokens_details=None)
+    client = FakeClient([_chunk("short answer", finish_reason="stop"), _chunk(usage=usage)])
+    monkeypatch.setattr(openrouter, "OpenAI", lambda **kwargs: client)
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "https://openrouter.example/v1")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+
+    metrics = openrouter.generate(_config(), {"query": "hi", "max_tokens": 512})
+
+    assert metrics["time_to_64_visible_tokens_seconds"] is None

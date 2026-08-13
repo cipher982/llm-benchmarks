@@ -1,7 +1,10 @@
 # Delivered TPS — The Single-Metric Product Vision
 
-**Status:** approved direction (2026-08-12). Measurement profiles are live and
-collecting; the headline metric has not shipped yet.
+**Status:** approved direction (2026-08-12). Step 2 shipped: the runner records
+`time_to_64_visible_tokens_seconds` on streaming lanes (reasoning deltas never
+advance the clock), `/api/delivered-tps` derives the median per model, and the
+leaderboard renders above the charts on `/cloud`. Reasoning-model publication
+(2048-budget rows) is step 3, not yet live.
 **Supersedes as product vision:** the two-metric (steady-state + floor latency)
 leaderboard proposal and any visible-vs-total split on the leaderboard.
 **Build order and owners-only decisions at the bottom.**
