@@ -34,6 +34,8 @@ import os
 import re
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import as_completed
 from datetime import datetime
 from datetime import timezone
 from math import ceil
@@ -361,8 +363,8 @@ def command_canary(args: argparse.Namespace) -> int:
     if args.source_provider:
         allowed = set(args.source_provider)
         candidates = [row for row in candidates if row.get("source_provider") in allowed]
-    results: list[dict[str, Any]] = []
-    for candidate in candidates:
+
+    def run_one(candidate: dict[str, Any]) -> dict[str, Any]:
         source_provider = str(candidate["source_provider"])
         source_model_id = str(candidate["source_model_id"])
         pricing = candidate.get("pricing") or {}
@@ -421,8 +423,16 @@ def command_canary(args: argparse.Namespace) -> int:
             "observed_provider_slug": evaluation.get("observed_provider_slug"),
             "output": str(output),
         }
-        results.append(summary)
-        print(json.dumps(summary, sort_keys=True), flush=True)
+        return summary
+
+    results: list[dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=max(1, args.parallelism)) as executor:
+        futures = [executor.submit(run_one, candidate) for candidate in candidates]
+        for future in as_completed(futures):
+            summary = future.result()
+            results.append(summary)
+            print(json.dumps(summary, sort_keys=True), flush=True)
+    results.sort(key=lambda row: row["source"])
     write_json(args.output_dir / "_summary.json", {"candidates": len(candidates), "results": results})
     return 0
 
@@ -535,6 +545,7 @@ def main() -> int:
     canary.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS)
     canary.add_argument("--deadline-seconds", type=int, default=DEFAULT_DEADLINE_SECONDS)
     canary.add_argument("--min-success-rate", type=float, default=DEFAULT_MIN_SUCCESS_RATE)
+    canary.add_argument("--parallelism", type=int, default=4)
     canary.add_argument("--max-cost-usd", type=float, default=2.0)
     canary.add_argument("--batch-max-cost-usd", type=float, default=DEFAULT_BATCH_MAX_USD)
     canary.add_argument("--daily-max-cost-usd", type=float, default=DEFAULT_DAILY_MAX_USD)
