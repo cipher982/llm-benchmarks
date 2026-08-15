@@ -34,7 +34,7 @@ import os
 import re
 import urllib.parse
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures import as_completed
 from datetime import datetime
 from datetime import timezone
@@ -357,6 +357,82 @@ def command_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_candidate_canary(
+    candidate: dict[str, Any],
+    report: dict[str, Any],
+    *,
+    attempts: int,
+    max_tokens: int,
+    deadline_seconds: int,
+    min_success_rate: float,
+    max_cost_usd: float,
+    batch_max_cost_usd: float,
+    daily_max_cost_usd: float,
+    daily_ledger: Path,
+    output_dir: Path,
+) -> dict[str, Any]:
+    """Run one canary in a process so signal-based request timeouts work."""
+
+    source_provider = str(candidate["source_provider"])
+    source_model_id = str(candidate["source_model_id"])
+    pricing = candidate.get("pricing") or {}
+    rates = pricing.get("openrouter") or {}
+    max_rate = max(float(rates.get("input_per_token", 0) or 0), float(rates.get("output_per_token", 0) or 0))
+    estimated_input_tokens = max(1, ceil(len("Tell a long and happy story about the history of the world.") / 4))
+    estimated_cost = attempts * (estimated_input_tokens + max_tokens) * max_rate
+    output = output_dir / f"{safe_filename(source_provider, source_model_id)}__canary.json"
+    try:
+        ledger = reserve_daily_budget(
+            daily_ledger,
+            amount_usd=min(max_cost_usd, max(0.001, estimated_cost)),
+            batch_max_usd=batch_max_cost_usd,
+            daily_max_usd=daily_max_cost_usd,
+            operation=f"or-served-canary:{source_provider}/{source_model_id}",
+        )
+        result = run_routed_canary(
+            report,
+            provider=source_provider,
+            model_id=source_model_id,
+            attempts_count=attempts,
+            max_tokens=max_tokens,
+            deadline_seconds=deadline_seconds,
+            min_success_rate=min_success_rate,
+        )
+        result["budget"] = {
+            "estimated_cost_usd": estimated_cost,
+            "daily_reserved_usd": ledger["reserved_usd"],
+            "daily_ledger": str(daily_ledger),
+        }
+    except Exception as exc:  # preserve a decision for this row
+        result = {
+            "schema_version": 1,
+            "mode": "report-only-routed-canary",
+            "generated_at": utc_now(),
+            "source_provider": source_provider,
+            "source_model_id": source_model_id,
+            "route_model_id": candidate.get("route_model_id"),
+            "route_policy": OR_SERVED_POLICY,
+            "evaluation": {
+                "mode": "report-only-routed-canary",
+                "canary_state": "failed",
+                "promotion_valid": False,
+                "successful": 0,
+                "required": attempts,
+                "reasons": [f"wave-exception:{type(exc).__name__}:{exc}"],
+            },
+        }
+    write_json(output, result)
+    evaluation = result.get("evaluation") or {}
+    return {
+        "source": f"{source_provider}/{source_model_id}",
+        "route": candidate.get("route_model_id"),
+        "state": evaluation.get("canary_state"),
+        "promotion_valid": evaluation.get("promotion_valid"),
+        "observed_provider_slug": evaluation.get("observed_provider_slug"),
+        "output": str(output),
+    }
+
+
 def command_canary(args: argparse.Namespace) -> int:
     report = load_json(args.decisions)
     candidates = [row for row in report.get("decisions", []) if row.get("state") == "candidate"]
@@ -364,70 +440,25 @@ def command_canary(args: argparse.Namespace) -> int:
         allowed = set(args.source_provider)
         candidates = [row for row in candidates if row.get("source_provider") in allowed]
 
-    def run_one(candidate: dict[str, Any]) -> dict[str, Any]:
-        source_provider = str(candidate["source_provider"])
-        source_model_id = str(candidate["source_model_id"])
-        pricing = candidate.get("pricing") or {}
-        rates = pricing.get("openrouter") or {}
-        max_rate = max(float(rates.get("input_per_token", 0) or 0), float(rates.get("output_per_token", 0) or 0))
-        estimated_input_tokens = max(1, ceil(len("Tell a long and happy story about the history of the world.") / 4))
-        estimated_cost = args.attempts * (estimated_input_tokens + args.max_tokens) * max_rate
-        output = args.output_dir / f"{safe_filename(source_provider, source_model_id)}__canary.json"
-        try:
-            ledger = reserve_daily_budget(
-                args.daily_ledger,
-                amount_usd=min(args.max_cost_usd, max(0.001, estimated_cost)),
-                batch_max_usd=args.batch_max_cost_usd,
-                daily_max_usd=args.daily_max_cost_usd,
-                operation=f"or-served-canary:{source_provider}/{source_model_id}",
-            )
-            result = run_routed_canary(
+    results: list[dict[str, Any]] = []
+    with ProcessPoolExecutor(max_workers=max(1, args.parallelism)) as executor:
+        futures = [
+            executor.submit(
+                run_candidate_canary,
+                candidate,
                 report,
-                provider=source_provider,
-                model_id=source_model_id,
-                attempts_count=args.attempts,
+                attempts=args.attempts,
                 max_tokens=args.max_tokens,
                 deadline_seconds=args.deadline_seconds,
                 min_success_rate=args.min_success_rate,
+                max_cost_usd=args.max_cost_usd,
+                batch_max_cost_usd=args.batch_max_cost_usd,
+                daily_max_cost_usd=args.daily_max_cost_usd,
+                daily_ledger=args.daily_ledger,
+                output_dir=args.output_dir,
             )
-            result["budget"] = {
-                "estimated_cost_usd": estimated_cost,
-                "daily_reserved_usd": ledger["reserved_usd"],
-                "daily_ledger": str(args.daily_ledger),
-            }
-        except Exception as exc:  # preserve a decision for this row
-            result = {
-                "schema_version": 1,
-                "mode": "report-only-routed-canary",
-                "generated_at": utc_now(),
-                "source_provider": source_provider,
-                "source_model_id": source_model_id,
-                "route_model_id": candidate.get("route_model_id"),
-                "route_policy": OR_SERVED_POLICY,
-                "evaluation": {
-                    "mode": "report-only-routed-canary",
-                    "canary_state": "failed",
-                    "promotion_valid": False,
-                    "successful": 0,
-                    "required": args.attempts,
-                    "reasons": [f"wave-exception:{type(exc).__name__}:{exc}"],
-                },
-            }
-        write_json(output, result)
-        evaluation = result.get("evaluation") or {}
-        summary = {
-            "source": f"{source_provider}/{source_model_id}",
-            "route": candidate.get("route_model_id"),
-            "state": evaluation.get("canary_state"),
-            "promotion_valid": evaluation.get("promotion_valid"),
-            "observed_provider_slug": evaluation.get("observed_provider_slug"),
-            "output": str(output),
-        }
-        return summary
-
-    results: list[dict[str, Any]] = []
-    with ThreadPoolExecutor(max_workers=max(1, args.parallelism)) as executor:
-        futures = [executor.submit(run_one, candidate) for candidate in candidates]
+            for candidate in candidates
+        ]
         for future in as_completed(futures):
             summary = future.result()
             results.append(summary)
