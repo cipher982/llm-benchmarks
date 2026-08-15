@@ -148,8 +148,14 @@ def load_aliases(paths: list[Path]) -> dict[str, str]:
         if path.suffix.lower() == ".tsv":
             with path.open(encoding="utf-8", newline="") as handle:
                 for row in csv.DictReader(handle, delimiter="\t"):
-                    if row.get("verdict") in {"route", "route-close"} and row.get("target_or_model_id"):
-                        aliases[f"{row['source_provider']}/{row['source_model_id']}"] = row["target_or_model_id"]
+                    source_provider = row.get("source_provider") or row.get("# source_provider")
+                    if (
+                        row.get("verdict") in {"route", "route-close"}
+                        and source_provider
+                        and row.get("source_model_id")
+                        and row.get("target_or_model_id")
+                    ):
+                        aliases[f"{source_provider}/{row['source_model_id']}"] = row["target_or_model_id"]
             continue
         payload = load_json(path)
         rows = payload.get("aliases") if isinstance(payload, dict) else payload
