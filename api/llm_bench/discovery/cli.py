@@ -21,9 +21,11 @@ from .matcher import ModelMatch
 from .matcher import match_to_direct_providers
 from .matcher import store_matches_in_db
 from .openrouter import fetch_openrouter_models
+from .openrouter import fetch_openrouter_providers
 from .openrouter import get_catalog_from_db
 from .openrouter import get_our_models_from_db
 from .openrouter import store_catalog_in_db
+from .openrouter import store_providers_in_db
 from .promotion import PromotionPlan
 from .promotion import build_promotion_plan
 
@@ -31,6 +33,10 @@ from .promotion import build_promotion_plan
 app = typer.Typer(help="Model discovery via OpenRouter catalog")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+
+
+async def _fetch_openrouter_catalogs():
+    return await asyncio.gather(fetch_openrouter_models(), fetch_openrouter_providers())
 
 
 def format_mongosh_add_command(match: ModelMatch, our_models: List[dict] | None = None) -> str:
@@ -79,12 +85,14 @@ def fetch():
 
     try:
         # Fetch catalog
-        models = asyncio.run(fetch_openrouter_models())
+        models, providers = asyncio.run(_fetch_openrouter_catalogs())
 
         # Store in DB
         stored_count = store_catalog_in_db(models)
+        provider_count = store_providers_in_db(providers)
 
-        typer.echo(f"✅ Stored {stored_count} models in openrouter_catalog collection")
+        typer.echo(f"✅ Stored {stored_count} text models in openrouter_catalog collection")
+        typer.echo(f"✅ Stored {provider_count} providers in openrouter_providers collection")
 
     except Exception as e:
         typer.echo(f"❌ Error: {e}", err=True)

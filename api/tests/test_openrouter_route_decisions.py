@@ -1,4 +1,5 @@
 from datetime import datetime
+from datetime import timedelta
 from datetime import timezone
 
 import mongomock
@@ -248,7 +249,7 @@ def _valid_route_snapshot(*, provider: str, model_id: str) -> dict:
         "direct_effective_request_hash": "direct-hash",
         "routed_effective_request_hash": "routed-hash",
         "state": "active",
-        "expires_at": "2026-08-15T02:34:24.795384+00:00",
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
     }
 
 
