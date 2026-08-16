@@ -19,9 +19,9 @@ class TestSampleRouting:
         runner.log_success_mongo(object(), {}, sample_role=runner.SAMPLE_ROLE_PUBLISHED)
         assert captured["collection_name"] == metrics_collection_name()
 
-    def test_probe_and_shadow_samples_do_not(self, monkeypatch):
+    def test_probe_samples_do_not(self, monkeypatch):
         monkeypatch.setenv("MONGODB_URI", "mongodb://test")
-        for role in (runner.SAMPLE_ROLE_PROBE, runner.SAMPLE_ROLE_SHADOW):
+        for role in runner.NON_PUBLISHING_ROLES:
             captured = {}
             monkeypatch.setattr(runner, "log_mongo", lambda **kw: captured.update(kw))
             runner.log_success_mongo(object(), {}, sample_role=role)
@@ -84,20 +84,45 @@ class TestProvenanceSurvivesTheWriteLayer:
     that the caller passed something.
     """
 
-    def test_every_provenance_field_is_on_the_allowlist(self):
-        from llm_bench.logging import OPTIONAL_METRIC_FIELDS
+    def test_every_field_the_metric_contract_produces_survives_the_write(self):
+        """No key `build_cloud_metrics` emits may be dropped on the way to Mongo.
 
-        required = {
-            "sample_role",
-            "benchmark_profile_id",
-            "protocol_version",
-            "attempt_group",
-            "attempt",
-            "profile_hash",
-            "effective_request_hash",
-            "route_revocation_generation",
+        A hand-written list of required names could only catch the fields
+        somebody remembered to add to it, which is how
+        `time_to_64_visible_tokens_seconds` — the Delivered TPS denominator —
+        was computed by every streaming provider for four days and persisted by
+        none of them. Deriving the expectation from the contract itself closes
+        the class instead of the instance: add a field to the contract and this
+        fails until the write layer carries it.
+        """
+        from llm_bench.cloud.metrics import build_cloud_metrics
+        from llm_bench.logging import _optional_metric_fields
+
+        produced = build_cloud_metrics(
+            requested_tokens=64,
+            generated_output_tokens=64,
+            generate_time=1.0,
+            time_to_first_token=0.1,
+            times_between_tokens=[0.01],
+            time_to_64_visible_tokens_seconds=1.5,
+            token_source="provider_usage",
+            request_mode="stream",
+            visible_output_tokens=64,
+            reasoning_tokens=0,
+        )
+        # Written by log_json/log_mongo directly rather than through the
+        # allowlist, so they are persisted without appearing in it.
+        core = {
+            "gen_ts",
+            "requested_tokens",
+            "output_tokens",
+            "generate_time",
+            "tokens_per_second",
+            "time_to_first_token",
+            "times_between_tokens",
         }
-        assert required <= set(OPTIONAL_METRIC_FIELDS), required - set(OPTIONAL_METRIC_FIELDS)
+        dropped = set(produced) - core - set(_optional_metric_fields(produced))
+        assert not dropped, f"metric contract fields silently dropped before Mongo: {sorted(dropped)}"
 
     def test_the_fields_the_runner_sets_are_exactly_the_fields_that_persist(self, monkeypatch):
         from llm_bench.logging import _optional_metric_fields

@@ -30,6 +30,10 @@ OPTIONAL_METRIC_FIELDS = (
     "total_tokens",
     "generated_tokens_per_second",
     "visible_tokens_per_second",
+    # The Delivered TPS denominator. Every streaming provider computed it from
+    # 2026-08-12 and this list dropped all of it: 32,353 rows over seven days,
+    # none carrying the field, and an empty leaderboard on the live site.
+    "time_to_64_visible_tokens_seconds",
     "token_source",
     "request_mode",
     "ttft_available",

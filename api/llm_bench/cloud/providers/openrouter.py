@@ -15,6 +15,7 @@ from typing import Any
 
 from llm_bench.cloud.metrics import build_cloud_metrics
 from llm_bench.cloud.visible_tokens import VisibleTokenClock
+from llm_bench.cloud.visible_tokens import count_tokens
 from llm_bench.config import CloudConfig
 from llm_bench.scheduler.routing import OR_SERVED_POLICY
 from llm_bench.utils import get_current_timestamp
@@ -134,14 +135,20 @@ def _usage_metrics(usage: Any, response_text: str, reasoning_text: str, model_na
     visible_tokens = len(encoder.encode(response_text))
     completion_tokens = _attr(usage, "completion_tokens")
     if completion_tokens is None:
+        # Closing the stream at the 64th visible token means the usage chunk,
+        # which arrives last, never does. The thinking was still streamed and
+        # accumulated, so count it rather than reporting a generated total that
+        # silently excludes it — a reasoning model would otherwise look like it
+        # generated only the 64 visible tokens it was measured on.
+        reasoning_tokens = count_tokens(reasoning_text) if reasoning_text else None
         return {
-            "generated_output_tokens": visible_tokens,
+            "generated_output_tokens": visible_tokens + (reasoning_tokens or 0),
             "visible_output_tokens": visible_tokens,
-            "reasoning_tokens": len(encoder.encode(reasoning_text)) if reasoning_text else None,
+            "reasoning_tokens": reasoning_tokens,
             "input_tokens": None,
             "total_tokens": None,
             "cached_input_tokens": None,
-            "token_source": "tiktoken_visible_text",
+            "token_source": "tiktoken_stream_text",
         }
 
     generated_tokens = int(completion_tokens)
@@ -286,6 +293,14 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         previous_token_time = current_time
         response_text += str(content)
         visible_clock.add(str(content), now=current_time)
+        if visible_clock.crossed:
+            # Delivered TPS is settled at the 64th visible token. Reading on
+            # only buys tokens nothing consumes: R1 runs to ~1,467 completion
+            # tokens when the answer here needed 64.
+            close = getattr(stream, "close", None)
+            if close is not None:
+                close()
+            break
 
     generate_time = time.time() - time_0
     usage_values = _usage_metrics(usage, response_text, reasoning_text, config.model_name)

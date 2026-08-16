@@ -37,7 +37,11 @@ from llm_bench.utils import get_current_timestamp
 dotenv.load_dotenv(".env")
 
 QUERY_TEXT = "Tell a long and happy story about the history of the world."
-MAX_TOKENS = 64
+# Headroom for thinking, not a target. The stream closes at the 64th visible
+# token, so a model that does not reason still generates ~70 tokens here; the
+# budget only has to be large enough that a reasoning model reaches visible
+# text at all. Measured reasoning use: p50 339, p90 1,446, p95 1,685 tokens.
+MAX_TOKENS = int(os.getenv("BENCHMARK_MAX_TOKENS", "2048"))
 TEMPERATURE = 0.1
 
 PROVIDER_MODULES: dict[str, str] = {
@@ -89,6 +93,15 @@ def load_provider_func(provider: str):
 
 
 def validate_metrics(provider: str, metrics: dict[str, Any], max_tokens: int) -> tuple[bool, str | None]:
+    """Did this run produce the measurement, and is it visible answer text?
+
+    There used to be a second policy asking whether `output_tokens` landed
+    within 10% of the requested budget — a check for providers that ignore
+    `max_tokens`. The runner now closes the stream at the 64th visible token,
+    so every run is truncated deliberately and no run is near its budget. The
+    question the benchmark actually needs answered is whether visible text was
+    delivered, which is the same question for every provider.
+    """
     if not isinstance(metrics, dict):
         return False, "metrics not a dict"
     required = ["output_tokens", "generate_time", "tokens_per_second"]
@@ -110,21 +123,13 @@ def validate_metrics(provider: str, metrics: dict[str, Any], max_tokens: int) ->
     visible_out = metrics.get("visible_output_tokens")
     if visible_out is not None and visible_out <= 0:
         return False, f"visible_output_tokens {visible_out} <= 0"
-
-    if provider in VARIABLE_OUTPUT_PROVIDERS:
-        if out <= 0:
-            return False, f"output_tokens {out} <= 0 for {provider}"
-        return True, None
-
-    if abs(out - max_tokens) > max_tokens * 0.1:
-        return False, f"output_tokens {out} not within 10% of requested {max_tokens}"
+    if out <= 0:
+        return False, f"output_tokens {out} <= 0 for {provider}"
     return True, None
 
 
 def validation_policy(provider: str) -> str:
-    if provider in VARIABLE_OUTPUT_PROVIDERS:
-        return "visible_nonzero"
-    return "strict_pm10"
+    return "visible_nonzero"
 
 
 def log_error_mongo(
@@ -211,45 +216,28 @@ def log_error_mongo(
             client.close()
 
 
-# Sample roles. Only PUBLISHED reaches the site and counts as freshness.
-# LONG writes to the published collection — its rows must be queryable next to
-# default rows for the generate_time-vs-tokens regression — but it never counts
-# as freshness and its failures never touch primary model health.
+# Sample roles. Only PUBLISHED reaches the site and counts as freshness; a
+# probe is an admission check, not a measurement of a model we publish.
 SAMPLE_ROLE_PUBLISHED = "published"
 SAMPLE_ROLE_PROBE = "probe"
-SAMPLE_ROLE_SHADOW = "shadow"
-SAMPLE_ROLE_LONG = "long"
-NON_PUBLISHING_ROLES = frozenset({SAMPLE_ROLE_PROBE, SAMPLE_ROLE_SHADOW})
+NON_PUBLISHING_ROLES = frozenset({SAMPLE_ROLE_PROBE})
 
 # The measurement protocol a row was produced under. Bump when the request
 # shape changes — cap, retry policy, reasoning controls — so rows measured
 # under different rules are never silently averaged together.
 PROTOCOL_VERSION = 1
 DEFAULT_PROFILE_ID = PUBLISHED_PROFILE_ID
-LONG_PROFILE_ID = "cloud-long-v1"
 OPENROUTER_ROUTING_ENABLED_ENV = "OPENROUTER_ROUTING_ENABLED"
 
-# Profiles differ only in what they ask for. Which profile produced a row is
-# recorded on the row, so rows measured under different rules are never
-# averaged together by accident.
-#
-# `cloud-reasoning-v1` exists because a reasoning model spends the 64-token
-# budget on hidden reasoning and emits nothing visible, so the default profile
-# cannot measure it at all — nine models currently have no data for that reason.
-# It runs as a shadow sample, which writes to the probe collection and never
-# reaches the site. Whether these belong on the same chart as 64-token rows is a
-# publication decision; collecting the numbers is not.
-# `cloud-long-v1` is the default profile with a 512-token budget. One sample
-# per model every few hours gives a downstream estimator a second point on the
-# generate_time-vs-tokens line: slope is steady-state tok/s, intercept is floor
-# latency. Unlike the reasoning profile it writes to the published collection —
-# the rows must be queryable next to default rows — and the dashboard's
-# transform drops any row whose profile is not the published one, so they are
-# invisible to current charts by construction.
+# One profile. There were three: a 64-token default, a 512-token `cloud-long-v1`
+# and a 2048-token `cloud-reasoning-v1` shadow. Both extras existed only because
+# a 64-token budget could not measure a reasoning model — it spends the whole
+# budget thinking and emits nothing visible. The default now carries the
+# headroom and the stream closes at the 64th visible token, so a second budget
+# buys nothing: every model is measured the same way, on one series, and the
+# question of whether reasoning rows belong on the same axis stops existing.
 BENCHMARK_PROFILES: dict[str, dict[str, Any]] = {
     DEFAULT_PROFILE_ID: {"max_tokens": MAX_TOKENS},
-    "cloud-reasoning-v1": {"max_tokens": int(os.getenv("BENCHMARK_REASONING_MAX_TOKENS", "2048"))},
-    LONG_PROFILE_ID: {"max_tokens": int(os.getenv("BENCHMARK_LONG_PROFILE_MAX_TOKENS", "512"))},
 }
 
 
@@ -260,6 +248,22 @@ def profile_max_tokens(profile_id: str) -> int:
     it resolves to the default rather than to zero or to whatever it names.
     """
     return int(BENCHMARK_PROFILES.get(profile_id, BENCHMARK_PROFILES[DEFAULT_PROFILE_ID])["max_tokens"])
+
+
+# Lanes whose stream loop stops at the 64th visible token. A budget is only
+# safe to raise where the runner can decline to consume it: on these lanes the
+# budget is headroom for thinking and the run ends at the mark, while a lane
+# that reads to end-of-stream would generate — and be billed for — the whole
+# 2048 tokens on every model that already answers fine at 64.
+EARLY_STOP_PROVIDERS = frozenset({"openrouter"})
+UNCAPPED_LANE_MAX_TOKENS = int(os.getenv("BENCHMARK_UNCAPPED_LANE_MAX_TOKENS", "64"))
+
+
+def lane_max_tokens(transport_provider: str, profile_budget: int) -> int:
+    """Clamp the profile's budget to what this lane can stop consuming."""
+    if transport_provider in EARLY_STOP_PROVIDERS:
+        return profile_budget
+    return min(profile_budget, UNCAPPED_LANE_MAX_TOKENS)
 
 
 def stable_hash(value: Any) -> str:
@@ -465,7 +469,10 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
 
     sample_role = str(job.get("sample_role") or SAMPLE_ROLE_PUBLISHED)
     profile_id = str(job.get("benchmark_profile_id") or DEFAULT_PROFILE_ID)
-    max_tokens = profile_max_tokens(profile_id)
+    decision = effective_job_route(job)
+    # The route decides the budget: the profile asks for thinking headroom, and
+    # only a lane that stops at the measurement mark is allowed to be given it.
+    max_tokens = lane_max_tokens(decision.transport_provider, profile_max_tokens(profile_id))
     deadline_seconds = int(job.get("deadline_seconds") or policies.DEFAULT_DEADLINE_SECONDS)
     run_ts = get_current_timestamp()
     run_config = {
@@ -473,7 +480,6 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
         "max_tokens": max_tokens,
     }
 
-    decision = effective_job_route(job)
     route_attempted = decision.transport_provider == OPENROUTER_TRANSPORT
     fallback_reason = job.get("route_fallback_reason")
     # Failures from a non-default profile carry the profile on the error row,

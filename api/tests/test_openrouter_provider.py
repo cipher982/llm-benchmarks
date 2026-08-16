@@ -95,7 +95,7 @@ def test_stream_chunks_are_not_counted_as_tokens(monkeypatch):
     metrics = openrouter.generate(_config(), {"query": "hi", "max_tokens": 64})
 
     assert metrics["output_tokens"] == metrics["visible_output_tokens"]
-    assert metrics["token_source"] == "tiktoken_visible_text"
+    assert metrics["token_source"] == "tiktoken_stream_text"
     assert metrics["output_tokens"] != 3
 
 

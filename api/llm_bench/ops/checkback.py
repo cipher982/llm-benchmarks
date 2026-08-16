@@ -25,13 +25,11 @@ from typing import Any
 
 from llm_bench.ops import admission
 from llm_bench.ops import identity
-from llm_bench.ops import reasoning_shadow
 from llm_bench.scheduler.mongo import jobs_collection_name
 from llm_bench.scheduler.mongo import metrics_collection_name
 from llm_bench.scheduler.mongo import models_collection_name
 from llm_bench.scheduler.mongo import mongo_client
 from llm_bench.scheduler.mongo import mongo_env
-from llm_bench.scheduler.mongo import probe_metrics_collection_name
 
 
 def _finding(name: str, ok: bool, detail: str, evidence: Any = None) -> dict[str, Any]:
@@ -78,23 +76,6 @@ def reconciler_ran(db, since: datetime) -> dict[str, Any]:
         False,
         f"{new_models} new models arrived and no identity relation was written — the loop is not running",
         {"new_models": new_models},
-    )
-
-
-def shadow_is_accumulating(db, since: datetime) -> dict[str, Any]:
-    """The reasoning-model chart needs a distribution, not one point per model."""
-    samples = db[probe_metrics_collection_name()].count_documents(
-        {"benchmark_profile_id": reasoning_shadow.PROFILE_ID, "run_ts": {"$gte": since}}
-    )
-    summary = reasoning_shadow.summarize(db)
-    enough = summary["models_measured"] >= 5 and summary["samples"] >= 40
-    return _finding(
-        "shadow profile accumulating",
-        bool(samples),
-        f"{samples} samples since cutoff; {summary['samples']} total across "
-        f"{summary['models_measured']} models"
-        + ("; enough to build the reasoning chart" if enough else "; not yet enough for a chart"),
-        {"ready_for_chart": enough},
     )
 
 
@@ -164,7 +145,6 @@ def dead_letters_are_classified(db, since: datetime) -> dict[str, Any]:
 CHECKS = (
     admission_promoted_something,
     reconciler_ran,
-    shadow_is_accumulating,
     decisions_are_draining,
     measurement_period_still_holds,
     dead_letters_are_classified,

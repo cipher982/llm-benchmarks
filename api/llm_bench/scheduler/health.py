@@ -102,7 +102,6 @@ def _recent_counts(db: Database, *, provider: str, model_id: str, now: datetime)
     # Published-profile rows only, on both sides. These counts describe the
     # model's primary health: a model succeeding only at 512 tokens is not
     # being measured for the site, and a model failing only long runs is not
-    # failing the site. Long-profile outcomes live on long_profile_state.
     since = now - timedelta(hours=24)
     successes = db[metrics_collection_name()].count_documents(
         {"provider": provider, "model_name": model_id, "run_ts": {"$gte": since}, **published_profile_filter()}
@@ -350,43 +349,6 @@ def record_error(
                 "updated_at": now,
             },
             "$inc": {"consecutive_failures": 1},
-        },
-        upsert=True,
-    )
-
-
-def record_long_profile_attempt(
-    db: Database,
-    *,
-    provider: str,
-    model_id: str,
-    status: str,
-    error_kind: str | None = None,
-    error_message: str | None = None,
-    now: datetime | None = None,
-) -> None:
-    """Record a long-profile outcome without touching primary model health.
-
-    A model that serves 64 tokens but fails 512-token runs keeps its published
-    series and its freshness; the long outcome lives in `long_profile_state`
-    only, never in `consecutive_failures` or `last_success_at`. Dotted paths on
-    purpose: a later failure must not erase `last_success_at` inside the state.
-    """
-    now = now or utcnow()
-    updates: dict[str, Any] = {
-        "long_profile_state.last_attempt_at": now,
-        "long_profile_state.last_status": status,
-        "long_profile_state.last_error_kind": error_kind,
-        "long_profile_state.last_error_message": (error_message or "")[:2000] or None,
-        "updated_at": now,
-    }
-    if status == "success":
-        updates["long_profile_state.last_success_at"] = now
-    health_collection(db).update_one(
-        {"provider": provider, "model_id": model_id},
-        {
-            "$setOnInsert": {"_id": scheduled_job_id(provider, model_id)},
-            "$set": updates,
         },
         upsert=True,
     )

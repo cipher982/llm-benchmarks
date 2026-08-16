@@ -18,9 +18,7 @@ from llm_bench.ops import desired_set
 from llm_bench.ops import identity
 from llm_bench.ops import invariants
 from llm_bench.ops import llm_error_classifier
-from llm_bench.ops import long_profile
 from llm_bench.ops import openrouter_discovery
-from llm_bench.ops import reasoning_shadow
 from llm_bench.ops import reconciler
 from llm_bench.ops import route_renewal
 from llm_bench.ops import vertex_discovery
@@ -389,55 +387,6 @@ def run_reconciler_loop(*, stop_event: threading.Event, interval_seconds: int) -
             print(f"Reconciler loop error: {type(exc).__name__}: {exc}", flush=True)
 
 
-def run_shadow_loop(*, stop_event: threading.Event, interval_seconds: int) -> None:
-    """Measure models the default profile cannot measure.
-
-    Nine enabled models have no data because a reasoning model spends the whole
-    64-token budget on hidden reasoning and emits nothing visible. These run
-    under `cloud-reasoning-v1` as shadow samples, which write to the probe
-    collection, never reach the site and never count as freshness.
-
-    Raising the budget for everything would change what every published number
-    means. Getting numbers for models that currently have none does not.
-    """
-    while not stop_event.wait(interval_seconds):
-        try:
-            _, db_name = mongo_env()
-            client = mongo_client()
-            try:
-                queued = reasoning_shadow.enqueue_shadow_samples(client[db_name])
-                if queued:
-                    print(f"Shadow profile queued {len(queued)}: {', '.join(queued)}", flush=True)
-            finally:
-                client.close()
-        except Exception as exc:  # noqa: BLE001
-            print(f"Shadow loop error: {type(exc).__name__}: {exc}", flush=True)
-
-
-def run_long_profile_loop(*, stop_event: threading.Event, interval_seconds: int) -> None:
-    """Give every model an occasional 512-token run under `cloud-long-v1`.
-
-    One long sample per model per eligibility window (BENCHMARK_LONG_PROFILE_HOURS,
-    0 disables). The rows land in the published collection carrying their profile
-    id, where the regression of generate_time on generated tokens can read them;
-    the dashboard's transform filters them out of the charts.
-    """
-    while not stop_event.wait(interval_seconds):
-        try:
-            if not long_profile.enabled():
-                continue
-            _, db_name = mongo_env()
-            client = mongo_client()
-            try:
-                queued = long_profile.enqueue_long_samples(client[db_name])
-                if queued:
-                    print(f"Long profile queued {len(queued)}: {', '.join(queued)}", flush=True)
-            finally:
-                client.close()
-        except Exception as exc:  # noqa: BLE001
-            print(f"Long profile loop error: {type(exc).__name__}: {exc}", flush=True)
-
-
 def run_vertex_discovery_loop(*, stop_event: threading.Event, interval_seconds: int) -> None:
     """Keep Vertex's catalogue current from inside the process that has its keys.
 
@@ -597,26 +546,6 @@ def daemon(
         name="reconciler-loop",
         daemon=True,
     )
-    shadow_thread = threading.Thread(
-        target=run_shadow_loop,
-        kwargs={
-            "stop_event": stop_event,
-            "interval_seconds": int(os.getenv("BENCHMARK_SHADOW_INTERVAL_SECONDS", "3600")),
-        },
-        name="shadow-loop",
-        daemon=True,
-    )
-    long_profile_thread = threading.Thread(
-        target=run_long_profile_loop,
-        kwargs={
-            "stop_event": stop_event,
-            # Far shorter than the eligibility window, so a model becomes due at
-            # most minutes after its window opens rather than a window later.
-            "interval_seconds": int(os.getenv("BENCHMARK_LONG_PROFILE_INTERVAL_SECONDS", "900")),
-        },
-        name="long-profile-loop",
-        daemon=True,
-    )
     route_renewal_thread = threading.Thread(
         target=route_renewal.run_renewal_loop,
         kwargs={
@@ -655,8 +584,6 @@ def daemon(
     admission_thread.start()
     classifier_thread.start()
     vertex_discovery_thread.start()
-    shadow_thread.start()
-    long_profile_thread.start()
     route_renewal_thread.start()
     reconciler_thread.start()
     openrouter_discovery_thread.start()
