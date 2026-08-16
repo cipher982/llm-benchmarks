@@ -65,6 +65,18 @@ def openrouter_concurrency() -> int:
 
 
 def excluded_providers() -> set[str]:
+    """Providers this host runs no worker for.
+
+    Two reasons qualify and they behave identically here: the provider runs on
+    a different host (bedrock, on the EC2 runner with its IAM role), or it has
+    been retired onto OpenRouter transport. Either way, admitting or scheduling
+    a job for it leaves work in the queue that nothing will ever claim, which
+    trips the queue invariants rather than failing visibly.
+
+    Retirement has to be enforced here and not only by disabling rows, because
+    discovery is additive: it will re-add a provider's models next time it runs,
+    and without this they would quietly come back.
+    """
     raw = os.getenv("BENCHMARK_EXCLUDED_PROVIDERS", "bedrock")
     return {provider.strip() for provider in raw.split(",") if provider.strip()}
 

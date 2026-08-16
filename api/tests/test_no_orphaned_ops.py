@@ -33,6 +33,10 @@ ENTRY_POINTS = {
     "catalog_quarantine",
     # Run on a schedule from outside the process, by a human or a cron.
     "checkback",
+    # A one-shot migration onto OpenRouter transport, run by hand. The policy it
+    # establishes is kept by BENCHMARK_EXCLUDED_PROVIDERS, not by this module —
+    # if it needed a loop to stay true, it would be wired into one.
+    "openrouter_consolidation",
 }
 
 
