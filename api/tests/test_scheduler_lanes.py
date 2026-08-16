@@ -49,3 +49,12 @@ def test_probe_candidates_start_a_worker_before_first_promotion(monkeypatch):
     )
 
     assert lanes == ["openai", "openrouter"]
+
+
+def test_openrouter_lane_stays_alive_for_late_discovery(monkeypatch):
+    monkeypatch.setattr(cli, "PROVIDER_MODULES", {"openai": object(), "openrouter": object()})
+    monkeypatch.setenv("BENCHMARK_EXCLUDED_PROVIDERS", "bedrock")
+
+    lanes = cli._worker_providers("all", {"openai": ["gpt-4o"]})
+
+    assert lanes == ["openai", "openrouter"]

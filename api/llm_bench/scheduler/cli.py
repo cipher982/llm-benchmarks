@@ -81,6 +81,11 @@ def _worker_providers(
                 if provider not in excluded and (requested is None or provider in requested)
             }
         )
+    # OpenRouter discovery can add the first candidate after a transient
+    # catalogue failure. Keep its adapter lane alive under `all` so a later
+    # successful refresh never strands probe jobs until a process restart.
+    if (not providers or providers.strip().lower() == "all") and "openrouter" in PROVIDER_MODULES:
+        selected = sorted(set(selected) | {"openrouter"})
     unroutable = [provider for provider in selected if provider not in PROVIDER_MODULES]
     if unroutable:
         print(
