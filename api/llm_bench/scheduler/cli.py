@@ -19,6 +19,7 @@ from llm_bench.ops import identity
 from llm_bench.ops import invariants
 from llm_bench.ops import llm_error_classifier
 from llm_bench.ops import long_profile
+from llm_bench.ops import openrouter_discovery
 from llm_bench.ops import reasoning_shadow
 from llm_bench.ops import reconciler
 from llm_bench.ops import route_renewal
@@ -26,6 +27,7 @@ from llm_bench.ops import vertex_discovery
 from llm_bench.scheduler import health
 from llm_bench.scheduler import policies
 from llm_bench.scheduler import queue
+from llm_bench.scheduler.mongo import models_collection_name
 from llm_bench.scheduler.mongo import mongo_client
 from llm_bench.scheduler.mongo import mongo_env
 from llm_bench.scheduler.mongo import route_snapshot
@@ -47,18 +49,38 @@ def _selected_providers(providers: str | None, provider_models: dict[str, list[s
     return [provider for provider in selected if provider not in excluded]
 
 
-def _worker_providers(providers: str | None, provider_models: dict[str, list[str]]) -> list[str]:
-    """Lanes to start, derived from the catalogue rather than the adapter list.
+def _worker_providers(
+    providers: str | None,
+    provider_models: dict[str, list[str]],
+    *,
+    probe_providers: set[str] | None = None,
+) -> list[str]:
+    """Lanes to start, derived from enabled models and probe candidates.
 
     This used to start every provider in PROVIDER_MODULES, so lanes existed for
     providers with nothing enabled. That makes "this provider wrote no metric"
     ambiguous — idle by design and dead are indistinguishable — which any
     per-provider liveness check depends on being able to tell apart.
 
-    A provider with enabled models but no adapter cannot be worked at all, so it
-    is surfaced rather than dropped silently.
+    A provider with enabled models or admission candidates but no adapter cannot
+    be worked at all, so it is surfaced rather than dropped silently.
     """
     selected = _selected_providers(providers, provider_models)
+    requested = (
+        None
+        if not providers or providers.strip().lower() == "all"
+        else {item.strip() for item in providers.split(",") if item.strip()}
+    )
+    if probe_providers:
+        excluded = policies.excluded_providers()
+        selected = sorted(
+            set(selected)
+            | {
+                provider
+                for provider in probe_providers
+                if provider not in excluded and (requested is None or provider in requested)
+            }
+        )
     unroutable = [provider for provider in selected if provider not in PROVIDER_MODULES]
     if unroutable:
         print(
@@ -67,6 +89,17 @@ def _worker_providers(providers: str | None, provider_models: dict[str, list[str
             flush=True,
         )
     return [provider for provider in selected if provider in PROVIDER_MODULES]
+
+
+def _probe_providers(db) -> set[str]:
+    """Return provider lanes needed by disabled admission candidates."""
+
+    return set(
+        db[models_collection_name()].distinct(
+            "provider",
+            {"status": admission.CANDIDATE_STATUS},
+        )
+    )
 
 
 def _freshness_priority(doc: dict, cadence_seconds: int) -> float:
@@ -413,6 +446,22 @@ def run_vertex_discovery_loop(*, stop_event: threading.Event, interval_seconds: 
             print(f"Vertex discovery loop error: {type(exc).__name__}: {exc}", flush=True)
 
 
+def run_openrouter_discovery_loop(*, stop_event: threading.Event, interval_seconds: int) -> None:
+    """Keep the OpenRouter-native catalogue flowing into admission."""
+
+    while not stop_event.wait(interval_seconds):
+        try:
+            _, db_name = mongo_env()
+            client = mongo_client()
+            try:
+                result = openrouter_discovery.refresh_catalog(client[db_name])
+                print(f"OpenRouter discovery: {result}", flush=True)
+            finally:
+                client.close()
+        except Exception as exc:  # noqa: BLE001
+            print(f"OpenRouter discovery loop error: {type(exc).__name__}: {exc}", flush=True)
+
+
 @app.command()
 def daemon(
     providers: Optional[str] = typer.Option(
@@ -452,10 +501,14 @@ def daemon(
         desired_set.ensure_indexes(db)
         backfilled = health.backfill_from_metrics(db, cadence_seconds=cadence_seconds)
         expired = run_reaper_pass(cadence_seconds=cadence_seconds)
+        discovery_result = openrouter_discovery.refresh_catalog(db)
+        admission_report = admission.run_admission_pass(db)
         provider_models = load_provider_models()
-        selected = _worker_providers(providers, provider_models)
+        selected = _worker_providers(providers, provider_models, probe_providers=_probe_providers(db))
         print(
-            "Scheduler daemon starting " f"providers={selected} backfilled={backfilled} expired={expired}",
+            "Scheduler daemon starting "
+            f"providers={selected} backfilled={backfilled} expired={expired} "
+            f"openrouter_discovery={discovery_result} admission={admission_report.summary()}",
             flush=True,
         )
     finally:
@@ -573,6 +626,15 @@ def daemon(
         name="vertex-discovery-loop",
         daemon=True,
     )
+    openrouter_discovery_thread = threading.Thread(
+        target=run_openrouter_discovery_loop,
+        kwargs={
+            "stop_event": stop_event,
+            "interval_seconds": int(os.getenv("BENCHMARK_OPENROUTER_DISCOVERY_INTERVAL_SECONDS", "21600")),
+        },
+        name="openrouter-discovery-loop",
+        daemon=True,
+    )
     scheduler_thread.start()
     reaper_thread.start()
     liveness_thread.start()
@@ -584,6 +646,7 @@ def daemon(
     long_profile_thread.start()
     route_renewal_thread.start()
     reconciler_thread.start()
+    openrouter_discovery_thread.start()
     workers = start_provider_workers(providers=selected, cadence_seconds=cadence_seconds, stop_event=stop_event)
 
     while not stop_event.is_set():

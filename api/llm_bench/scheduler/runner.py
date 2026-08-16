@@ -299,7 +299,19 @@ def openrouter_routing_enabled() -> bool:
 def job_requires_openrouter(job: dict[str, Any]) -> bool:
     """Return whether this queued job should consume the shared OR lane."""
 
-    return openrouter_routing_enabled() and resolve_job_route(job).transport_provider == OPENROUTER_TRANSPORT
+    decision = resolve_job_route(job)
+    # OpenRouter-native catalogue rows have no source-provider route snapshot;
+    # their direct adapter is OpenRouter itself and still needs the shared quota
+    # gate. Existing source rows consume the gate only when routing is enabled.
+    return str(job.get("provider") or "") == "openrouter" or (
+        openrouter_routing_enabled() and decision.transport_provider == OPENROUTER_TRANSPORT
+    )
+
+
+def is_openrouter_native_job(job: dict[str, Any]) -> bool:
+    """Whether quota exhaustion cannot fall back to a different provider."""
+
+    return str(job.get("provider") or "") == "openrouter"
 
 
 def effective_job_route(job: dict[str, Any]) -> RouteDecision:

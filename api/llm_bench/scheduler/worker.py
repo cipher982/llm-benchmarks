@@ -180,21 +180,31 @@ def run_worker_loop(
                     acquire_wait = max(0.0, remaining - reserve)
                     acquired = acquire_openrouter_slot(acquire_wait)
                     if not acquired:
-                        remaining = max(0.0, deadline - (time.monotonic() - attempt_started))
-                        if remaining > 0:
-                            result = run_job_in_child(
-                                direct_fallback_job(job, reason="openrouter-quota-unavailable"),
-                                deadline_seconds=remaining,
-                            )
-                        else:
+                        if runner.is_openrouter_native_job(job):
                             result = runner.RunnerResult(
-                                status="timeout",
-                                error_kind="timeout",
-                                error_message="direct fallback reserve expired before dispatch",
+                                status="error",
+                                error_kind="rate_limit",
+                                error_message="OpenRouter quota unavailable for native OpenRouter model",
                                 route_attempted=True,
-                                transport_provider="direct",
+                                transport_provider="openrouter",
                                 fallback_reason="openrouter-quota-unavailable",
                             )
+                        else:
+                            remaining = max(0.0, deadline - (time.monotonic() - attempt_started))
+                            if remaining > 0:
+                                result = run_job_in_child(
+                                    direct_fallback_job(job, reason="openrouter-quota-unavailable"),
+                                    deadline_seconds=remaining,
+                                )
+                            else:
+                                result = runner.RunnerResult(
+                                    status="timeout",
+                                    error_kind="timeout",
+                                    error_message="direct fallback reserve expired before dispatch",
+                                    route_attempted=True,
+                                    transport_provider="direct",
+                                    fallback_reason="openrouter-quota-unavailable",
+                                )
                     else:
                         try:
                             remaining = max(0.0, deadline - (time.monotonic() - attempt_started))

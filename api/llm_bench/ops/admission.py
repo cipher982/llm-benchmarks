@@ -109,14 +109,29 @@ def find_candidates(db: Database, *, limit: int = MAX_NEW_CANDIDATES_PER_RUN) ->
     least useful today, and filling it is what turns a two-provider chart line
     into a five-provider one.
     """
-    known = {
-        (doc["provider"], doc["model_id"])
-        for doc in db[models_collection_name()].find({}, {"provider": 1, "model_id": 1})
-    }
+    known = set()
+    for doc in db[models_collection_name()].find(
+        {},
+        {"provider": 1, "model_id": 1, "enabled": 1, "status": 1},
+    ):
+        # OpenRouter rows were historically seeded as disabled reference data.
+        # Those rows must not block the current catalogue from re-entering the
+        # admission pipeline; rejected/probing/probation rows remain known and
+        # keep their normal lifecycle semantics.
+        if doc.get("provider") == "openrouter" and not doc.get("enabled") and not doc.get("status"):
+            continue
+        known.add((doc["provider"], doc["model_id"]))
     catalogue = list(db.provider_catalog.find({}, {"provider": 1, "model_id": 1, "name": 1}))
 
     candidates = [row for row in catalogue if (row["provider"], row["model_id"]) not in known]
-    candidates.sort(key=lambda row: (-_spread(row["model_id"], catalogue), row["provider"]))
+    candidates.sort(
+        key=lambda row: (
+            0 if row["provider"] == "openrouter" else 1,
+            -_spread(row["model_id"], catalogue),
+            row["provider"],
+            row["model_id"],
+        )
+    )
     return candidates[:limit]
 
 
@@ -152,22 +167,49 @@ def register_candidates(
     now = now or utcnow()
     registered = []
     for row in find_candidates(db, limit=limit):
-        db[models_collection_name()].update_one(
-            {"provider": row["provider"], "model_id": row["model_id"]},
-            {
-                "$setOnInsert": {
-                    "provider": row["provider"],
-                    "model_id": row["model_id"],
-                    "display_name": row.get("name"),
-                    "enabled": False,
-                    "status": CANDIDATE_STATUS,
-                    "admission_started_at": now,
-                    "created_at": now,
-                    "source": "provider_catalog",
-                }
-            },
-            upsert=True,
-        )
+        key = {"provider": row["provider"], "model_id": row["model_id"]}
+        existing = db[models_collection_name()].find_one(key, {"enabled": 1, "status": 1, "deprecated": 1})
+        if existing and row["provider"] == "openrouter" and not existing.get("enabled") and not existing.get("status"):
+            # Re-arm the old disabled OpenRouter reference row in place. This
+            # preserves its identity and indexes while making current catalogue
+            # presence evidence that can flow through the normal probe gate.
+            db[models_collection_name()].update_one(
+                key,
+                {
+                    "$set": {
+                        "display_name": row.get("name"),
+                        "enabled": False,
+                        "deprecated": False,
+                        "status": CANDIDATE_STATUS,
+                        "admission_started_at": now,
+                        "reactivated_at": now,
+                        "source": "provider_catalog",
+                    },
+                    "$unset": {
+                        "disabled_class": "",
+                        "disabled_reason": "",
+                        "disabled_at": "",
+                        "recheck_after": "",
+                    },
+                },
+            )
+        else:
+            db[models_collection_name()].update_one(
+                key,
+                {
+                    "$setOnInsert": {
+                        "provider": row["provider"],
+                        "model_id": row["model_id"],
+                        "display_name": row.get("name"),
+                        "enabled": False,
+                        "status": CANDIDATE_STATUS,
+                        "admission_started_at": now,
+                        "created_at": now,
+                        "source": "provider_catalog",
+                    }
+                },
+                upsert=True,
+            )
         registered.append(f"{row['provider']}/{row['model_id']}")
     return registered
 

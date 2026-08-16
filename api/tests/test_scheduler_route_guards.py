@@ -1,4 +1,5 @@
 import mongomock
+from llm_bench.scheduler import runner
 from llm_bench.scheduler import worker
 
 
@@ -19,6 +20,15 @@ def test_direct_fallback_job_cannot_resolve_to_openrouter():
     assert fallback["route_fallback_reason"] == "openrouter-quota-unavailable"
     assert fallback["route_snapshot"]["state"] == "revoked"
     assert fallback["route_snapshot"]["transport_provider"] == "direct"
+
+
+def test_openrouter_native_models_use_the_shared_openrouter_lane(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_ROUTING_ENABLED", raising=False)
+
+    job = {"provider": "openrouter", "model_id": "qwen/qwen3-coder"}
+
+    assert runner.job_requires_openrouter(job) is True
+    assert runner.is_openrouter_native_job(job) is True
 
 
 def test_dispatch_guard_marks_newer_generation_revoked():
