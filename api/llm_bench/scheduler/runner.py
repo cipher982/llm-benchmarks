@@ -471,9 +471,12 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
     sample_role = str(job.get("sample_role") or SAMPLE_ROLE_PUBLISHED)
     profile_id = str(job.get("benchmark_profile_id") or DEFAULT_PROFILE_ID)
     decision = effective_job_route(job)
-    # The route decides the budget: the profile asks for thinking headroom, and
+    # The lane decides the budget: the profile asks for thinking headroom, and
     # only a lane that stops at the measurement mark is allowed to be given it.
-    max_tokens = lane_max_tokens(decision.transport_provider, profile_max_tokens(profile_id))
+    # Keyed on the provider whose code actually runs, not on the route label —
+    # a native OpenRouter row routes as "direct" and would otherwise be clamped
+    # to 64 on the one lane the headroom exists for.
+    max_tokens = lane_max_tokens(_transport_provider(decision), profile_max_tokens(profile_id))
     deadline_seconds = int(job.get("deadline_seconds") or policies.DEFAULT_DEADLINE_SECONDS)
     run_ts = get_current_timestamp()
     run_config = {

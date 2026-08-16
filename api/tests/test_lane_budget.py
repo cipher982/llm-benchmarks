@@ -39,3 +39,23 @@ def test_every_early_stop_provider_actually_stops():
 def test_the_clamp_never_raises_a_lane_above_the_profile():
     assert runner.lane_max_tokens("openrouter", 32) == 32
     assert runner.lane_max_tokens("bedrock", 32) == 32
+
+
+def test_a_native_openrouter_row_gets_the_thinking_budget():
+    """It routes as "direct" — the label is about routing, not about the lane.
+
+    Keying the clamp on decision.transport_provider sent every native OpenRouter
+    row down the capped path, so the raised budget reached nothing at all: 83
+    rows written after the deploy, all at 64 tokens, and reasoning models still
+    exhausting it.
+    """
+    from llm_bench.scheduler.routing import DIRECT_TRANSPORT
+    from llm_bench.scheduler.routing import RouteDecision
+
+    decision = RouteDecision.direct("openrouter", "deepseek/deepseek-r1", reason="native")
+    assert decision.transport_provider == DIRECT_TRANSPORT
+    lane = runner._transport_provider(decision)
+    assert lane == "openrouter"
+
+    budget = runner.profile_max_tokens(runner.DEFAULT_PROFILE_ID)
+    assert runner.lane_max_tokens(lane, budget) == budget
