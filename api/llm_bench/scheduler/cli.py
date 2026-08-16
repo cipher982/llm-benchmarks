@@ -153,7 +153,14 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
             # has waited longest. A model starved by one pass is at the front of
             # the next, which a fixed slice could never do.
             candidates.sort(key=lambda item: -item[0])
-            for priority, model_id in candidates[:limit]:
+            # A dead-lettered job is still stale, but enqueue_scheduled_job
+            # deliberately refuses to replace it. Do not let those rows spend
+            # the whole per-pass allowance and starve models later in the list.
+            # The limit is for jobs actually created, not candidates inspected.
+            created_for_provider = 0
+            for priority, model_id in candidates:
+                if created_for_provider >= limit:
+                    break
                 if queue.enqueue_scheduled_job(
                     db,
                     provider=provider,
@@ -163,6 +170,7 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
                     route_snapshot=route_snapshot(db, provider=provider, model_id=model_id),
                 ):
                     enqueued += 1
+                    created_for_provider += 1
         health.heartbeat(
             db,
             component="scheduler",
