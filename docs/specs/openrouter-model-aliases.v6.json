@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "rule_version": "or-alias-v6-live-catalog",
+  "evidence_refs": [
+    "https://openrouter.ai/api/v1/models?output_modalities=text",
+    "https://openrouter.ai/api/v1/models/{author}/{slug}/endpoints"
+  ],
+  "aliases": [
+    {
+      "source_key": "anthropic/claude-opus-4-5-20251101",
+      "target_or_model_id": "anthropic/claude-opus-4.5"
+    },
+    {
+      "source_key": "deepinfra/ByteDance/Seed-2.0-code",
+      "target_or_model_id": "bytedance-seed/seed-2.0-code"
+    },
+    {
+      "source_key": "deepinfra/Qwen/Qwen3.5-27B",
+      "target_or_model_id": "qwen/qwen3.5-27b"
+    },
+    {
+      "source_key": "deepinfra/Qwen/Qwen3.5-35B-A3B",
+      "target_or_model_id": "qwen/qwen3.5-35b-a3b"
+    },
+    {
+      "source_key": "deepinfra/Qwen/Qwen3.5-122B-A10B",
+      "target_or_model_id": "qwen/qwen3.5-122b-a10b"
+    },
+    {
+      "source_key": "deepinfra/Qwen/Qwen3.5-397B-A17B",
+      "target_or_model_id": "qwen/qwen3.5-397b-a17b"
+    },
+    {
+      "source_key": "deepinfra/anthropic/claude-4-opus",
+      "target_or_model_id": "anthropic/claude-opus-4"
+    },
+    {
+      "source_key": "deepinfra/anthropic/claude-4-sonnet",
+      "target_or_model_id": "anthropic/claude-sonnet-4"
+    },
+    {
+      "source_key": "deepinfra/anthropic/claude-fable-5",
+      "target_or_model_id": "anthropic/claude-fable-5"
+    },
+    {
+      "source_key": "deepinfra/anthropic/claude-haiku-4-5",
+      "target_or_model_id": "anthropic/claude-haiku-4.5"
+    },
+    {
+      "source_key": "deepinfra/anthropic/claude-opus-4-7",
+      "target_or_model_id": "anthropic/claude-opus-4.7"
+    },
+    {
+      "source_key": "deepinfra/anthropic/claude-opus-4-8",
+      "target_or_model_id": "anthropic/claude-opus-4.8"
+    },
+    {
+      "source_key": "deepinfra/anthropic/claude-opus-5",
+      "target_or_model_id": "anthropic/claude-opus-5"
+    },
+    {
+      "source_key": "deepinfra/anthropic/claude-sonnet-4-6",
+      "target_or_model_id": "anthropic/claude-sonnet-4.6"
+    },
+    {
+      "source_key": "deepinfra/anthropic/claude-sonnet-5",
+      "target_or_model_id": "anthropic/claude-sonnet-5"
+    },
+    {
+      "source_key": "deepinfra/nvidia/NVIDIA-Nemotron-3.5-Lightning",
+      "target_or_model_id": "nvidia/nemotron-3.5-lightning"
+    },
+    {
+      "source_key": "deepinfra/nvidia/Nemotron-3-Nano-30B-A3B",
+      "target_or_model_id": "nvidia/nemotron-3-nano-30b-a3b"
+    },
+    {
+      "source_key": "fireworks/accounts/fireworks/models/deepseek-v4-pro-0813",
+      "target_or_model_id": "deepseek/deepseek-v4-pro-0813"
+    },
+    {
+      "source_key": "together/Qwen/Qwen3.8-2.4T-A95B",
+      "target_or_model_id": "qwen/qwen3.8-2.4t-a95b"
+    },
+    {
+      "source_key": "together/meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      "target_or_model_id": "meta-llama/llama-3.3-70b-instruct"
+    }
+  ]
+}
