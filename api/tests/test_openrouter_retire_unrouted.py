@@ -58,6 +58,27 @@ def test_active_routes_are_protected_even_when_absent_from_this_wave():
     assert retired["disabled_class"] == "openrouter_unrouted"
 
 
+def test_native_openrouter_rows_are_not_treated_as_source_rows():
+    db = _db()
+    db.models.insert_many(
+        [
+            _model("openrouter", "native-model"),
+            _model("deepinfra", "source-model"),
+        ]
+    )
+
+    result = retire_unrouted(
+        db=db,
+        wave_id="wave-1",
+        passing=set(),
+        covered={("deepinfra", "source-model")},
+        apply=False,
+    )
+
+    assert result["enabled_non_core"] == 1
+    assert result["retirements"] == 1
+
+
 def test_wave_keys_include_candidates_and_skipped_rows(tmp_path):
     report = tmp_path / "decisions.json"
     report.write_text(

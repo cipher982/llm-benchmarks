@@ -143,9 +143,16 @@ def retire_unrouted(
     covered: set[tuple[str, str]],
     apply: bool,
 ) -> dict[str, Any]:
+    # Native OpenRouter rows are the destination of this migration, not old
+    # source rows to retire. They are enabled independently of route evidence.
+    legacy_source_providers = sorted(set(DIRECT_PROVIDERS) | {"openrouter"})
     rows = list(
         db[models_collection_name()].find(
-            {"enabled": True, "deprecated": {"$ne": True}, "provider": {"$nin": sorted(DIRECT_PROVIDERS)}},
+            {
+                "enabled": True,
+                "deprecated": {"$ne": True},
+                "provider": {"$nin": legacy_source_providers},
+            },
             {"provider": 1, "model_id": 1, "_id": 0},
         )
     )
