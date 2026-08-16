@@ -37,6 +37,22 @@ RETRYABLE_ERROR_KINDS = {
     "transient_provider",
 }
 
+# The measurement protocol a verdict was reached under. Bump when the request
+# shape changes — token budget, early stopping, retry policy, reasoning
+# controls.
+#
+# v2 (2026-08-16): budget 64 -> 2048, the stream closes at the 64th visible
+# token, and validation stopped asking whether output landed near the budget.
+MEASUREMENT_PROTOCOL_VERSION = 2
+
+# Failure kinds that describe the measurement rather than the model. A model
+# that could not be measured at 64 tokens has been told nothing about itself,
+# so the verdict expires when the protocol that produced it does — otherwise
+# 419 models stay permanently dead-lettered for exhausting a budget that no
+# longer exists, and every future protocol change needs a human with a mongosh
+# session to undo it.
+PROTOCOL_DEPENDENT_ERROR_KINDS = {"budget_exhausted"}
+
 OVERLOADED_ERROR_MARKERS = (
     "overloaded",
     "model busy",

@@ -347,6 +347,11 @@ def _failure_update(job: dict[str, Any], *, error_kind: str, error_message: str,
             "worker_id": None,
             "last_attempt_error_kind": error_kind,
             "last_attempt_error_message": error_message[:2000],
+            # Which protocol this verdict was reached under. A terminal failure
+            # that describes the measurement rather than the model stops being
+            # evidence when the protocol changes, and the sweep needs to be able
+            # to tell.
+            "last_attempt_protocol_version": policies.MEASUREMENT_PROTOCOL_VERSION,
         }
     }
 
@@ -377,7 +382,16 @@ def requeue_retryable_dead_letters(
     now: datetime | None = None,
     min_age_seconds: int = policies.DEAD_LETTER_RETRY_AFTER_SECONDS,
 ) -> list[dict[str, Any]]:
-    """Return old recoverable dead letters to the queue."""
+    """Return old recoverable dead letters to the queue.
+
+    Recoverable covers two different things. A transient failure recovers with
+    time, so it waits for a cutoff. A verdict about the measurement — the model
+    could not produce visible output inside the budget — recovers when the
+    protocol changes, and waiting does nothing for it. Without the second
+    clause, raising the token budget leaves every model that failed under the
+    old one permanently dead-lettered, which is how 419 of them came to be
+    holding a verdict reached against a budget that no longer existed.
+    """
     now = now or utcnow()
     cutoff = now - timedelta(seconds=min_age_seconds)
     billing_cutoff = now - timedelta(seconds=policies.BILLING_DEAD_LETTER_RETRY_AFTER_SECONDS)
@@ -402,6 +416,15 @@ def requeue_retryable_dead_letters(
             {
                 "updated_at": {"$lte": billing_cutoff},
                 "last_attempt_error_kind": "billing",
+            },
+            {
+                # Stale-protocol verdicts. An absent version predates the field,
+                # so the protocol is unknown and the verdict cannot be relied on.
+                "last_attempt_error_kind": {"$in": sorted(policies.PROTOCOL_DEPENDENT_ERROR_KINDS)},
+                "$or": [
+                    {"last_attempt_protocol_version": {"$exists": False}},
+                    {"last_attempt_protocol_version": {"$lt": policies.MEASUREMENT_PROTOCOL_VERSION}},
+                ],
             },
         ],
     }

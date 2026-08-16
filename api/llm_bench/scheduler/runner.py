@@ -222,10 +222,11 @@ SAMPLE_ROLE_PUBLISHED = "published"
 SAMPLE_ROLE_PROBE = "probe"
 NON_PUBLISHING_ROLES = frozenset({SAMPLE_ROLE_PROBE})
 
-# The measurement protocol a row was produced under. Bump when the request
-# shape changes — cap, retry policy, reasoning controls — so rows measured
-# under different rules are never silently averaged together.
-PROTOCOL_VERSION = 1
+# The measurement protocol a row was produced under, so rows measured under
+# different rules are never silently averaged together. Defined in policies
+# because the queue reads it too: a terminal verdict about the measurement is
+# only evidence while the protocol that produced it still holds.
+PROTOCOL_VERSION = policies.MEASUREMENT_PROTOCOL_VERSION
 DEFAULT_PROFILE_ID = PUBLISHED_PROFILE_ID
 OPENROUTER_ROUTING_ENABLED_ENV = "OPENROUTER_ROUTING_ENABLED"
 
