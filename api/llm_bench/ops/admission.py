@@ -38,6 +38,7 @@ from llm_bench.scheduler import policies
 from llm_bench.scheduler import queue
 from llm_bench.scheduler.mongo import models_collection_name
 from llm_bench.scheduler.mongo import probe_metrics_collection_name
+from llm_bench.scheduler.mongo import published_profile_filter
 
 __all__ = [
     "models_collection_name",
@@ -290,7 +291,14 @@ def _probe_successes(db: Database, *, provider: str, model_id: str) -> list[date
     stamps = [
         _as_utc(row.get("run_ts"))
         for row in db[probe_metrics_collection_name()].find(
-            {"provider": provider, "model_name": model_id},
+            {
+                "provider": provider,
+                "model_name": model_id,
+                # Shadow measurements answer a different question at a larger
+                # token budget. They are evidence for diagnosis, never for
+                # admission into the published 64-token series.
+                "$and": [published_profile_filter()],
+            },
             {"run_ts": 1},
         )
     ]

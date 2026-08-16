@@ -123,6 +123,24 @@ class TestProbeEnqueue:
 
 
 class TestPromotion:
+    def test_shadow_profile_successes_do_not_promote_a_candidate(self, db):
+        candidate(db, "openrouter", "qwen/qwen3-thinking")
+        for ago in (timedelta(hours=6), timedelta(hours=3)):
+            db.metrics_cloud_probe.insert_one(
+                {
+                    "provider": "openrouter",
+                    "model_name": "qwen/qwen3-thinking",
+                    "benchmark_profile_id": "cloud-reasoning-v1",
+                    "run_ts": NOW - ago,
+                    "sample_role": "shadow",
+                }
+            )
+
+        promoted, _ = admission.evaluate_candidates(db, now=NOW)
+
+        assert promoted == []
+        assert db.models.find_one({"model_id": "qwen/qwen3-thinking"})["enabled"] is False
+
     def test_two_spaced_successes_promote_as_provisional(self, db):
         candidate(db, "groq", "cand")
         probe_success(db, "groq", "cand", ago=timedelta(hours=6))

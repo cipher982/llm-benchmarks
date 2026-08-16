@@ -1,10 +1,10 @@
 """Measure the models the default profile cannot measure.
 
 A reasoning model spends the whole 64-token budget on hidden reasoning and emits
-nothing visible, so it fails validation every time and has no data at all. Nine
-enabled models are in that state. That is not the model being broken; it is the
-benchmark profile being unable to measure it, which is why the failure has its
-own class.
+nothing visible, so it fails validation every time and has no data at all. That
+is not the model being broken; it is the benchmark profile being unable to
+measure it, which is why the failure has its own class. This applies to newly
+discovered admission candidates as well as already-enabled models.
 
 Raising the budget for everything would change what every published number
 means, and the series is already hard enough to reason about: 975 of 1,182
@@ -69,11 +69,26 @@ def find_unmeasurable(db: Database) -> list[tuple[str, str]]:
     jobs = db[queue.jobs_collection_name()]
     subjects = []
     for doc in db[models_collection_name()].find(
-        {"enabled": True, "deprecated": {"$ne": True}},
+        {
+            "deprecated": {"$ne": True},
+            "$or": [
+                {"enabled": True},
+                # Native OpenRouter candidates are deliberately disabled while
+                # they are being admitted, but still need the larger diagnostic
+                # profile when the published probe exhausts its budget.
+                {"provider": "openrouter", "status": "probing"},
+            ],
+        },
         {"provider": 1, "model_id": 1},
     ):
         job = jobs.find_one(
-            {"provider": doc["provider"], "model_id": doc["model_id"]},
+            {
+                "provider": doc["provider"],
+                "model_id": doc["model_id"],
+                # Do not let a successful shadow sample hide the default
+                # profile failure that caused this diagnostic run.
+                "sample_role": {"$ne": SAMPLE_ROLE},
+            },
             {"last_attempt_error_kind": 1},
             sort=[("updated_at", -1)],
         )

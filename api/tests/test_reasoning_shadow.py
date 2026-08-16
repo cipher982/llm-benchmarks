@@ -53,6 +53,13 @@ def test_only_budget_exhausted_models_qualify(db):
     assert reasoning_shadow.find_unmeasurable(db) == [("deepinfra", "MiniMaxAI/MiniMax-M2")]
 
 
+def test_openrouter_candidate_with_budget_failure_qualifies(db):
+    _model(db, "openrouter", "qwen/qwen3-thinking", enabled=False, status="probing")
+    _job(db, "openrouter", "qwen/qwen3-thinking", "budget_exhausted")
+
+    assert reasoning_shadow.find_unmeasurable(db) == [("openrouter", "qwen/qwen3-thinking")]
+
+
 def test_shadow_jobs_carry_the_profile_and_do_not_publish(db):
     _model(db, "deepinfra", "MiniMaxAI/MiniMax-M2")
     _job(db, "deepinfra", "MiniMaxAI/MiniMax-M2", "budget_exhausted")
