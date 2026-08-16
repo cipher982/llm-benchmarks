@@ -94,6 +94,34 @@ def test_renews_due_active_route():
     assert probe.calls == [("deepinfra", "meta-llama/Meta-Llama-3.1-8B-Instruct")]
 
 
+def test_renews_or_served_route_without_paired_statistics():
+    db = _db()
+    route = _route()
+    route.update(
+        {
+            "route_policy": "or-served",
+            "route_provider_slug": "alibaba",
+            "observed_provider": "Alibaba",
+            "observed_provider_slug": "alibaba",
+        }
+    )
+    for key in (
+        "canary_cost_status",
+        "canary_tps_ci95_lower",
+        "canary_ttft_ci95_upper",
+        "canary_cost_ci95_upper",
+        "profile_hash",
+        "direct_effective_request_hash",
+        "routed_effective_request_hash",
+    ):
+        route.pop(key)
+    db.bench_route_decisions.insert_one(route)
+
+    report = renew_pass(db, now=NOW, probe=Probe())
+
+    assert report["renewed"] == 1
+
+
 def test_skips_route_far_from_expiry():
     db = _db()
     db.bench_route_decisions.insert_one(_route(expires_at=NOW + timedelta(hours=100)))

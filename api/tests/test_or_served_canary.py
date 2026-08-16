@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from llm_bench.scheduler.routing import DIRECT_TRANSPORT
-from llm_bench.scheduler.routing import RouteDecision
+from llm_bench.scheduler.routing import resolve_job_route
 
 import scripts.openrouter_or_served_canary as osc
 from scripts.openrouter_promote_route import promote_or_served_route
@@ -159,7 +159,7 @@ def test_promote_or_served_builds_active_route(tmp_path: Path):
     assert route["state"] == "active"
     assert route["route_policy"] == "or-served"
     assert route["observed_provider_slug"] == "alibaba"
-    decision = RouteDecision.from_snapshot("deepinfra", "Qwen/Qwen3-235B-A22B", route, require_promotion_evidence=False)
+    decision = resolve_job_route({"provider": "deepinfra", "model_id": "Qwen/Qwen3-235B-A22B", "route_snapshot": route})
     assert decision.transport_provider != DIRECT_TRANSPORT
 
 

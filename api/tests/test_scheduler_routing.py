@@ -4,6 +4,7 @@ from datetime import timezone
 import mongomock
 from llm_bench import logging as benchmark_logging
 from llm_bench.scheduler import queue
+from llm_bench.scheduler.mongo import route_snapshot
 from llm_bench.scheduler.routing import DIRECT_TRANSPORT
 from llm_bench.scheduler.routing import OPENROUTER_TRANSPORT
 from llm_bench.scheduler.routing import ROUTE_DECISION_VERSION
@@ -223,6 +224,20 @@ def test_queue_persists_a_frozen_route_snapshot():
     saved = db.bench_jobs.find_one({"provider": "deepinfra"})
     assert saved["route_snapshot"]["state"] == "active"
     assert saved["route_snapshot"]["queued_at"] == "2026-08-09T00:00:00+00:00"
+
+
+def test_route_snapshot_only_returns_active_route():
+    db = mongomock.MongoClient()["llm-bench-test"]
+    db.bench_route_decisions.insert_many(
+        [
+            {"source_provider": "deepinfra", "source_model_id": "m", "state": "active", "route_snapshot_at": "1"},
+            {"source_provider": "deepinfra", "source_model_id": "m", "state": "superseded", "route_snapshot_at": "2"},
+        ]
+    )
+
+    snapshot = route_snapshot(db, provider="deepinfra", model_id="m")
+
+    assert snapshot["state"] == "active"
 
 
 def test_metric_writer_keeps_source_identity_for_routed_config(monkeypatch):

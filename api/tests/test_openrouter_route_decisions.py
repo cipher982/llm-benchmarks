@@ -281,7 +281,7 @@ def test_or_served_route_resolves_active():
     decision = RouteDecision.from_snapshot("deepinfra", "Qwen/Qwen3-235B-A22B", snapshot)
     assert decision.transport_provider != DIRECT_TRANSPORT
     assert decision.route_policy == "or-served"
-    assert decision.reason == "active-pinned-route"
+    assert decision.reason == "active-or-served-route"
 
 
 def test_or_served_route_still_requires_matching_observed_evidence():

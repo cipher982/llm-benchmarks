@@ -100,7 +100,7 @@ def route_audit_collection_name() -> str:
 def route_snapshot(db, *, provider: str, model_id: str) -> dict | None:
     """Return the newest reviewed route decision for one source row."""
     return db[route_decisions_collection_name()].find_one(
-        {"source_provider": provider, "source_model_id": model_id},
+        {"source_provider": provider, "source_model_id": model_id, "state": "active"},
         sort=[("route_snapshot_at", -1), ("updated_at", -1)],
     )
 

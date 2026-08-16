@@ -138,7 +138,8 @@ class RouteDecision:
             return cls.direct(source_provider, source_model_id, reason="route-state-not-active")
         if snapshot.get("transport_provider") != OPENROUTER_TRANSPORT:
             return cls.direct(source_provider, source_model_id, reason="invalid-route-transport")
-        if snapshot.get("route_policy") not in (PINNED_PROVIDER_POLICY, OR_SERVED_POLICY):
+        route_policy = snapshot.get("route_policy")
+        if route_policy not in (PINNED_PROVIDER_POLICY, OR_SERVED_POLICY):
             return cls.direct(source_provider, source_model_id, reason="invalid-route-policy")
         canary_state = snapshot.get("canary_state")
         canary_id = snapshot.get("canary_id")
@@ -163,8 +164,6 @@ class RouteDecision:
         if require_promotion_evidence:
             if snapshot.get("canary_promotion_gate") != "passed":
                 return cls.direct(source_provider, source_model_id, reason="canary-promotion-gate-not-passed")
-            if snapshot.get("canary_cost_status") != "verified":
-                return cls.direct(source_provider, source_model_id, reason="canary-cost-unverified")
             evidence_uri = snapshot.get("canary_evidence_uri")
             evidence_sha256 = snapshot.get("canary_evidence_sha256")
             if (
@@ -176,30 +175,39 @@ class RouteDecision:
                 or re.fullmatch(r"[0-9a-fA-F]{64}", evidence_sha256) is None
             ):
                 return cls.direct(source_provider, source_model_id, reason="canary-evidence-not-immutable")
-            try:
-                tps_lower = float(snapshot["canary_tps_ci95_lower"])
-                cost_upper = float(snapshot["canary_cost_ci95_upper"])
-            except (KeyError, TypeError, ValueError):
-                return cls.direct(source_provider, source_model_id, reason="canary-statistical-evidence-missing")
-            # The TTFT bound applies unless the canary explicitly recorded that
-            # the direct lane measured TTFT on zero pairs; a missing value with
-            # no waiver flag remains fail-closed.
-            ttft_waived = snapshot.get("canary_ttft_waived_direct_unmeasured") is True
-            ttft_upper: float | None = None
-            if not ttft_waived:
+            # Pinned routes use paired direct-vs-routed statistics. Marketplace
+            # routes deliberately use routed-only evidence: OpenRouter is the
+            # product lane and may choose whichever upstream serves the model.
+            if route_policy != OR_SERVED_POLICY:
+                if snapshot.get("canary_cost_status") != "verified":
+                    return cls.direct(source_provider, source_model_id, reason="canary-cost-unverified")
                 try:
-                    ttft_upper = float(snapshot["canary_ttft_ci95_upper"])
+                    tps_lower = float(snapshot["canary_tps_ci95_lower"])
+                    cost_upper = float(snapshot["canary_cost_ci95_upper"])
                 except (KeyError, TypeError, ValueError):
                     return cls.direct(source_provider, source_model_id, reason="canary-statistical-evidence-missing")
-            checked = (tps_lower, cost_upper) if ttft_waived else (tps_lower, ttft_upper, cost_upper)
-            if not all(isfinite(value) for value in checked):
-                return cls.direct(source_provider, source_model_id, reason="canary-statistical-evidence-nonfinite")
-            if tps_lower < MIN_PROMOTION_TPS_CI95:
-                return cls.direct(source_provider, source_model_id, reason="canary-tps-bound-failed")
-            if ttft_upper is not None and ttft_upper > MAX_PROMOTION_TTFT_CI95:
-                return cls.direct(source_provider, source_model_id, reason="canary-ttft-bound-failed")
-            if cost_upper > MAX_PROMOTION_COST_CI95:
-                return cls.direct(source_provider, source_model_id, reason="canary-cost-bound-failed")
+                # The TTFT bound applies unless the canary explicitly recorded that
+                # the direct lane measured TTFT on zero pairs; a missing value with
+                # no waiver flag remains fail-closed.
+                ttft_waived = snapshot.get("canary_ttft_waived_direct_unmeasured") is True
+                ttft_upper: float | None = None
+                if not ttft_waived:
+                    try:
+                        ttft_upper = float(snapshot["canary_ttft_ci95_upper"])
+                    except (KeyError, TypeError, ValueError):
+                        return cls.direct(
+                            source_provider, source_model_id, reason="canary-statistical-evidence-missing"
+                        )
+                checked = (tps_lower, cost_upper) if ttft_waived else (tps_lower, ttft_upper, cost_upper)
+                if not all(isfinite(value) for value in checked):
+                    reason = "canary-statistical-evidence-nonfinite"
+                    return cls.direct(source_provider, source_model_id, reason=reason)
+                if tps_lower < MIN_PROMOTION_TPS_CI95:
+                    return cls.direct(source_provider, source_model_id, reason="canary-tps-bound-failed")
+                if ttft_upper is not None and ttft_upper > MAX_PROMOTION_TTFT_CI95:
+                    return cls.direct(source_provider, source_model_id, reason="canary-ttft-bound-failed")
+                if cost_upper > MAX_PROMOTION_COST_CI95:
+                    return cls.direct(source_provider, source_model_id, reason="canary-cost-bound-failed")
 
         required = (
             "route_model_id",
@@ -214,9 +222,13 @@ class RouteDecision:
             return cls.direct(source_provider, source_model_id, reason="unverified-provider-metadata")
         if snapshot.get("observed_provider_slug") != snapshot.get("route_provider_slug"):
             return cls.direct(source_provider, source_model_id, reason="observed-provider-mismatch")
-        if require_promotion_evidence and any(
-            not snapshot.get(key)
-            for key in ("profile_hash", "direct_effective_request_hash", "routed_effective_request_hash")
+        if (
+            require_promotion_evidence
+            and route_policy != OR_SERVED_POLICY
+            and any(
+                not snapshot.get(key)
+                for key in ("profile_hash", "direct_effective_request_hash", "routed_effective_request_hash")
+            )
         ):
             return cls.direct(source_provider, source_model_id, reason="request-evidence-missing")
 
@@ -233,7 +245,7 @@ class RouteDecision:
             route_provider_slug=str(snapshot["route_provider_slug"]),
             observed_provider=str(snapshot.get("observed_provider") or ""),
             observed_provider_slug=str(snapshot["observed_provider_slug"]),
-            route_policy=str(snapshot["route_policy"]),
+            route_policy=str(route_policy),
             route_snapshot_at=snapshot.get("route_snapshot_at"),
             route_probe_id=snapshot.get("route_probe_id"),
             route_decision_version=ROUTE_DECISION_VERSION,
@@ -252,7 +264,7 @@ class RouteDecision:
             direct_effective_request_hash=snapshot.get("direct_effective_request_hash"),
             routed_effective_request_hash=snapshot.get("routed_effective_request_hash"),
             state="active",
-            reason="active-pinned-route",
+            reason=("active-or-served-route" if route_policy == OR_SERVED_POLICY else "active-pinned-route"),
         )
 
     def as_dict(self) -> dict[str, Any]:
