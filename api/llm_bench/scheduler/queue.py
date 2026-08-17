@@ -38,7 +38,20 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def scheduled_job_id(provider: str, model_id: str) -> str:
+def scheduled_job_id(provider: str, model_id: str, endpoint_tag: str | None = None) -> str:
+    """One id per unit of work the scheduler actually measures.
+
+    An endpoint target is `(model, endpoint tag)`, not `(provider, model)`:
+    `deepinfra/bf16` and `deepinfra/turbo` serve the same model at different
+    speeds. Sharing an id would let one endpoint's run stand in for its
+    siblings' — the same collapse that made a model look fresh when only one of
+    its lanes had been measured.
+
+    Routes predating endpoint identity keep their two-part id, so nothing in
+    flight is orphaned by the change.
+    """
+    if endpoint_tag:
+        return f"{provider}:{model_id}:{endpoint_tag}"
     return f"{provider}:{model_id}"
 
 
@@ -113,9 +126,10 @@ def enqueue_scheduled_job(
     not_before: datetime | None = None,
     now: datetime | None = None,
     route_snapshot: dict[str, Any] | None = None,
+    endpoint_tag: str | None = None,
 ) -> bool:
     now = now or utcnow()
-    job_id = scheduled_job_id(provider, model_id)
+    job_id = scheduled_job_id(provider, model_id, endpoint_tag)
     doc = _new_job_doc(
         job_id=job_id,
         provider=provider,
@@ -125,6 +139,7 @@ def enqueue_scheduled_job(
         now=now,
         not_before=not_before,
         route_snapshot=route_snapshot,
+        extra={"endpoint_tag": endpoint_tag} if endpoint_tag else None,
     )
     coll = jobs_collection(db)
     existing = coll.find_one({"_id": job_id}, {"status": 1})

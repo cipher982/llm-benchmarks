@@ -27,6 +27,22 @@ def health_collection(db: Database) -> Collection:
     return db[health_collection_name()]
 
 
+def health_filter(provider: str, model_id: str, endpoint_tag: str | None = None) -> dict[str, Any]:
+    """The identity of one health record.
+
+    Freshness has to be per endpoint, not per model. `deepinfra/bf16` and
+    `deepinfra/turbo` are separate deployments of the same model, and if they
+    share a health document then measuring one marks the other fresh — the
+    scheduler stops asking for an endpoint nobody has actually benchmarked.
+
+    Records written before endpoint identity carry no tag and keep matching on
+    the two-part key, so existing freshness state survives the change.
+    """
+    if endpoint_tag:
+        return {"provider": provider, "model_id": model_id, "endpoint_tag": endpoint_tag}
+    return {"provider": provider, "model_id": model_id, "endpoint_tag": {"$in": [None, ""]}}
+
+
 def dedupe_existing_health_docs(db: Database) -> int:
     coll = health_collection(db)
     removed = 0
@@ -34,7 +50,21 @@ def dedupe_existing_health_docs(db: Database) -> int:
         [
             {"$match": {"provider": {"$exists": True}, "model_id": {"$exists": True}}},
             {"$sort": {"updated_at": -1}},
-            {"$group": {"_id": {"provider": "$provider", "model_id": "$model_id"}, "ids": {"$push": "$_id"}}},
+            {
+                "$group": {
+                    # Endpoint records are not duplicates of their model's
+                    # record. Grouping without the tag would treat every
+                    # endpoint of a model as a redundant copy and delete all but
+                    # one, silently collapsing the fleet back to model
+                    # granularity.
+                    "_id": {
+                        "provider": "$provider",
+                        "model_id": "$model_id",
+                        "endpoint_tag": "$endpoint_tag",
+                    },
+                    "ids": {"$push": "$_id"},
+                }
+            },
             {"$match": {"ids.1": {"$exists": True}}},
         ]
     )
@@ -51,7 +81,11 @@ def dedupe_existing_health_docs(db: Database) -> int:
 def ensure_indexes(db: Database) -> None:
     dedupe_existing_health_docs(db)
     coll = health_collection(db)
-    coll.create_index([("provider", 1), ("model_id", 1)], unique=True)
+    # Uniqueness is per endpoint. A model served by deepinfra/bf16 and
+    # deepinfra/turbo needs one health record each; a unique index on
+    # (provider, model_id) alone would reject the second and leave the fleet
+    # measuring one deployment while believing it measured both.
+    coll.create_index([("provider", 1), ("model_id", 1), ("endpoint_tag", 1)], unique=True)
     coll.create_index([("freshness_status", 1), ("updated_at", -1)])
     coll.create_index([("enabled", 1), ("provider", 1)])
     db[metrics_collection_name()].create_index(
@@ -128,6 +162,7 @@ def refresh_model_health_doc(
     *,
     provider: str,
     model_id: str,
+    endpoint_tag: str | None = None,
     enabled: bool,
     cadence_seconds: int,
     deprecated: bool = False,
@@ -135,7 +170,7 @@ def refresh_model_health_doc(
 ) -> None:
     now = now or utcnow()
     effective_enabled = enabled and not deprecated
-    existing = health_collection(db).find_one({"provider": provider, "model_id": model_id})
+    existing = health_collection(db).find_one(health_filter(provider, model_id, endpoint_tag))
     last_success_at = existing.get("last_success_at") if existing else None
     freshness_status, staleness_seconds = compute_freshness_status(
         enabled=effective_enabled,
@@ -144,10 +179,10 @@ def refresh_model_health_doc(
         now=now,
     )
     health_collection(db).update_one(
-        {"provider": provider, "model_id": model_id},
+        health_filter(provider, model_id, endpoint_tag),
         {
             "$setOnInsert": {
-                "_id": scheduled_job_id(provider, model_id),
+                "_id": scheduled_job_id(provider, model_id, endpoint_tag),
                 "last_success_at": None,
                 "last_attempt_at": None,
                 "last_error_at": None,
@@ -207,7 +242,9 @@ def backfill_from_metrics(db: Database, *, cadence_seconds: int, now: datetime |
         model_id = model_row.get("model_id")
         if not provider or not model_id:
             continue
-        existing = health_collection(db).find_one({"provider": provider, "model_id": model_id})
+        # Backfill walks the model catalogue, so it can only ever seed
+        # model-level freshness. Endpoint records earn theirs by being measured.
+        existing = health_collection(db).find_one(health_filter(provider, model_id, None))
         if existing and existing.get("last_success_at"):
             continue
         latest = db[metrics_collection_name()].find_one(
@@ -238,10 +275,10 @@ def backfill_from_metrics(db: Database, *, cadence_seconds: int, now: datetime |
             now=now,
         )
         health_collection(db).update_one(
-            {"provider": provider, "model_id": model_id},
+            health_filter(provider, model_id, None),
             {
                 "$setOnInsert": {
-                    "_id": scheduled_job_id(provider, model_id),
+                    "_id": scheduled_job_id(provider, model_id, None),
                     "last_attempt_at": None,
                     "last_error_at": None,
                     "last_error_kind": None,
@@ -271,6 +308,7 @@ def record_success(
     *,
     provider: str,
     model_id: str,
+    endpoint_tag: str | None = None,
     cadence_seconds: int,
     now: datetime | None = None,
 ) -> None:
@@ -283,10 +321,10 @@ def record_success(
         now=now,
     )
     health_collection(db).update_one(
-        {"provider": provider, "model_id": model_id},
+        health_filter(provider, model_id, endpoint_tag),
         {
             "$setOnInsert": {
-                "_id": scheduled_job_id(provider, model_id),
+                "_id": scheduled_job_id(provider, model_id, endpoint_tag),
             },
             "$set": {
                 "enabled": True,
@@ -314,13 +352,14 @@ def record_error(
     *,
     provider: str,
     model_id: str,
+    endpoint_tag: str | None = None,
     cadence_seconds: int,
     error_kind: str,
     error_message: str,
     now: datetime | None = None,
 ) -> None:
     now = now or utcnow()
-    existing = health_collection(db).find_one({"provider": provider, "model_id": model_id}) or {}
+    existing = health_collection(db).find_one(health_filter(provider, model_id, endpoint_tag)) or {}
     last_success_at = existing.get("last_success_at")
     successes, failures, deadline_misses = _recent_counts(db, provider=provider, model_id=model_id, now=now)
     freshness_status, staleness_seconds = compute_freshness_status(
@@ -330,10 +369,10 @@ def record_error(
         now=now,
     )
     health_collection(db).update_one(
-        {"provider": provider, "model_id": model_id},
+        health_filter(provider, model_id, endpoint_tag),
         {
             "$setOnInsert": {
-                "_id": scheduled_job_id(provider, model_id),
+                "_id": scheduled_job_id(provider, model_id, endpoint_tag),
                 "last_success_at": None,
             },
             "$set": {
