@@ -63,6 +63,8 @@ OPTIONAL_METRIC_FIELDS = (
     "transport_model_id",
     "route_model_id",
     "route_provider_slug",
+    "route_endpoint_tag",
+    "quantization",
     "observed_provider",
     "observed_provider_slug",
     "openrouter_response_id",

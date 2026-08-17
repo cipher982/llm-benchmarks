@@ -75,6 +75,10 @@ class RouteDecision:
     # Pinning the family instead of the tag would load-balance the variants,
     # which is the non-determinism this exists to remove.
     route_endpoint_tag: str | None = None
+    # What that endpoint is actually running. An fp4 deployment is faster than a
+    # bf16 one because it is a smaller artifact, not because the provider is
+    # quicker, so the row cannot publish the speed without it.
+    route_endpoint_quantization: str | None = None
     observed_provider: str | None = None
     observed_provider_slug: str | None = None
     route_policy: str = DIRECT_POLICY
@@ -251,6 +255,9 @@ class RouteDecision:
             route_model_id=route_model_id,
             route_provider_slug=str(snapshot["route_provider_slug"]),
             route_endpoint_tag=(str(snapshot["route_endpoint_tag"]) if snapshot.get("route_endpoint_tag") else None),
+            route_endpoint_quantization=(
+                str(snapshot["route_endpoint_quantization"]) if snapshot.get("route_endpoint_quantization") else None
+            ),
             observed_provider=str(snapshot.get("observed_provider") or ""),
             observed_provider_slug=str(snapshot["observed_provider_slug"]),
             route_policy=str(route_policy),

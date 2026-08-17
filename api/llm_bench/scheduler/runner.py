@@ -707,6 +707,15 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
     )
     metrics["requested_max_tokens"] = max_tokens
     metrics["protocol_version"] = PROTOCOL_VERSION
+    # Endpoint identity travels with the measurement. The tag names which
+    # deployment served it; quantization says what artifact that deployment is
+    # running, and an fp4 endpoint is faster than a bf16 one because it is a
+    # smaller model, not because the provider is quicker. Publishing the speed
+    # without the quantization would report a compression difference as a
+    # performance difference.
+    if decision.route_endpoint_tag:
+        metrics["route_endpoint_tag"] = decision.route_endpoint_tag
+        metrics["quantization"] = decision.route_endpoint_quantization
     metrics["attempt_group"] = str(job.get("_id"))
     metrics["attempt"] = int(job.get("attempt") or 1)
     try:

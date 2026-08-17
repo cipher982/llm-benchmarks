@@ -113,3 +113,32 @@ class TestEnqueue:
         jobs = list(db["bench_jobs"].find({}))
         assert len(jobs) == 2, "endpoints collapsed into one job"
         assert sorted(j["endpoint_tag"] for j in jobs) == ["deepinfra/bf16", "deepinfra/turbo"]
+
+
+class TestRowIdentity:
+    """A measurement that does not name its endpoint cannot be published as one."""
+
+    def test_a_pinned_decision_carries_tag_and_quantization(self):
+        from llm_bench.scheduler.routing import RouteDecision
+
+        d = RouteDecision(
+            source_provider="openrouter",
+            source_model_id="openai/gpt-oss-120b",
+            route_endpoint_tag="coreweave/fp4",
+            route_endpoint_quantization="fp4",
+        )
+        assert d.route_endpoint_tag == "coreweave/fp4"
+        assert d.route_endpoint_quantization == "fp4"
+
+    def test_endpoint_fields_survive_the_metric_writer(self):
+        """log_mongo copies only registered keys; anything else is dropped."""
+        from llm_bench.logging import _optional_metric_fields
+
+        written = _optional_metric_fields(
+            {
+                "route_endpoint_tag": "coreweave/fp4",
+                "quantization": "fp4",
+                "unregistered": "dropped",
+            }
+        )
+        assert written == {"route_endpoint_tag": "coreweave/fp4", "quantization": "fp4"}
