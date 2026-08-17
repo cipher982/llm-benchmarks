@@ -29,6 +29,7 @@ from typing import Any
 from pymongo.database import Database
 
 from llm_bench.ops import identity
+from llm_bench.scheduler.mongo import metrics_collection_name
 from llm_bench.scheduler.mongo import models_collection_name
 
 CATALOGUE_COLLECTION = "openrouter_catalog"
@@ -146,6 +147,23 @@ class Proposal:
         return self.label != (self.current or "")
 
 
+# The longest window any chart renders. A model disabled yesterday is still on
+# the site until its last row falls out of this.
+PUBLICATION_WINDOW = timedelta(days=30)
+
+
+def renderable_model_ids(db: Database, *, now: datetime | None = None) -> set[str]:
+    """Models the site can still draw, whether or not they are enabled.
+
+    Naming only enabled models was too narrow: retiring the OpenAI rows from the
+    OpenRouter lane left 28 of them on the leaderboard under raw ids, because
+    they still had rows inside the two-day window and no longer qualified to be
+    named. 289 disabled models are inside the 30-day window at any time.
+    """
+    now = now or utcnow()
+    return set(db[metrics_collection_name()].distinct("model_name", {"run_ts": {"$gte": now - PUBLICATION_WINDOW}}))
+
+
 def _identity_siblings(db: Database) -> dict[tuple[str, str], str]:
     """Endpoint -> canonical_key, for the endpoints identity has resolved."""
     return {
@@ -178,7 +196,7 @@ def plan(db: Database) -> list[Proposal]:
 
     proposals: list[Proposal] = []
     for row in db[models_collection_name()].find(
-        {"enabled": True, "deprecated": {"$ne": True}},
+        {"$or": [{"enabled": True}, {"model_id": {"$in": sorted(renderable_model_ids(db))}}]},
         {"provider": 1, "model_id": 1, "display_name": 1},
     ):
         provider = str(row.get("provider") or "")

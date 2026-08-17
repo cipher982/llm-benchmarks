@@ -231,3 +231,23 @@ class TestCollisionsPreferRederivedIds:
 
         labels = sorted(p.label for p in model_naming.plan(db))
         assert labels == ["Reka Edge (other)", "Reka Edge (reka)"]
+
+
+class TestRenderableScope:
+    def test_a_disabled_model_still_on_the_site_is_named(self, db):
+        """Retiring the OpenAI rows from OpenRouter left 28 of them on the
+        leaderboard under raw ids: still inside the two-day window, no longer
+        enabled, so nothing named them."""
+        _catalogue(db, "openai/gpt-4o", "OpenAI: GPT-4o", org="openai")
+        _model(db, "openrouter", "openai/gpt-4o", "openai/gpt-4o", enabled=False)
+        db.metrics_cloud_v2.insert_one({"model_name": "openai/gpt-4o", "run_ts": NOW})
+
+        (proposal,) = model_naming.plan(db)
+        assert proposal.label == "GPT-4o"
+
+    def test_a_disabled_model_with_no_recent_rows_is_left_alone(self, db):
+        """1,524 rows are disabled; naming all of them is pointless churn."""
+        _catalogue(db, "old/model", "Vendor: Old Model")
+        _model(db, "openrouter", "old/model", "old/model", enabled=False)
+
+        assert model_naming.plan(db) == []
