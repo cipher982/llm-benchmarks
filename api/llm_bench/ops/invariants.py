@@ -20,7 +20,6 @@ can tell a check that passed from a check that never ran.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import field
@@ -32,6 +31,7 @@ from typing import Any
 from pymongo.database import Database
 
 from llm_bench.ops import desired_set as desired_set_module
+from llm_bench.scheduler import policies
 from llm_bench.scheduler.mongo import collection_name
 from llm_bench.scheduler.mongo import jobs_collection_name
 from llm_bench.scheduler.mongo import metrics_collection_name
@@ -45,15 +45,27 @@ THRESHOLD_VERSION = 4
 DISCOVERY_MAX_AGE = timedelta(hours=48)
 # A lane that has written nothing this long is not merely between jobs.
 PROVIDER_PROGRESS_MAX_AGE = timedelta(hours=2)
+
+
 # How often a model's turn actually comes around. This is not the invariant
 # loop's cadence, which is how often we *look* — an unrelated number that the
 # first version of this check multiplied by mistake, giving a one-hour horizon
 # and reporting thirteen perfectly healthy models as starved.
 #
-# Measured on clifford 2026-08-05 over 12h and 3355 intervals: the scheduler
-# round-robins the catalogue every 45 minutes, with p50 through p95 all inside
-# one minute of each other and a p99 of 63.
-MODEL_MEASUREMENT_PERIOD = timedelta(minutes=int(os.getenv("BENCHMARK_MODEL_PERIOD_MINUTES", "45")))
+# Derived from the scheduling policy, not measured and pinned. It was a
+# separate env var defaulting to the 45 minutes observed on clifford in August
+# 2026 — correct until FRESH_MINUTES moved and this did not, at which point the
+# check asks whether models were measured within 3h while the scheduler
+# deliberately waits 4.5h before rescheduling them. Permanently red, which is
+# the failure this file's own history warns about twice.
+#
+# A model is rescheduled once its last success passes 1.5x the freshness
+# horizon (health.compute_freshness_status), so that is the period, whatever
+# FRESH_MINUTES is set to.
+def model_measurement_period() -> timedelta:
+    return timedelta(seconds=policies.cadence_seconds() * 1.5)
+
+
 # Four turns missed in a row. Wide enough that ordinary jitter and a slow
 # provider lane never fire it, narrow enough that a model which has genuinely
 # stopped is named within a few hours.
@@ -402,7 +414,7 @@ def desired_models_are_being_measured(ctx: Context) -> list[Violation]:
     instead, where the number means something that can be acted on.
     """
     desired = ctx.desired
-    horizon = ctx.now - MODEL_MEASUREMENT_PERIOD * MODEL_STALENESS_MULTIPLIER
+    horizon = ctx.now - model_measurement_period() * MODEL_STALENESS_MULTIPLIER
     # Published rows only: a model succeeding only at the long profile is
     # starved for the series the site actually shows, which is the exact
     # condition this check must report.
