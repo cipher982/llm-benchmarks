@@ -240,7 +240,7 @@ class TestRenderableScope:
         enabled, so nothing named them."""
         _catalogue(db, "openai/gpt-4o", "OpenAI: GPT-4o", org="openai")
         _model(db, "openrouter", "openai/gpt-4o", "openai/gpt-4o", enabled=False)
-        db.metrics_cloud_v2.insert_one({"model_name": "openai/gpt-4o", "run_ts": NOW})
+        db.metrics_cloud_v2.insert_one({"provider": "openrouter", "model_name": "openai/gpt-4o", "run_ts": NOW})
 
         (proposal,) = model_naming.plan(db)
         assert proposal.label == "GPT-4o"
@@ -251,3 +251,82 @@ class TestRenderableScope:
         _model(db, "openrouter", "old/model", "old/model", enabled=False)
 
         assert model_naming.plan(db) == []
+
+
+class TestGlobalUniqueness:
+    def test_a_rewritten_label_cannot_land_on_an_existing_one(self, db):
+        """Resolving each collision group in isolation is not enough.
+
+        `gpt-4` and `gpt-4-turbo` collide on the name `gpt-4` and re-derive from
+        their ids — straight onto a third row that already holds `gpt-4-turbo`
+        and never collided at all.
+        """
+        _model(db, "openai", "gpt-4", "gpt-4")
+        _model(db, "openai", "gpt-4-turbo", "gpt-4")
+        _model(db, "openai", "gpt-4-turbo-preview", "gpt-4-turbo")
+
+        labels = [p.label for p in model_naming.plan(db)]
+        assert len(set(labels)) == 3, labels
+
+    def test_the_settle_is_deterministic_across_passes(self, db):
+        """A name that changed every pass would thrash the charts."""
+        _model(db, "openai", "gpt-4", "gpt-4")
+        _model(db, "openai", "gpt-4-turbo", "gpt-4")
+        _model(db, "openai", "gpt-4-turbo-preview", "gpt-4-turbo")
+
+        first = {(p.provider, p.model_id): p.label for p in model_naming.plan(db)}
+        second = {(p.provider, p.model_id): p.label for p in model_naming.plan(db)}
+        assert first == second
+
+    def test_names_are_unique_per_provider_not_globally(self, db):
+        """Two providers serving one model is the thing the site exists to show."""
+        _catalogue(db, "anthropic/claude-opus-4.6", "Anthropic: Claude Opus 4.6")
+        _model(db, "openrouter", "anthropic/claude-opus-4.6")
+        _model(db, "bedrock", "us.anthropic.claude-opus-4-6-v1", "Claude Opus 4.6")
+
+        assert [p.label for p in model_naming.plan(db)] == ["Claude Opus 4.6", "Claude Opus 4.6"]
+
+
+class TestRenderableScopeIsPerEndpoint:
+    def test_one_provider_row_does_not_drag_in_another(self, db):
+        """Matching on model_id alone pulled unrelated disabled rows into the
+        pass, mutating things nothing renders."""
+        _catalogue(db, "shared-id", "Vendor: Shared")
+        _model(db, "openrouter", "shared-id", "shared-id", enabled=False)
+        _model(db, "bedrock", "shared-id", "old-bedrock-name", enabled=False)
+        db.metrics_cloud_v2.insert_one({"provider": "openrouter", "model_name": "shared-id", "run_ts": NOW})
+
+        planned = {(p.provider, p.model_id) for p in model_naming.plan(db)}
+        assert planned == {("openrouter", "shared-id")}
+
+
+class TestPartialDiscoveryRuns:
+    def _run(self, db, status, started):
+        db.bench_discovery_runs.insert_one({"provider": "openrouter", "status": status, "started_at": started})
+
+    def test_a_partial_run_cannot_push_omitted_models_out_of_scope(self, db):
+        """refresh_catalog writes rows before marking the run failed.
+
+        Anchoring freshness to the newest row would let a truncated read move
+        the cutoff forward and strip labels from every model it omitted.
+        """
+        complete_at = NOW - timedelta(days=3)
+        self._run(db, "completed", complete_at)
+        self._run(db, "failed", NOW)
+        _catalogue(db, "omitted/model", "Vendor: Omitted", seen=complete_at)
+        _catalogue(db, "returned/model", "Vendor: Returned", seen=NOW)
+
+        labels = model_naming.catalogue_labels(db)
+        assert set(labels) == {"omitted/model", "returned/model"}
+
+    def test_with_no_complete_run_it_falls_back_to_the_newest_row(self, db):
+        _catalogue(db, "a/model", "Vendor: A", seen=NOW)
+
+        assert set(model_naming.catalogue_labels(db)) == {"a/model"}
+
+    def test_a_genuinely_stale_row_is_still_excluded(self, db):
+        self._run(db, "completed", NOW)
+        _catalogue(db, "fresh/model", "Vendor: Fresh", seen=NOW)
+        _catalogue(db, "ancient/model", "Vendor: Ancient", seen=NOW - timedelta(days=120))
+
+        assert set(model_naming.catalogue_labels(db)) == {"fresh/model"}

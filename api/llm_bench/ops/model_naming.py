@@ -47,6 +47,11 @@ SOURCE_IDENTITY_SIBLING = "openrouter_catalogue_via_identity"
 SOURCE_EXISTING = "existing_curated"
 SOURCE_FALLBACK = "canonical_id_fallback"
 
+# Bound on the global uniqueness settle. Model ids are unique per provider, so
+# one qualification always suffices; the rest is a guard against a pathological
+# catalogue rather than an expected path.
+MAX_DISAMBIGUATION_ATTEMPTS = 4
+
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -90,10 +95,13 @@ def catalogue_labels(db: Database, *, now: datetime | None = None) -> dict[str, 
     """
     del now  # freshness is relative to the catalogue, not to the caller's clock
     collection = db[CATALOGUE_COLLECTION]
-    newest = collection.find_one({"last_seen_at": {"$exists": True}}, sort=[("last_seen_at", -1)])
-    if not newest or not newest.get("last_seen_at"):
-        return {}
-    cutoff = newest["last_seen_at"] - CATALOGUE_FRESHNESS
+    anchor = _last_complete_catalogue_read(db)
+    if anchor is None:
+        newest = collection.find_one({"last_seen_at": {"$exists": True}}, sort=[("last_seen_at", -1)])
+        if not newest or not newest.get("last_seen_at"):
+            return {}
+        anchor = newest["last_seen_at"]
+    cutoff = anchor - CATALOGUE_FRESHNESS
 
     labels: dict[str, CatalogueLabel] = {}
     for doc in collection.find(
@@ -116,6 +124,33 @@ def catalogue_labels(db: Database, *, now: datetime | None = None) -> dict[str, 
             org=(str(doc["org"]) if doc.get("org") else None),
         )
     return labels
+
+
+def _last_complete_catalogue_read(db: Database) -> datetime | None:
+    """When we last saw the whole catalogue, not merely part of it.
+
+    `refresh_catalog` writes every row it received *before* recording the run,
+    and marks the run failed when pagination came back short. So a truncated
+    read still bumps `last_seen_at` on the subset it returned. Those names are
+    real and safe to use — the damage is to the window: anchoring freshness to
+    the newest row lets a partial read move the cutoff forward and push every
+    model it happened to omit out of scope and onto a fallback name.
+
+    Anchoring to the last complete read means a run of partial refreshes leaves
+    the existing labels alone instead of eroding them.
+    """
+    run = db[_discovery_runs_collection()].find_one(
+        {"provider": "openrouter", "status": "completed"},
+        sort=[("started_at", -1)],
+    )
+    started = (run or {}).get("started_at")
+    return started if isinstance(started, datetime) else None
+
+
+def _discovery_runs_collection() -> str:
+    from llm_bench.ops.openrouter_discovery import discovery_runs_collection_name
+
+    return discovery_runs_collection_name()
 
 
 def _looks_like_a_raw_id(value: str | None, model_id: str) -> bool:
@@ -152,16 +187,29 @@ class Proposal:
 PUBLICATION_WINDOW = timedelta(days=30)
 
 
-def renderable_model_ids(db: Database, *, now: datetime | None = None) -> set[str]:
-    """Models the site can still draw, whether or not they are enabled.
+def renderable_endpoints(db: Database, *, now: datetime | None = None) -> set[tuple[str, str]]:
+    """(provider, model_id) the site can still draw, enabled or not.
 
     Naming only enabled models was too narrow: retiring the OpenAI rows from the
     OpenRouter lane left 28 of them on the leaderboard under raw ids, because
     they still had rows inside the two-day window and no longer qualified to be
     named. 289 disabled models are inside the 30-day window at any time.
+
+    Keyed by endpoint, not by model id. Matching on the id alone let a recent
+    OpenRouter row drag an unrelated, long-disabled Bedrock or Vertex row with
+    the same id into the pass, mutating something nothing renders.
     """
     now = now or utcnow()
-    return set(db[metrics_collection_name()].distinct("model_name", {"run_ts": {"$gte": now - PUBLICATION_WINDOW}}))
+    return {
+        (str(row["_id"]["provider"]), str(row["_id"]["model_name"]))
+        for row in db[metrics_collection_name()].aggregate(
+            [
+                {"$match": {"run_ts": {"$gte": now - PUBLICATION_WINDOW}}},
+                {"$group": {"_id": {"provider": "$provider", "model_name": "$model_name"}}},
+            ]
+        )
+        if row.get("_id", {}).get("provider") and row["_id"].get("model_name")
+    }
 
 
 def _identity_siblings(db: Database) -> dict[tuple[str, str], str]:
@@ -195,13 +243,16 @@ def plan(db: Database) -> list[Proposal]:
             group_label[key] = label
 
     proposals: list[Proposal] = []
+    renderable = renderable_endpoints(db)
     for row in db[models_collection_name()].find(
-        {"$or": [{"enabled": True}, {"model_id": {"$in": sorted(renderable_model_ids(db))}}]},
-        {"provider": 1, "model_id": 1, "display_name": 1},
+        {"$or": [{"enabled": True}, {"model_id": {"$in": sorted({m for _, m in renderable})}}]},
+        {"provider": 1, "model_id": 1, "display_name": 1, "enabled": 1},
     ):
         provider = str(row.get("provider") or "")
         model_id = str(row.get("model_id") or "")
         if not provider or not model_id:
+            continue
+        if not row.get("enabled") and (provider, model_id) not in renderable:
             continue
         current = row.get("display_name")
 
@@ -290,7 +341,29 @@ def _disambiguate(proposals: list[Proposal]) -> list[Proposal]:
                     proposal.current,
                 )
             )
-    return resolved
+
+    # Resolving each group in isolation is not enough: a rewritten label can
+    # land on a name some other group already holds. `gpt-4`/`gpt-4-turbo`
+    # collide and re-derive from their ids — straight onto an existing
+    # `gpt-4-turbo` row that never collided in the first place. Settle globally,
+    # and bound it so a pathological catalogue cannot spin here.
+    final: list[Proposal] = []
+    taken: set[tuple[str, str]] = set()
+    for proposal in sorted(resolved, key=lambda p: (p.provider, p.model_id)):
+        label = proposal.label
+        for attempt in range(MAX_DISAMBIGUATION_ATTEMPTS):
+            if (proposal.provider, label.casefold()) not in taken:
+                break
+            label = (
+                f"{proposal.label} ({proposal.model_id})"
+                if attempt == 0
+                else f"{proposal.label} ({proposal.model_id}#{attempt})"
+            )
+        taken.add((proposal.provider, label.casefold()))
+        final.append(
+            Proposal(proposal.provider, proposal.model_id, label, proposal.source, proposal.vendor, proposal.current)
+        )
+    return final
 
 
 def audit(db: Database) -> dict[str, Any]:

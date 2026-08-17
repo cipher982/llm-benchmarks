@@ -386,8 +386,24 @@ def run_reconciler_loop(*, stop_event: threading.Event, interval_seconds: int) -
                 for merge in merges:
                     print(f"Consolidated {merge['absorb']} into {merge['keep']}", flush=True)
 
-                for change in reconciler.unify_display_names(db, dry_run=False):
-                    print(f"Renamed {change['provider']}/{change['model_id']} to {change['to']}", flush=True)
+                # Report only. `model_naming` is the single writer of
+                # display_name now, and it already achieves what this pass was
+                # for: an endpoint inherits its label from its identity
+                # sibling, so a group agrees by construction rather than by
+                # being rewritten afterwards.
+                #
+                # Left writing, the two disagree and thrash. 22 identity groups
+                # hold two or more endpoints from one provider; `model_naming`
+                # splits those to keep names unique within a provider, and this
+                # pass merges them back to the group's majority name. Every
+                # admission cycle would split, every reconciler cycle would
+                # merge, forever, with the chart label alternating.
+                for change in reconciler.unify_display_names(db, dry_run=True):
+                    print(
+                        f"Naming drift: {change['provider']}/{change['model_id']} "
+                        f"differs from its identity group ({change['to']})",
+                        flush=True,
+                    )
             finally:
                 client.close()
         except Exception as exc:  # noqa: BLE001
