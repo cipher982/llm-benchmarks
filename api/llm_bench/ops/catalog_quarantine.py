@@ -15,7 +15,25 @@ from pymongo import MongoClient
 from llm_bench.ops.reliability_cli import _hard_errors_since
 from llm_bench.ops.reliability_cli import _last_success_ts
 
-DEFAULT_PROVIDERS = ("together", "vertex")
+
+# Which providers to sweep, when the caller does not say. This was the literal
+# pair ("together", "vertex"), written when those were the providers that
+# misbehaved. The catalogue has since become 332 OpenRouter models out of 388,
+# and OpenRouter was never in the list — so the tool reported "No quarantine
+# candidates" while 120 enabled models sat permanently unservable, which is
+# exactly the reassuring silence it exists to break.
+#
+# Derived from the catalogue instead, so it cannot go stale again the next time
+# the provider mix changes.
+def default_providers(db) -> list[str]:
+    models_collection = os.getenv("MONGODB_COLLECTION_MODELS", "models")
+    return sorted(
+        str(provider)
+        for provider in db[models_collection].distinct("provider", {"enabled": True, "deprecated": {"$ne": True}})
+        if provider
+    )
+
+
 app = typer.Typer(help="Quarantine catalog models after repeated hard-model failures.")
 
 
@@ -116,11 +134,10 @@ def quarantine(
     db_name = os.getenv("MONGODB_DB", "llm-bench")
     if not uri:
         raise typer.BadParameter("MONGODB_URI must be set")
-    providers = sorted(set(provider or DEFAULT_PROVIDERS))
-
     client = MongoClient(uri)
     try:
         db = client[db_name]
+        providers = sorted(set(provider)) if provider else default_providers(db)
         candidates = find_candidates(
             db,
             providers=providers,

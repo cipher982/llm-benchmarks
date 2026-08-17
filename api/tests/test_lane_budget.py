@@ -117,3 +117,27 @@ def test_the_stream_is_actually_closed_at_the_mark(monkeypatch):
     assert stream.closed, "the stream was broken out of but never closed"
     assert stream.consumed < 50, "the whole stream was read; the early stop did nothing"
     assert metrics["time_to_64_visible_tokens_seconds"] is not None
+
+
+def test_quarantine_sweeps_every_enabled_provider():
+    """It swept a hardcoded ("together", "vertex").
+
+    The catalogue became 332 OpenRouter models out of 388 and OpenRouter was
+    never in that pair, so the tool reported "No quarantine candidates" while
+    120 enabled models sat permanently unservable — the reassuring silence it
+    exists to break.
+    """
+    import mongomock
+    from llm_bench.ops import catalog_quarantine
+
+    db = mongomock.MongoClient()["t"]
+    db.models.insert_many(
+        [
+            {"provider": "openrouter", "model_id": "a/x", "enabled": True},
+            {"provider": "bedrock", "model_id": "b/y", "enabled": True},
+            {"provider": "together", "model_id": "c/z", "enabled": False},
+            {"provider": "vertex", "model_id": "d/w", "enabled": True, "deprecated": True},
+        ]
+    )
+
+    assert catalog_quarantine.default_providers(db) == ["bedrock", "openrouter"]
