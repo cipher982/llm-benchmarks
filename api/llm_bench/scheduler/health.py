@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
@@ -413,6 +415,44 @@ def provider_progress(
     return result
 
 
+def worker_heartbeat_max_age_seconds() -> int:
+    return int(os.getenv("BENCHMARK_WORKER_HEARTBEAT_MAX_AGE_SECONDS", "300"))
+
+
+def control_heartbeat_max_age_seconds() -> int:
+    return int(os.getenv("BENCHMARK_CONTROL_HEARTBEAT_MAX_AGE_SECONDS", "900"))
+
+
+def stale_worker_lanes(
+    db: Database,
+    *,
+    providers: list[str],
+    now: datetime,
+    max_age_seconds: int,
+) -> list[dict[str, Any]]:
+    """Provider lanes whose worker threads have stopped checking in.
+
+    This is the signal the completion-age check cannot give. Workers heartbeat
+    on every poll, including an idle one, so a thread that dies goes quiet
+    within a poll interval whether or not there was work to do — which is the
+    failure that ran for eight days with the process up and `RestartCount=0`.
+    Completion age cannot distinguish that from a runner correctly idle because
+    nothing is stale yet.
+    """
+    collection = db[heartbeats_collection_name()]
+    stale: list[dict[str, Any]] = []
+    for provider in providers:
+        docs = collection.find({"_id": {"$regex": f"^worker:{re.escape(provider)}:"}}, {"updated_at": 1})
+        freshest = max(
+            (age for age in (_as_utc(doc.get("updated_at")) for doc in docs) if age is not None),
+            default=None,
+        )
+        age = int((now - freshest).total_seconds()) if freshest else None
+        if age is None or age > max_age_seconds:
+            stale.append({"provider": provider, "age_seconds": age})
+    return stale
+
+
 def liveness_status(
     db: Database,
     *,
@@ -420,7 +460,14 @@ def liveness_status(
     providers: list[str] | None = None,
     now: datetime | None = None,
 ) -> tuple[bool, dict[str, Any]]:
-    """Check that this direct runner is alive and has completed recent work.
+    """Check that this direct runner is alive and making the progress it should.
+
+    Two different questions, on two different clocks. Are the worker threads
+    alive — answered by heartbeats, in minutes, regardless of workload. And has
+    any work completed lately — answered by completion age, which must be
+    generous enough to span the scheduling period, because a runner with nothing
+    stale to measure is idle by design and killing it for that detects the
+    configuration rather than a fault.
 
     Deliberately aggregate: this drives process exit, and restarting the
     container does not fix a single provider's auth or billing failure. A stalled
@@ -448,7 +495,15 @@ def liveness_status(
     scheduler_heartbeat = db[heartbeats_collection_name()].find_one({"_id": "scheduler"}, {"updated_at": 1})
     heartbeat_at = _as_utc((scheduler_heartbeat or {}).get("updated_at"))
     heartbeat_age = int((now - heartbeat_at).total_seconds()) if heartbeat_at else None
-    heartbeat_limit = max(max_idle_seconds, 180)
+    # Its own limit, not a function of max_idle_seconds. Deriving it from the
+    # completion budget meant raising that to span a longer scheduling period
+    # silently disabled the heartbeat check too — the two answer different
+    # questions and must not share a clock.
+    heartbeat_limit = control_heartbeat_max_age_seconds()
+    worker_limit = worker_heartbeat_max_age_seconds()
+    stale_lanes = (
+        stale_worker_lanes(db, providers=providers, now=now, max_age_seconds=worker_limit) if providers else []
+    )
 
     details = {
         "latest_provider": (latest or {}).get("provider"),
@@ -457,11 +512,16 @@ def liveness_status(
         "scheduler_heartbeat_at": heartbeat_at.isoformat() if heartbeat_at else None,
         "scheduler_heartbeat_age_seconds": heartbeat_age,
         "max_idle_seconds": max_idle_seconds,
+        "worker_heartbeat_max_age_seconds": worker_limit,
+        "stale_worker_lanes": stale_lanes,
         "providers": providers or [],
         # Present even when the aggregate check passes, so a stalled lane is
         # visible in the same payload rather than needing a separate query.
         "provider_progress": provider_progress(db, providers=providers, now=now) if providers else {},
     }
+    if stale_lanes:
+        details["reason"] = "worker threads have stopped checking in"
+        return False, details
     if latest_age is None:
         details["reason"] = "no completed benchmark found"
         return False, details

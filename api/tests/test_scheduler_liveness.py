@@ -22,9 +22,21 @@ def heartbeat(db, *, ago=timedelta(0)):
     db.bench_scheduler_heartbeats.insert_one({"_id": "scheduler", "updated_at": NOW - ago})
 
 
+def workers(db, *providers, ago=timedelta(seconds=10)):
+    """Live worker threads for these lanes.
+
+    A provider failing and a provider's threads dying are different faults with
+    different fixes, so they are separate signals: these tests are about the
+    former, and a running process always has the latter.
+    """
+    for provider in providers:
+        db.bench_scheduler_heartbeats.insert_one({"_id": f"worker:{provider}:0", "updated_at": NOW - ago})
+
+
 def test_liveness_rejects_stale_direct_runner_metric(db):
     metric(db, "openai", ago=timedelta(minutes=20))
     heartbeat(db)
+    workers(db, "openai")
 
     healthy, details = health.liveness_status(db, max_idle_seconds=900, providers=["openai"], now=NOW)
 
@@ -43,6 +55,8 @@ def test_liveness_stays_healthy_when_one_lane_stalls(db):
     metric(db, "openai", ago=timedelta(minutes=2))
     metric(db, "together", ago=timedelta(hours=9))
     heartbeat(db)
+    # Together's threads are alive and polling; it is Together that is broken.
+    workers(db, "openai", "together")
 
     healthy, details = health.liveness_status(db, max_idle_seconds=900, providers=["openai", "together"], now=NOW)
 
