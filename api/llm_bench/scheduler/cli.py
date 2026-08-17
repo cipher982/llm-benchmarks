@@ -141,14 +141,23 @@ def _endpoint_candidates(db, *, provider: str, cadence_seconds: int) -> list[tup
         if not doc:
             # Never measured and never registered. Register it now so the next
             # pass can see it rather than skipping it forever.
-            health.refresh_model_health_doc(
-                db,
-                provider=provider,
-                model_id=model_id,
-                endpoint_tag=tag,
-                enabled=True,
-                cadence_seconds=cadence_seconds,
-            )
+            #
+            # Isolated deliberately: one endpoint that cannot be registered must
+            # cost only itself. A DuplicateKeyError raised here once aborted the
+            # entire scheduler pass, so no provider was scheduled at all while
+            # the loop kept reporting healthy.
+            try:
+                health.refresh_model_health_doc(
+                    db,
+                    provider=provider,
+                    model_id=model_id,
+                    endpoint_tag=tag,
+                    enabled=True,
+                    cadence_seconds=cadence_seconds,
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"endpoint health registration failed {model_id}:{tag}: {exc}", flush=True)
+                continue
             doc = health.health_collection(db).find_one(health.health_filter(provider, model_id, tag))
         if not doc or doc.get("freshness_status") not in {"stale", "critical", "never_run"}:
             continue

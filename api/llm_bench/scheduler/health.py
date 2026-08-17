@@ -85,6 +85,18 @@ def ensure_indexes(db: Database) -> None:
     # deepinfra/turbo needs one health record each; a unique index on
     # (provider, model_id) alone would reject the second and leave the fleet
     # measuring one deployment while believing it measured both.
+    #
+    # The narrower index must be dropped, not merely superseded. create_index
+    # adds; it does not replace. Leaving the old unique pair in place meant the
+    # first endpoint record for an already-known model raised DuplicateKeyError,
+    # and because that surfaced inside the scheduler pass it aborted the whole
+    # pass -- no jobs enqueued for any provider, every tick, with the loop still
+    # reporting healthy.
+    for stale in ("provider_1_model_id_1",):
+        try:
+            coll.drop_index(stale)
+        except Exception:  # noqa: BLE001 - absent is the expected steady state
+            pass
     coll.create_index([("provider", 1), ("model_id", 1), ("endpoint_tag", 1)], unique=True)
     coll.create_index([("freshness_status", 1), ("updated_at", -1)])
     coll.create_index([("enabled", 1), ("provider", 1)])

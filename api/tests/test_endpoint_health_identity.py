@@ -82,3 +82,42 @@ def test_dedupe_does_not_mistake_endpoints_for_duplicates(db):
     removed = health.dedupe_existing_health_docs(db)
     assert removed == 0
     assert health.health_collection(db).count_documents({"model_id": "m"}) == 3
+
+
+def test_the_superseded_unique_index_is_dropped_not_just_superseded(db):
+    """create_index adds; it does not replace.
+
+    Leaving `provider_1_model_id_1` unique in place meant the first endpoint
+    record for an already-known model raised DuplicateKeyError. That surfaced
+    inside the scheduler pass and aborted it, so nothing was enqueued for any
+    provider on any tick while the loop still reported healthy.
+    """
+    coll = health.health_collection(db)
+    coll.create_index([("provider", 1), ("model_id", 1)], unique=True)
+
+    health.ensure_indexes(db)
+
+    names = set(coll.index_information())
+    assert "provider_1_model_id_1" not in names
+    assert "provider_1_model_id_1_endpoint_tag_1" in names
+
+
+def test_a_model_record_does_not_block_its_first_endpoint_record(db):
+    """The regression itself, end to end."""
+    health.ensure_indexes(db)
+    health.refresh_model_health_doc(
+        db, provider="openrouter", model_id="aion-labs/aion-2.0", enabled=True, cadence_seconds=3600
+    )
+    health.refresh_model_health_doc(
+        db,
+        provider="openrouter",
+        model_id="aion-labs/aion-2.0",
+        endpoint_tag="groq",
+        enabled=True,
+        cadence_seconds=3600,
+    )
+    assert coll_count(db, "aion-labs/aion-2.0") == 2
+
+
+def coll_count(db, model_id):
+    return health.health_collection(db).count_documents({"model_id": model_id})
