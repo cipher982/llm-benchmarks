@@ -37,6 +37,9 @@ ENTRY_POINTS = {
     # establishes is kept by BENCHMARK_EXCLUDED_PROVIDERS, not by this module —
     # if it needed a loop to stay true, it would be wired into one.
     "openrouter_consolidation",
+    # Operator front-end for model_naming, which the admission loop runs
+    # continuously. This exists to audit and to force a pass by hand.
+    "model_naming_cli",
 }
 
 

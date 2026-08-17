@@ -18,6 +18,7 @@ from llm_bench.ops import desired_set
 from llm_bench.ops import identity
 from llm_bench.ops import invariants
 from llm_bench.ops import llm_error_classifier
+from llm_bench.ops import model_naming
 from llm_bench.ops import openrouter_discovery
 from llm_bench.ops import reconciler
 from llm_bench.ops import route_renewal
@@ -289,12 +290,20 @@ def run_admission_loop(*, stop_event: threading.Event, interval_seconds: int) ->
             _, db_name = mongo_env()
             client = mongo_client()
             try:
-                report = admission.run_admission_pass(client[db_name])
+                db = client[db_name]
+                report = admission.run_admission_pass(db)
                 print(f"Admission pass: {report.summary()}", flush=True)
                 for subject in report.promoted:
                     print(f"  promoted {subject}", flush=True)
                 for subject, reason in report.rejected:
                     print(f"  rejected {subject}: {reason}", flush=True)
+                # Immediately after admission, not on an independent timer. A
+                # model admitted here has no readable name until this runs, and
+                # a separate loop would leave newly promoted models rendering as
+                # raw ids for however long the two schedules happened to differ.
+                naming = model_naming.apply_names(db, apply=True)
+                if naming.get("to_change"):
+                    print(f"Naming pass: renamed {naming['to_change']} ({naming['by_source']})", flush=True)
             finally:
                 client.close()
         except Exception as exc:  # noqa: BLE001

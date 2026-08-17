@@ -79,9 +79,21 @@ def fetch_models(
 
 
 def _display_name(row: dict[str, Any], model_id: str) -> str:
-    """Prefer OpenRouter's canonical display slug without changing identity."""
+    """OpenRouter's human label, not its machine slug.
 
-    return str(row.get("canonical_slug") or row.get("name") or model_id)
+    This preferred `canonical_slug` and called it a display name. The slug is
+    the dated identifier — `z-ai/glm-4.7-20251222` — while `name` is the label
+    OpenRouter itself renders, `Z.ai: GLM 4.7`. Admission copies whatever comes
+    back here onto `models.display_name`, so the leaderboard showed 195 of 236
+    rows as raw ids while the readable name sat unread in the same document.
+
+    The vendor prefix is stripped here because the site attributes the provider
+    separately; `model_naming` owns the same parse for the rows already written.
+    """
+    from llm_bench.ops.model_naming import parse_catalogue_name
+
+    _, label = parse_catalogue_name(row.get("name"))
+    return str(label or row.get("canonical_slug") or model_id)
 
 
 def _catalog_doc(row: dict[str, Any], *, now: datetime) -> dict[str, Any]:

@@ -41,7 +41,10 @@ def test_refresh_catalog_mirrors_unique_models_and_records_run():
     assert db.provider_catalog.count_documents({"provider": "openrouter"}) == 1
     row = db.provider_catalog.find_one({"provider": "openrouter"})
     assert row["model_id"] == "qwen/qwen3-coder"
-    assert row["name"] == "qwen3-coder"
+    # OpenRouter's human label, not its dated machine slug. This asserted
+    # "qwen3-coder" — the canonical_slug — which is how 195 of 236
+    # leaderboard rows came to render as raw ids.
+    assert row["name"] == "Qwen3 Coder"
     run = db.bench_discovery_runs.find_one({"provider": "openrouter"})
     assert run["pagination_complete"] is True
 
