@@ -83,3 +83,18 @@ def test_legacy_disabled_openrouter_reference_becomes_a_candidate():
     assert row["enabled"] is False
     assert row["deprecated"] is False
     assert row["status"] == admission.CANDIDATE_STATUS
+
+
+def test_canonical_models_drops_openrouter_routers():
+    """A router picks a different upstream every call; it cannot be benchmarked."""
+
+    rows = [
+        {"id": "openrouter/auto-beta"},
+        {"id": "openrouter/free"},
+        {"id": "openrouter/pareto-code"},
+        {"id": "meta-llama/llama-4-maverick"},
+    ]
+
+    result = openrouter_discovery.canonical_models(rows)
+
+    assert [row["id"] for row in result] == ["meta-llama/llama-4-maverick"]

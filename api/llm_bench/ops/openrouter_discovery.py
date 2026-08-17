@@ -41,13 +41,24 @@ def base_model_id(model_id: str) -> str:
     return model_id.split(":", 1)[0]
 
 
+def is_router(model_id: str) -> bool:
+    """OpenRouter's own routers (`openrouter/auto`, `openrouter/free`, ...).
+
+    These are not models. Each call lands on whatever upstream the router picks
+    that second — one `openrouter/auto-beta` sample came back from Google, the
+    next from xAI — so a throughput number for one is a number for nothing.
+    """
+
+    return model_id.split("/", 1)[0].lower() == "openrouter"
+
+
 def canonical_models(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return one row per model, preferring the unsuffixed catalogue row."""
 
     by_base: dict[str, dict[str, Any]] = {}
     for row in rows:
         model_id = str(row.get("id") or "").strip()
-        if not model_id or "/" not in model_id:
+        if not model_id or "/" not in model_id or is_router(model_id):
             continue
         base = base_model_id(model_id)
         if base not in by_base or model_id == base:
