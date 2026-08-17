@@ -133,3 +133,33 @@ def should_retry(
     if not error_kind:
         return True
     return error_kind == "unknown"
+
+
+def endpoint_targets_enabled() -> bool:
+    """Whether the scheduler measures endpoints rather than models.
+
+    Off by default, deliberately. Endpoint targets multiply the fleet roughly
+    threefold — 946 endpoints against 325 models at the time of writing — while
+    OpenRouter work shares a single concurrency gate of
+    ``BENCHMARK_CONCURRENCY_OPENROUTER``. Turning that on implicitly, as a side
+    effect of deploying the catalogue, would burst the queue against a lane that
+    cannot drain it. It is one env var so it can be turned on, watched, and
+    turned off again.
+    """
+
+    return os.getenv("BENCHMARK_ENDPOINT_TARGETS", "0").strip().lower() in {"1", "true", "yes"}
+
+
+def endpoint_targets_per_pass() -> int:
+    """How many endpoint jobs one scheduler pass may create per provider.
+
+    Bounds the work a pass creates, never which endpoints are eligible. The
+    remainder stays eligible and sorts to the front of the next pass, because a
+    bound applied to the population rather than the batch is how twelve
+    DeepInfra models went unscheduled for months.
+    """
+
+    try:
+        return max(1, int(os.getenv("BENCHMARK_ENDPOINT_TARGETS_PER_PASS", "25")))
+    except ValueError:
+        return 25

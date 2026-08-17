@@ -118,6 +118,44 @@ def _freshness_priority(doc: dict, cadence_seconds: int) -> float:
     return multiplier * float(staleness) / max(1, cadence_seconds)
 
 
+def _endpoint_candidates(db, *, provider: str, cadence_seconds: int) -> list[tuple[float, str, str]]:
+    """Stale endpoint targets, stalest first.
+
+    One entry per `(model, endpoint tag)` the catalogue still wants measured.
+    Selection mirrors the model path exactly: consider every eligible endpoint,
+    order by how long it has waited, and let the caller bound how many jobs one
+    pass creates. Bounding the population instead of the batch is what starved
+    twelve DeepInfra models for months.
+    """
+    candidates: list[tuple[float, str, str]] = []
+    endpoints = db[endpoint_discovery.endpoints_collection_name()].find(
+        {"enabled": True}, {"model_id": 1, "endpoint_tag": 1}
+    )
+    for row in endpoints:
+        model_id = row.get("model_id")
+        tag = row.get("endpoint_tag")
+        if not model_id or not tag:
+            continue
+        doc = health.health_collection(db).find_one(health.health_filter(provider, model_id, tag))
+        if not doc:
+            # Never measured and never registered. Register it now so the next
+            # pass can see it rather than skipping it forever.
+            health.refresh_model_health_doc(
+                db,
+                provider=provider,
+                model_id=model_id,
+                endpoint_tag=tag,
+                enabled=True,
+                cadence_seconds=cadence_seconds,
+            )
+            doc = health.health_collection(db).find_one(health.health_filter(provider, model_id, tag))
+        if not doc or doc.get("freshness_status") not in {"stale", "critical", "never_run"}:
+            continue
+        candidates.append((_freshness_priority(doc, cadence_seconds), model_id, tag))
+    candidates.sort(key=lambda item: -item[0])
+    return candidates
+
+
 def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -> int:
     _, db_name = mongo_env()
     client = mongo_client()
@@ -142,7 +180,10 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
             # own.
             candidates = []
             for model_id in provider_models.get(provider, []):
-                doc = health.health_collection(db).find_one({"provider": provider, "model_id": model_id})
+                # Model-level freshness only. Endpoint health records live in
+                # the same collection and would otherwise satisfy this lookup,
+                # letting one endpoint's run stand in for the model's.
+                doc = health.health_collection(db).find_one(health.health_filter(provider, model_id, None))
                 if not doc:
                     continue
                 if doc.get("freshness_status") not in {"stale", "critical", "never_run"}:
@@ -171,6 +212,29 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
                 ):
                     enqueued += 1
                     created_for_provider += 1
+
+            # Endpoint targets are the unit the site publishes. They share the
+            # OpenRouter lane, so they get their own bound rather than
+            # competing for the model allowance.
+            if provider == "openrouter" and policies.endpoint_targets_enabled():
+                endpoint_budget = policies.endpoint_targets_per_pass()
+                created_endpoints = 0
+                for priority, model_id, tag in _endpoint_candidates(
+                    db, provider=provider, cadence_seconds=cadence_seconds
+                ):
+                    if created_endpoints >= endpoint_budget:
+                        break
+                    if queue.enqueue_scheduled_job(
+                        db,
+                        provider=provider,
+                        model_id=model_id,
+                        priority=priority,
+                        now=now,
+                        route_snapshot=route_snapshot(db, provider=provider, model_id=model_id),
+                        endpoint_tag=tag,
+                    ):
+                        enqueued += 1
+                        created_endpoints += 1
         health.heartbeat(
             db,
             component="scheduler",
