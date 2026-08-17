@@ -47,11 +47,6 @@ SOURCE_IDENTITY_SIBLING = "openrouter_catalogue_via_identity"
 SOURCE_EXISTING = "existing_curated"
 SOURCE_FALLBACK = "canonical_id_fallback"
 
-# Bound on the global uniqueness settle. Model ids are unique per provider, so
-# one qualification always suffices; the rest is a guard against a pathological
-# catalogue rather than an expected path.
-MAX_DISAMBIGUATION_ATTEMPTS = 4
-
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -97,10 +92,13 @@ def catalogue_labels(db: Database, *, now: datetime | None = None) -> dict[str, 
     collection = db[CATALOGUE_COLLECTION]
     anchor = _last_complete_catalogue_read(db)
     if anchor is None:
-        newest = collection.find_one({"last_seen_at": {"$exists": True}}, sort=[("last_seen_at", -1)])
-        if not newest or not newest.get("last_seen_at"):
-            return {}
-        anchor = newest["last_seen_at"]
+        # Never having read the whole catalogue is not a licence to treat a
+        # partial read as authoritative. Falling back to the newest row here
+        # reproduced exactly the omission-to-fallback failure this anchor
+        # exists to prevent, on any database whose only runs had failed.
+        # Returning nothing is safe: existing readable names are kept as
+        # SOURCE_EXISTING rather than overwritten.
+        return {}
     cutoff = anchor - CATALOGUE_FRESHNESS
 
     labels: dict[str, CatalogueLabel] = {}
@@ -293,6 +291,17 @@ def fallback_label(model_id: str) -> str:
     return text or model_id
 
 
+def _qualifier(model_id: str) -> str:
+    """A distinguishing suffix that will not be mistaken for a raw id next pass.
+
+    The qualifier used to be the model id verbatim, which contains a slash — so
+    the following pass read the whole label as machine data and re-derived it.
+    `v/other` became `alpha-2 (v/other)` and then `other`: a visible rename and
+    a wasted mutation batch, on every model that needed qualifying.
+    """
+    return model_id.replace("/", " ").strip()
+
+
 def _disambiguate(proposals: list[Proposal]) -> list[Proposal]:
     """Two rows on one provider must not answer to the same name.
 
@@ -330,7 +339,7 @@ def _disambiguate(proposals: list[Proposal]) -> list[Proposal]:
         vendors = [p.vendor for p in group]
         use_vendor = all(vendors) and len(set(vendors)) == len(vendors)
         for proposal in group:
-            qualifier = proposal.vendor if use_vendor else proposal.model_id
+            qualifier = proposal.vendor if use_vendor else _qualifier(proposal.model_id)
             resolved.append(
                 Proposal(
                     proposal.provider,
@@ -351,14 +360,16 @@ def _disambiguate(proposals: list[Proposal]) -> list[Proposal]:
     taken: set[tuple[str, str]] = set()
     for proposal in sorted(resolved, key=lambda p: (p.provider, p.model_id)):
         label = proposal.label
-        for attempt in range(MAX_DISAMBIGUATION_ATTEMPTS):
-            if (proposal.provider, label.casefold()) not in taken:
-                break
-            label = (
-                f"{proposal.label} ({proposal.model_id})"
-                if attempt == 0
-                else f"{proposal.label} ({proposal.model_id}#{attempt})"
-            )
+        attempt = 0
+        # Unbounded on purpose, and guaranteed to terminate: model ids are
+        # unique per provider, so the first qualified form is already unique
+        # unless it collides with a *literal* label someone else holds, and each
+        # further attempt adds a distinct counter. A fixed cap would have let the
+        # loop fall through and append a name that was still taken.
+        while (proposal.provider, label.casefold()) in taken:
+            attempt += 1
+            suffix = _qualifier(proposal.model_id) if attempt == 1 else f"{_qualifier(proposal.model_id)} {attempt}"
+            label = f"{proposal.label} ({suffix})"
         taken.add((proposal.provider, label.casefold()))
         final.append(
             Proposal(proposal.provider, proposal.model_id, label, proposal.source, proposal.vendor, proposal.current)

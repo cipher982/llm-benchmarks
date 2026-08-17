@@ -19,7 +19,12 @@ NOW = datetime(2026, 8, 17, 14, 0, tzinfo=timezone.utc)
 
 @pytest.fixture
 def db():
-    return mongomock.MongoClient()["llm-bench"]
+    database = mongomock.MongoClient()["llm-bench"]
+    # A completed catalogue read. Without one the catalogue grants no authority
+    # at all, which is its own test below; every other test here is about what
+    # happens once we have seen the whole catalogue at least once.
+    database.bench_discovery_runs.insert_one({"provider": "openrouter", "status": "completed", "started_at": NOW})
+    return database
 
 
 def _catalogue(db, model_id, name, *, org=None, seen=NOW, modalities=("text",)):
@@ -78,6 +83,8 @@ class TestCatalogueFreshness:
         rewrites every name on the site to a fallback.
         """
         old = NOW - timedelta(days=400)
+        db.bench_discovery_runs.delete_many({})
+        db.bench_discovery_runs.insert_one({"provider": "openrouter", "status": "completed", "started_at": old})
         _catalogue(db, "a/model", "Vendor: A", seen=old)
         _catalogue(db, "b/model", "Vendor: B", seen=old - timedelta(hours=1))
 
@@ -268,15 +275,42 @@ class TestGlobalUniqueness:
         labels = [p.label for p in model_naming.plan(db)]
         assert len(set(labels)) == 3, labels
 
-    def test_the_settle_is_deterministic_across_passes(self, db):
-        """A name that changed every pass would thrash the charts."""
-        _model(db, "openai", "gpt-4", "gpt-4")
-        _model(db, "openai", "gpt-4-turbo", "gpt-4")
-        _model(db, "openai", "gpt-4-turbo-preview", "gpt-4-turbo")
+    def test_the_settle_is_a_fixed_point_once_applied(self, db):
+        """The real test is apply-then-replan, not plan-twice.
+
+        Planning twice against unchanged rows is trivially stable. The defect
+        only appears once the first plan is written back: a qualifier containing
+        a slash is read as a raw id on the next pass, so `v/other` became
+        `alpha-2 (v/other)` and then `other` — a visible rename and a wasted
+        mutation batch for every model that needed qualifying.
+        """
+        _model(db, "openrouter", "v/alpha-1", "Alpha")
+        _model(db, "openrouter", "v/alpha-2", "Alpha")
+        _model(db, "openrouter", "v/other", "alpha-2")
 
         first = {(p.provider, p.model_id): p.label for p in model_naming.plan(db)}
+        model_naming.apply_names(db, apply=True)
         second = {(p.provider, p.model_id): p.label for p in model_naming.plan(db)}
+
         assert first == second
+        assert model_naming.apply_names(db, apply=True)["to_change"] == 0
+
+    def test_no_qualifier_can_be_mistaken_for_a_raw_id(self, db):
+        """Which is what made the labels unstable in the first place."""
+        _model(db, "openrouter", "alpha/model-x", "Shared")
+        _model(db, "openrouter", "beta/model-x", "Shared")
+
+        for proposal in model_naming.plan(db):
+            assert "/" not in proposal.label, proposal.label
+
+    def test_the_settle_never_emits_a_duplicate(self, db):
+        """A fixed attempt cap let the loop fall through and append a name that
+        was still taken."""
+        for i in range(7):
+            _model(db, "openrouter", f"v/dup-{i}", "Same Name")
+
+        labels = [p.label for p in model_naming.plan(db)]
+        assert len(set(labels)) == len(labels), labels
 
     def test_names_are_unique_per_provider_not_globally(self, db):
         """Two providers serving one model is the thing the site exists to show."""
@@ -305,6 +339,7 @@ class TestPartialDiscoveryRuns:
         db.bench_discovery_runs.insert_one({"provider": "openrouter", "status": status, "started_at": started})
 
     def test_a_partial_run_cannot_push_omitted_models_out_of_scope(self, db):
+        db.bench_discovery_runs.delete_many({})
         """refresh_catalog writes rows before marking the run failed.
 
         Anchoring freshness to the newest row would let a truncated read move
@@ -319,14 +354,30 @@ class TestPartialDiscoveryRuns:
         labels = model_naming.catalogue_labels(db)
         assert set(labels) == {"omitted/model", "returned/model"}
 
-    def test_with_no_complete_run_it_falls_back_to_the_newest_row(self, db):
-        _catalogue(db, "a/model", "Vendor: A", seen=NOW)
-
-        assert set(model_naming.catalogue_labels(db)) == {"a/model"}
-
     def test_a_genuinely_stale_row_is_still_excluded(self, db):
-        self._run(db, "completed", NOW)
         _catalogue(db, "fresh/model", "Vendor: Fresh", seen=NOW)
         _catalogue(db, "ancient/model", "Vendor: Ancient", seen=NOW - timedelta(days=120))
 
         assert set(model_naming.catalogue_labels(db)) == {"fresh/model"}
+
+
+class TestNoCompleteCatalogueRead:
+    def test_a_database_that_has_never_read_the_whole_catalogue_grants_no_authority(self, db):
+        """Falling back to the newest row reproduced the very failure the
+        completed-run anchor exists to prevent."""
+        db.bench_discovery_runs.delete_many({})
+        db.bench_discovery_runs.insert_one({"provider": "openrouter", "status": "failed", "started_at": NOW})
+        _catalogue(db, "partial/model", "Vendor: Partial", seen=NOW)
+
+        assert model_naming.catalogue_labels(db) == {}
+
+    def test_existing_readable_names_survive_that(self, db):
+        """Returning no labels must not mass-rename the site to fallbacks."""
+        db.bench_discovery_runs.delete_many({})
+        db.bench_discovery_runs.insert_one({"provider": "openrouter", "status": "failed", "started_at": NOW})
+        _catalogue(db, "some/model", "Vendor: Some", seen=NOW)
+        _model(db, "openrouter", "some/model", "Some Model")
+
+        (proposal,) = model_naming.plan(db)
+        assert proposal.label == "Some Model"
+        assert proposal.source == model_naming.SOURCE_EXISTING
