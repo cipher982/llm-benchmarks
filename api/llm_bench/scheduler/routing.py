@@ -27,6 +27,16 @@ PINNED_PROVIDER_POLICY = "pinned-provider"
 # policy 2026-08-12): the route records who actually served (`observed`), which
 # becomes part of the published row. No pin is required or attempted.
 OR_SERVED_POLICY = "or-served"
+# The site measures one named OpenRouter endpoint and publishes it as that
+# endpoint. This is deliberately not `pinned-provider`: that policy exists to
+# prove a routed lane performs like the direct lane it replaced, and gates on
+# paired direct-vs-routed canary statistics. Groq, Cerebras and Fireworks have
+# no direct lane left to be compared against, so the evidence that gate demands
+# cannot be produced -- and it answers a migration question the site is no
+# longer asking. What matters here is only that the request reached the
+# endpoint it named, which `allow_fallbacks: False` and the observed-slug check
+# already enforce on every run.
+PINNED_ENDPOINT_POLICY = "pinned-endpoint"
 MIN_PROMOTION_TPS_CI95 = 0.8
 MAX_PROMOTION_TTFT_CI95 = 1.5
 MAX_PROMOTION_COST_CI95 = 1.10
@@ -150,8 +160,32 @@ class RouteDecision:
         if snapshot.get("transport_provider") != OPENROUTER_TRANSPORT:
             return cls.direct(source_provider, source_model_id, reason="invalid-route-transport")
         route_policy = snapshot.get("route_policy")
-        if route_policy not in (PINNED_PROVIDER_POLICY, OR_SERVED_POLICY):
+        if route_policy not in (PINNED_PROVIDER_POLICY, OR_SERVED_POLICY, PINNED_ENDPOINT_POLICY):
             return cls.direct(source_provider, source_model_id, reason="invalid-route-policy")
+        if route_policy == PINNED_ENDPOINT_POLICY:
+            tag = snapshot.get("route_endpoint_tag")
+            if not tag:
+                return cls.direct(source_provider, source_model_id, reason="endpoint-route-has-no-tag")
+            return cls(
+                source_provider=source_provider,
+                source_model_id=source_model_id,
+                transport_provider=OPENROUTER_TRANSPORT,
+                transport_model_id=str(snapshot.get("route_model_id") or source_model_id),
+                route_model_id=str(snapshot.get("route_model_id") or source_model_id),
+                route_provider_slug=str(snapshot.get("route_provider_slug") or ""),
+                route_endpoint_tag=str(tag),
+                route_endpoint_quantization=(
+                    str(snapshot["route_endpoint_quantization"])
+                    if snapshot.get("route_endpoint_quantization")
+                    else None
+                ),
+                route_policy=PINNED_ENDPOINT_POLICY,
+                route_snapshot_at=snapshot.get("route_snapshot_at"),
+                route_revocation_generation=snapshot_generation,
+                route_reasoning_exclude=bool(snapshot.get("route_reasoning_exclude")),
+                state="active",
+                reason="active-endpoint-route",
+            )
         canary_state = snapshot.get("canary_state")
         canary_id = snapshot.get("canary_id")
         try:
@@ -402,3 +436,43 @@ def resolve_job_route(
         now=now,
         current_revocation_generation=current_revocation_generation,
     )
+
+
+def endpoint_route_snapshot(
+    source_provider: str,
+    source_model_id: str,
+    *,
+    endpoint_tag: str,
+    provider_canonical: str,
+    quantization: str | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """A route that pins one named endpoint, built from the catalogue.
+
+    There is no canary and no expiry here on purpose. Those exist to prove a
+    routed lane still matches the direct lane it replaced, and to force a
+    recheck before that proof goes stale. An endpoint pin makes no such claim:
+    it asserts only that the request went to the endpoint named on the row,
+    which `allow_fallbacks: False` enforces on every single call rather than
+    once at promotion time. Evidence that has to be re-earned on a timer is what
+    left promoted routes silently reverting to direct after 72 hours.
+
+    `route_provider_slug` is the provider family, not the tag, because that is
+    the granularity the response can actually confirm.
+    """
+
+    now = now or datetime.now(timezone.utc)
+    return {
+        "source_provider": source_provider,
+        "source_model_id": source_model_id,
+        "route_decision_version": ROUTE_DECISION_VERSION,
+        "transport_provider": OPENROUTER_TRANSPORT,
+        "route_model_id": source_model_id,
+        "route_provider_slug": provider_canonical,
+        "route_endpoint_tag": endpoint_tag,
+        "route_endpoint_quantization": quantization,
+        "route_policy": PINNED_ENDPOINT_POLICY,
+        "route_snapshot_at": now.isoformat(),
+        "route_revocation_generation": 0,
+        "state": "active",
+    }

@@ -33,6 +33,7 @@ from llm_bench.scheduler.mongo import mongo_env
 from llm_bench.scheduler.mongo import route_snapshot
 from llm_bench.scheduler.reaper import run_reaper_loop
 from llm_bench.scheduler.reaper import run_reaper_pass
+from llm_bench.scheduler.routing import endpoint_route_snapshot
 from llm_bench.scheduler.runner import PROVIDER_MODULES
 from llm_bench.scheduler.worker import start_provider_workers
 
@@ -219,6 +220,12 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
             if provider == "openrouter" and policies.endpoint_targets_enabled():
                 endpoint_budget = policies.endpoint_targets_per_pass()
                 created_endpoints = 0
+                quantizations = {
+                    (r["model_id"], r["endpoint_tag"]): r.get("quantization")
+                    for r in db[endpoint_discovery.endpoints_collection_name()].find(
+                        {"enabled": True}, {"model_id": 1, "endpoint_tag": 1, "quantization": 1}
+                    )
+                }
                 for priority, model_id, tag in _endpoint_candidates(
                     db, provider=provider, cadence_seconds=cadence_seconds
                 ):
@@ -230,7 +237,14 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
                         model_id=model_id,
                         priority=priority,
                         now=now,
-                        route_snapshot=route_snapshot(db, provider=provider, model_id=model_id),
+                        route_snapshot=endpoint_route_snapshot(
+                            provider,
+                            model_id,
+                            endpoint_tag=tag,
+                            provider_canonical=endpoint_discovery.provider_canonical(tag),
+                            quantization=quantizations.get((model_id, tag)),
+                            now=now,
+                        ),
                         endpoint_tag=tag,
                     ):
                         enqueued += 1

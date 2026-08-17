@@ -142,3 +142,73 @@ class TestRowIdentity:
             }
         )
         assert written == {"route_endpoint_tag": "coreweave/fp4", "quantization": "fp4"}
+
+
+class TestEndpointPinRoundTrip:
+    """The pin has to survive enqueue and come back out as a pinned decision.
+
+    This is the join the whole design rests on: a job that carries a tag but
+    resolves to an unpinned route would run against OpenRouter's price-selected
+    default and publish the result under the endpoint's name.
+    """
+
+    def test_an_endpoint_snapshot_resolves_to_a_pinned_decision(self):
+        from llm_bench.scheduler.routing import PINNED_ENDPOINT_POLICY
+        from llm_bench.scheduler.routing import RouteDecision
+        from llm_bench.scheduler.routing import endpoint_route_snapshot
+
+        snapshot = endpoint_route_snapshot(
+            "openrouter",
+            "openai/gpt-oss-120b",
+            endpoint_tag="cerebras/fp16",
+            provider_canonical="cerebras",
+            quantization="fp16",
+        )
+        decision = RouteDecision.from_snapshot("openrouter", "openai/gpt-oss-120b", snapshot)
+
+        assert decision.route_policy == PINNED_ENDPOINT_POLICY
+        assert decision.route_endpoint_tag == "cerebras/fp16"
+        assert decision.route_endpoint_quantization == "fp16"
+        # The family, not the tag: that is all the response can confirm.
+        assert decision.route_provider_slug == "cerebras"
+        assert decision.transport_provider == "openrouter"
+
+    def test_the_pinned_decision_produces_a_pinned_request(self):
+        from llm_bench.cloud.providers.openrouter import _route_options
+        from llm_bench.config import CloudConfig
+        from llm_bench.scheduler.routing import RouteDecision
+        from llm_bench.scheduler.routing import endpoint_route_snapshot
+
+        snapshot = endpoint_route_snapshot(
+            "openrouter",
+            "openai/gpt-oss-120b",
+            endpoint_tag="deepinfra/turbo",
+            provider_canonical="deepinfra",
+        )
+        decision = RouteDecision.from_snapshot("openrouter", "openai/gpt-oss-120b", snapshot)
+        config = CloudConfig(
+            provider="openrouter",
+            model_name="openai/gpt-oss-120b",
+            run_ts="2026-08-17 00:00:00",
+            temperature=0.1,
+            misc={
+                "route_policy": decision.route_policy,
+                "route_provider_slug": decision.route_provider_slug,
+                "route_endpoint_tag": decision.route_endpoint_tag,
+            },
+        )
+
+        options = _route_options(config)
+        assert options["provider"]["only"] == ["deepinfra/turbo"]
+        assert options["provider"]["allow_fallbacks"] is False
+
+    def test_a_snapshot_without_a_tag_falls_back_to_direct(self):
+        from llm_bench.scheduler.routing import RouteDecision
+        from llm_bench.scheduler.routing import endpoint_route_snapshot
+
+        snapshot = endpoint_route_snapshot("openrouter", "m", endpoint_tag="groq", provider_canonical="groq")
+        snapshot["route_endpoint_tag"] = ""
+        decision = RouteDecision.from_snapshot("openrouter", "m", snapshot)
+
+        assert decision.transport_provider == "direct"
+        assert decision.reason == "endpoint-route-has-no-tag"
