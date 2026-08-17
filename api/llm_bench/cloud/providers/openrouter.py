@@ -89,7 +89,12 @@ def _route_options(config: CloudConfig) -> dict[str, Any]:
         if config.misc.get("route_reasoning_exclude"):
             return {"reasoning": {"exclude": True, "effort": "minimal"}}
         return {}
-    route_slug = config.misc.get("route_provider_slug")
+    # Pin the exact endpoint when one is known, and fall back to the provider
+    # family only for routes predating endpoint identity. A family slug matches
+    # every variant OpenRouter publishes — `only: ["deepinfra"]` still
+    # load-balances `deepinfra/bf16` against `deepinfra/turbo`, which serve at
+    # different speeds and different quantizations.
+    route_slug = config.misc.get("route_endpoint_tag") or config.misc.get("route_provider_slug")
     if not route_slug:
         return {}
     options: dict[str, Any] = {

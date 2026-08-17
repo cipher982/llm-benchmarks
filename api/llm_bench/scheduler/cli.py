@@ -15,6 +15,7 @@ import typer
 from llm_bench.models_db import load_provider_models
 from llm_bench.ops import admission
 from llm_bench.ops import desired_set
+from llm_bench.ops import endpoint_discovery
 from llm_bench.ops import identity
 from llm_bench.ops import invariants
 from llm_bench.ops import llm_error_classifier
@@ -441,8 +442,21 @@ def run_openrouter_discovery_loop(*, stop_event: threading.Event, interval_secon
             _, db_name = mongo_env()
             client = mongo_client()
             try:
-                result = openrouter_discovery.refresh_catalog(client[db_name])
+                db = client[db_name]
+                result = openrouter_discovery.refresh_catalog(db)
                 print(f"OpenRouter discovery: {result}", flush=True)
+                # The endpoint catalogue is what the site will schedule from:
+                # one row per (model, endpoint tag), because a model is served
+                # by several deployments at different speeds and quantizations.
+                enabled_ids = [
+                    str(row["model_id"])
+                    for row in db[models_collection_name()].find(
+                        {"enabled": True, "provider": "openrouter"}, {"model_id": 1}
+                    )
+                    if row.get("model_id")
+                ]
+                endpoint_result = endpoint_discovery.refresh_endpoints(db, model_ids=enabled_ids)
+                print(f"Endpoint discovery: {endpoint_result}", flush=True)
             finally:
                 client.close()
         except Exception as exc:  # noqa: BLE001

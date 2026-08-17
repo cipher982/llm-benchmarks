@@ -440,6 +440,7 @@ def _config_for_decision(
     misc: dict[str, Any] = {}
     if decision.transport_provider == OPENROUTER_TRANSPORT:
         misc["route_provider_slug"] = decision.route_provider_slug
+        misc["route_endpoint_tag"] = decision.route_endpoint_tag
         misc["route_model_id"] = decision.route_model_id
         misc["route_probe_id"] = decision.route_probe_id
         misc["route_snapshot_at"] = decision.route_snapshot_at
@@ -697,6 +698,7 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
             "transport_provider": decision.transport_provider,
             "transport_model_id": decision.transport_model_id,
             "route_provider_slug": decision.route_provider_slug,
+            "route_endpoint_tag": decision.route_endpoint_tag,
             "query": QUERY_TEXT,
             "max_tokens": max_tokens,
             "temperature": TEMPERATURE,

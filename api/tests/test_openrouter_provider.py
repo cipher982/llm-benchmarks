@@ -245,3 +245,40 @@ def test_time_to_64th_visible_token_is_none_when_short(monkeypatch):
     metrics = openrouter.generate(_config(), {"query": "hi", "max_tokens": 512})
 
     assert metrics["time_to_64_visible_tokens_seconds"] is None
+
+
+class TestEndpointPinning:
+    """A provider family is not an endpoint.
+
+    Verified against the live API 2026-08-17: `only:["deepinfra"]`,
+    `only:["deepinfra/bf16"]` and `only:["deepinfra/turbo"]` all return
+    `provider: "DeepInfra"`. The response never echoes the tag, so the pin is
+    the only thing that decides which deployment served the request.
+    """
+
+    def test_the_exact_endpoint_tag_is_what_gets_pinned(self):
+        from llm_bench.cloud.providers.openrouter import _route_options
+
+        options = _route_options(_config(route_provider_slug="deepinfra", route_endpoint_tag="deepinfra/turbo"))
+        assert options["provider"]["only"] == ["deepinfra/turbo"]
+        assert options["provider"]["allow_fallbacks"] is False
+
+    def test_family_slug_is_used_only_when_no_tag_is_known(self):
+        from llm_bench.cloud.providers.openrouter import _route_options
+
+        options = _route_options(_config(route_provider_slug="groq"))
+        assert options["provider"]["only"] == ["groq"]
+
+    def test_require_parameters_is_kept(self):
+        """Verified live: Groq pins identically with and without it, and
+        without it OpenRouter may silently ignore parameters we send."""
+        from llm_bench.cloud.providers.openrouter import _route_options
+
+        options = _route_options(_config(route_endpoint_tag="groq"))
+        assert options["provider"]["require_parameters"] is True
+
+    def test_marketplace_lanes_still_do_not_pin(self):
+        from llm_bench.cloud.providers.openrouter import OR_SERVED_POLICY
+        from llm_bench.cloud.providers.openrouter import _route_options
+
+        assert _route_options(_config(route_policy=OR_SERVED_POLICY)) == {}

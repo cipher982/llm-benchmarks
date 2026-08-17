@@ -68,6 +68,13 @@ class RouteDecision:
     transport_model_id: str | None = None
     route_model_id: str | None = None
     route_provider_slug: str | None = None
+    # The exact endpoint to pin. `route_provider_slug` is the provider family
+    # and stays the verification key, because OpenRouter's response reports a
+    # display name and never echoes the tag: `deepinfra/fp8` and
+    # `deepinfra/turbo` are indistinguishable once a generation completes.
+    # Pinning the family instead of the tag would load-balance the variants,
+    # which is the non-determinism this exists to remove.
+    route_endpoint_tag: str | None = None
     observed_provider: str | None = None
     observed_provider_slug: str | None = None
     route_policy: str = DIRECT_POLICY
@@ -243,6 +250,7 @@ class RouteDecision:
             transport_model_id=route_model_id,
             route_model_id=route_model_id,
             route_provider_slug=str(snapshot["route_provider_slug"]),
+            route_endpoint_tag=(str(snapshot["route_endpoint_tag"]) if snapshot.get("route_endpoint_tag") else None),
             observed_provider=str(snapshot.get("observed_provider") or ""),
             observed_provider_slug=str(snapshot["observed_provider_slug"]),
             route_policy=str(route_policy),
