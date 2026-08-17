@@ -224,6 +224,20 @@ SAMPLE_ROLE_PUBLISHED = "published"
 SAMPLE_ROLE_PROBE = "probe"
 NON_PUBLISHING_ROLES = frozenset({SAMPLE_ROLE_PROBE})
 
+
+def publishes(sample_role: str | None) -> bool:
+    """Only the published role reaches the site and counts as freshness.
+
+    Stated as an allowlist rather than a denylist because the denylist was
+    wrong the moment the shadow and long roles were deleted from it: jobs
+    carrying those roles still exist in the queue, and under a denylist a
+    resurrected one would write to the published collection and mark the model
+    fresh — measured under a profile that no longer exists. An unrecognised
+    role is not publishable.
+    """
+    return sample_role == SAMPLE_ROLE_PUBLISHED
+
+
 # The measurement protocol a row was produced under, so rows measured under
 # different rules are never silently averaged together. Defined in policies
 # because the queue reads it too: a terminal verdict about the measurement is
@@ -276,14 +290,27 @@ def affordable_max_tokens(completion_price_per_token: float | None, profile_budg
 
     Below the 64-visible-token mark there is no measurement to buy, so the floor
     is the mark rather than zero — a model too expensive to profile is measured
-    at the minimum instead of silently dropped. An unknown price buys nothing
-    but caution here: it means the catalogue has no entry, which is not a reason
-    to spend more, so it takes the same floor.
+    at the minimum instead of silently dropped.
+
+    An unknown price fails closed. It used to return the full budget, which made
+    the whole clamp best-effort: a model missing from the catalogue, a sentinel
+    price, or one Mongo timeout would send the same 2048-token request this
+    exists to prevent, and gpt-5.2-pro at 2048 was 67% of a day's spend. A price
+    we could not read is not evidence the model is cheap.
+
+    A price of exactly zero is different from an unknown one: the catalogue says
+    the model is free, so there is nothing to clamp and it gets the full budget.
     """
-    if not completion_price_per_token or completion_price_per_token <= 0:
+    # The floor is the measurement, but it is still bounded by the profile: a
+    # profile deliberately configured below the mark must not be raised past
+    # what it asked for.
+    floor = min(profile_budget, VISIBLE_TOKEN_MARK)
+    if completion_price_per_token is None:
+        return floor
+    if completion_price_per_token <= 0:
         return profile_budget
     affordable = int(MAX_COST_PER_RUN_USD / completion_price_per_token)
-    return max(VISIBLE_TOKEN_MARK, min(profile_budget, affordable))
+    return max(floor, min(profile_budget, affordable))
 
 
 def lane_max_tokens(
@@ -311,7 +338,6 @@ def completion_price(model_id: str) -> float | None:
     """
     if model_id in _PRICE_CACHE:
         return _PRICE_CACHE[model_id]
-    price: float | None = None
     try:
         _, db_name = mongo_env()
         client = mongo_client()
@@ -319,14 +345,19 @@ def completion_price(model_id: str) -> float | None:
             doc = client[db_name]["openrouter_catalog"].find_one({"openrouter_id": model_id}, {"pricing": 1})
         finally:
             client.close()
-        raw = (doc or {}).get("pricing", {}).get("completion")
-        if raw is not None:
-            value = float(raw)
-            price = value if value > 0 else None
     except Exception as exc:  # noqa: BLE001
-        # A pricing lookup must never fail a benchmark; an unknown price simply
-        # takes the cautious floor.
+        # A lookup failure is not an answer about the price, so it is not
+        # cached: caching it would let one timeout hold the model at the
+        # fail-closed floor for the rest of the process.
         print(f"price lookup failed for {model_id}: {type(exc).__name__}: {exc}", flush=True)
+        return None
+    raw = (doc or {}).get("pricing", {}).get("completion")
+    price: float | None = None
+    if raw is not None:
+        value = float(raw)
+        # Negative is a sentinel the catalogue uses for the auto-router and BYOK
+        # entries, not a price. Zero is a real answer: the model is free.
+        price = value if value >= 0 else None
     _PRICE_CACHE[model_id] = price
     return price
 
@@ -339,7 +370,7 @@ def stable_hash(value: Any) -> str:
 def log_success_mongo(config: CloudConfig, metrics: dict[str, Any], *, sample_role: str) -> None:
     """Write one sample to the collection its role belongs in."""
     uri, db_name = mongo_env()
-    collection = probe_metrics_collection_name() if sample_role in NON_PUBLISHING_ROLES else metrics_collection_name()
+    collection = metrics_collection_name() if publishes(sample_role) else probe_metrics_collection_name()
     log_mongo(
         model_type="cloud",
         config=config,
@@ -535,22 +566,34 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
     sample_role = str(job.get("sample_role") or SAMPLE_ROLE_PUBLISHED)
     profile_id = str(job.get("benchmark_profile_id") or DEFAULT_PROFILE_ID)
     decision = effective_job_route(job)
+
     # The lane and the price decide the budget: the profile asks for thinking
     # headroom, only a lane that stops at the measurement mark is allowed to be
     # given it, and only for as many tokens as one run may cost. Keyed on the
     # provider whose code actually runs, not on the route label — a native
     # OpenRouter row routes as "direct" and would otherwise be clamped to 64 on
     # the one lane the headroom exists for.
-    lane = _transport_provider(decision)
-    max_tokens = lane_max_tokens(
-        lane,
-        profile_max_tokens(profile_id),
-        completion_price_per_token=(
-            completion_price(decision.transport_model_id or decision.source_model_id)
-            if lane in EARLY_STOP_PROVIDERS
-            else None
-        ),
-    )
+    def budget_for(route: RouteDecision) -> int:
+        """The budget this route may be given. Recomputed per route, never reused.
+
+        A route decides the budget, so a fallback to a different lane has to ask
+        again. Computing it once for the OpenRouter attempt and passing the same
+        run_config to the direct fallback handed a 2048-token budget — safe only
+        because OpenRouter stops at the mark — to an adapter that reads to
+        end-of-stream, on a directly billed key.
+        """
+        route_lane = _transport_provider(route)
+        return lane_max_tokens(
+            route_lane,
+            profile_max_tokens(profile_id),
+            completion_price_per_token=(
+                completion_price(route.transport_model_id or route.source_model_id)
+                if route_lane in EARLY_STOP_PROVIDERS
+                else None
+            ),
+        )
+
+    max_tokens = budget_for(decision)
     deadline_seconds = int(job.get("deadline_seconds") or policies.DEFAULT_DEADLINE_SECONDS)
     run_ts = get_current_timestamp()
     run_config = {
@@ -601,6 +644,10 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
         )
         fallback_reason = failure.message
         decision = RouteDecision.direct(provider, model_id, reason="route-fallback")
+        # A different lane, so a different budget. The direct adapters read to
+        # end-of-stream and must not inherit OpenRouter's thinking headroom.
+        max_tokens = budget_for(decision)
+        run_config = {**run_config, "max_tokens": max_tokens}
         try:
             model_config, metrics = _generate_and_validate(
                 decision,

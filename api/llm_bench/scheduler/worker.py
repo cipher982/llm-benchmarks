@@ -239,8 +239,8 @@ def run_worker_loop(
                         # A probe is not evidence that this model is being
                         # measured for the site. Counting it would make
                         # freshness reflect what we tried, not what we publish.
-                        publishes = result.sample_role not in runner.NON_PUBLISHING_ROLES
-                        if job.get("job_kind") != "smoke_hang" and publishes:
+                        is_published = runner.publishes(result.sample_role)
+                        if job.get("job_kind") != "smoke_hang" and is_published:
                             health.record_success(
                                 db,
                                 provider=provider,

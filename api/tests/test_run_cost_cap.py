@@ -39,11 +39,23 @@ def test_the_floor_is_the_measurement_not_zero():
     assert runner.lane_max_tokens("openrouter", 2048, completion_price_per_token=absurd) == VISIBLE_TOKEN_MARK
 
 
-def test_an_unknown_price_does_not_buy_a_bigger_budget():
-    """A missing catalogue entry is not evidence the model is cheap."""
+def test_an_unknown_price_fails_closed():
+    """A missing catalogue entry is not evidence the model is cheap.
+
+    This asserted the opposite until two reviewers pointed at it: it returned
+    the full 2048 budget and its own name claimed that was caution. That made
+    the whole clamp best-effort — a model absent from the catalogue, a sentinel
+    price, or one Mongo timeout would issue exactly the request the clamp exists
+    to prevent.
+    """
     budget = runner.profile_max_tokens(runner.DEFAULT_PROFILE_ID)
-    for unknown in (None, 0, -1.0):
-        assert runner.affordable_max_tokens(unknown, budget) == budget
+    assert runner.affordable_max_tokens(None, budget) == VISIBLE_TOKEN_MARK
+
+
+def test_a_free_model_is_not_treated_as_an_unknown_one():
+    """Zero is an answer from the catalogue; None is the absence of one."""
+    budget = runner.profile_max_tokens(runner.DEFAULT_PROFILE_ID)
+    assert runner.affordable_max_tokens(0.0, budget) == budget
 
 
 def test_a_read_to_end_lane_ignores_price_and_stays_capped():

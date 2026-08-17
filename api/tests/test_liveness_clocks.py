@@ -136,3 +136,28 @@ class TestTheControlClockIsIndependent:
 
         assert not ok
         assert details["reason"] == "scheduler heartbeat is stale"
+
+
+class TestTheCheckedLaneSetTracksTheWorkerSet:
+    def test_a_retired_provider_named_in_the_env_is_not_held_to_account(self, monkeypatch):
+        """Otherwise the container restarts forever after a consolidation.
+
+        A lane with no worker has no heartbeat, and liveness now reads a missing
+        heartbeat as a dead thread. BENCHMARK_LIVENESS_PROVIDERS still named
+        eight providers after they were retired onto OpenRouter, so the check
+        would have failed on lanes that are supposed to be gone.
+        """
+        from llm_bench.scheduler import healthcheck
+
+        monkeypatch.setenv("BENCHMARK_LIVENESS_PROVIDERS", "openai,vertex,openrouter,deepinfra,together")
+        monkeypatch.setenv("BENCHMARK_EXCLUDED_PROVIDERS", "bedrock,deepinfra,together")
+
+        assert healthcheck._providers() == ["openai", "vertex", "openrouter"]
+
+    def test_an_empty_result_falls_back_to_checking_every_lane(self, monkeypatch):
+        from llm_bench.scheduler import healthcheck
+
+        monkeypatch.setenv("BENCHMARK_LIVENESS_PROVIDERS", "deepinfra")
+        monkeypatch.setenv("BENCHMARK_EXCLUDED_PROVIDERS", "deepinfra")
+
+        assert healthcheck._providers() is None

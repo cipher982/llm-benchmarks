@@ -11,10 +11,12 @@ answer fine at 64, on accounts the owner pays directly.
 from llm_bench.cloud.visible_tokens import VISIBLE_TOKEN_MARK
 from llm_bench.scheduler import runner
 
+CHEAP = 0.02 / 1_000_000
+
 
 def test_the_early_stopping_lane_gets_the_full_thinking_budget():
     budget = runner.profile_max_tokens(runner.DEFAULT_PROFILE_ID)
-    assert runner.lane_max_tokens("openrouter", budget) == budget
+    assert runner.lane_max_tokens("openrouter", budget, completion_price_per_token=CHEAP) == budget
     assert budget > VISIBLE_TOKEN_MARK, "a reasoning model needs room to think before it can be measured"
 
 
@@ -37,7 +39,7 @@ def test_every_early_stop_provider_actually_stops():
 
 
 def test_the_clamp_never_raises_a_lane_above_the_profile():
-    assert runner.lane_max_tokens("openrouter", 32) == 32
+    assert runner.lane_max_tokens("openrouter", 32, completion_price_per_token=CHEAP) == 32
     assert runner.lane_max_tokens("bedrock", 32) == 32
 
 
@@ -58,4 +60,60 @@ def test_a_native_openrouter_row_gets_the_thinking_budget():
     assert lane == "openrouter"
 
     budget = runner.profile_max_tokens(runner.DEFAULT_PROFILE_ID)
-    assert runner.lane_max_tokens(lane, budget) == budget
+    assert runner.lane_max_tokens(lane, budget, completion_price_per_token=CHEAP) == budget
+
+
+def test_the_stream_is_actually_closed_at_the_mark(monkeypatch):
+    """The allowlist test above only greps for the break; this exercises it.
+
+    A break without close() leaves the SSE response open and the upstream
+    generating — which is the cost the early stop exists to avoid — and no test
+    covered it because the fakes use a bare iterator with no close method.
+    """
+    from types import SimpleNamespace
+
+    from llm_bench.cloud.providers import openrouter
+
+    class RecordingStream:
+        def __init__(self, chunks):
+            self._chunks = iter(chunks)
+            self.closed = False
+            self.consumed = 0
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            chunk = next(self._chunks)
+            self.consumed += 1
+            return chunk
+
+        def close(self):
+            self.closed = True
+
+    def _chunk(text):
+        return SimpleNamespace(
+            id="gen-1",
+            usage=None,
+            choices=[SimpleNamespace(finish_reason=None, delta=SimpleNamespace(content=text, reasoning=None))],
+        )
+
+    # Far more than 64 visible tokens, delivered in many chunks.
+    stream = RecordingStream([_chunk("token " * 20) for _ in range(50)])
+    monkeypatch.setattr(openrouter, "process_chat_model", lambda *a, **k: (stream, None))
+    monkeypatch.setattr(openrouter, "OpenAI", lambda **kwargs: object())
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "https://openrouter.example/v1")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+
+    config = SimpleNamespace(
+        provider="openrouter",
+        transport_provider="openrouter",
+        model_name="test/model",
+        misc={},
+        temperature=0.1,
+    )
+    metrics = openrouter.generate(config, {"query": "hi", "max_tokens": 2048})
+
+    assert stream.closed, "the stream was broken out of but never closed"
+    assert stream.consumed < 50, "the whole stream was read; the early stop did nothing"
+    assert metrics["time_to_64_visible_tokens_seconds"] is not None
