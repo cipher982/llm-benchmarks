@@ -41,6 +41,17 @@ REASON_ROUTED = (
     "and maintaining a separate direct provider integration for it is upkeep with "
     "no measurement benefit."
 )
+REASON_DIRECT_LANE_OWNS_IT = (
+    "Retired from the OpenRouter lane: this vendor has a direct lane on a "
+    "subsidised key, so paying a marketplace to measure the same model is both a "
+    "duplicate row on the site and a bill we do not need to pay."
+)
+
+# Marketplace ids whose vendor prefix names a direct lane, but which the direct
+# lane cannot actually serve. gpt-oss-* are open weights: OpenAI publishes them
+# and other providers host them, so the OpenAI API has no endpoint for them and
+# retiring them by prefix would lose the models rather than deduplicate them.
+NOT_SERVED_BY_THE_DIRECT_LANE = ("gpt-oss",)
 REASON_POLICY_REVERSED = (
     "Re-enabled: disabled under the earlier 'OpenRouter duplicates direct providers' "
     "policy, which is now inverted — OpenRouter is the transport."
@@ -86,7 +97,29 @@ def plan(db: Database) -> dict[str, list[dict[str, Any]]]:
     ):
         retire.append({"provider": str(row["provider"]), "model_id": str(row["model_id"])})
 
-    return {"reenable": reenable, "retire": retire}
+    return {"reenable": reenable, "retire": retire, "marketplace_duplicates": marketplace_duplicates(db)}
+
+
+def marketplace_duplicates(db: Database, vendors: tuple[str, ...] = ("openai",)) -> list[dict[str, Any]]:
+    """OpenRouter rows for vendors we already measure on a direct lane.
+
+    Measuring the same vendor twice publishes two rows for one model and pays a
+    marketplace for the half we already have on a key of our own. It is also
+    where the money went: three runs of openai/gpt-5.2-pro through OpenRouter
+    were 67% of a day's spend, and every one of them duplicated a model the
+    direct lane already covers.
+    """
+    out: list[dict[str, Any]] = []
+    for vendor in vendors:
+        for row in db[models_collection_name()].find(
+            {"provider": "openrouter", "enabled": True, "model_id": {"$regex": rf"^~?{vendor}/"}},
+            {"model_id": 1},
+        ):
+            model_id = str(row["model_id"])
+            if any(marker in model_id for marker in NOT_SERVED_BY_THE_DIRECT_LANE):
+                continue
+            out.append({"model_id": model_id, "vendor": vendor})
+    return out
 
 
 def _drain(db: Database, staged: list[tuple[str, str, dict[str, Any]]], *, reason: str) -> list[str]:
@@ -123,6 +156,9 @@ def run(db: Database, *, apply: bool) -> dict[str, Any]:
     print(f"retire {len(work['retire'])} direct rows onto OpenRouter transport")
     for item in work["retire"]:
         print(f"    - {item['provider']}/{item['model_id']}")
+    print(f"retire {len(work['marketplace_duplicates'])} OpenRouter rows a direct lane already serves")
+    for item in work["marketplace_duplicates"]:
+        print(f"    - openrouter/{item['model_id']}")
 
     if not apply:
         print("\ndry run; pass --apply to make these changes")
@@ -145,6 +181,12 @@ def run(db: Database, *, apply: bool) -> dict[str, Any]:
             for item in work["retire"]
         ]
         batches += _drain(db, staged, reason=REASON_ROUTED)
+    if work["marketplace_duplicates"]:
+        staged = [
+            ("openrouter", item["model_id"], {"enabled": False, "disabled_reason": REASON_DIRECT_LANE_OWNS_IT})
+            for item in work["marketplace_duplicates"]
+        ]
+        batches += _drain(db, staged, reason=REASON_DIRECT_LANE_OWNS_IT)
 
     print(f"\n{len(batches)} batches applied; revert any with llm_bench.ops.mutations.revert")
     return {"applied": True, "batches": batches, **{k: len(v) for k, v in work.items()}}

@@ -107,3 +107,43 @@ class TestApply:
         consolidation.run(db, apply=False)
 
         assert db.models.find_one({"provider": "together"})["enabled"] is True
+
+
+class TestMarketplaceDuplicatesOfDirectLanes:
+    def test_openai_rows_on_the_marketplace_lane_are_retired(self, db):
+        """The direct key is subsidised; paying a marketplace for it is waste."""
+        _model(db, "openrouter", "openai/gpt-5.2-pro", enabled=True)
+        _model(db, "openrouter", "openai/o3-mini", enabled=True)
+
+        found = {d["model_id"] for d in consolidation.marketplace_duplicates(db)}
+        assert found == {"openai/gpt-5.2-pro", "openai/o3-mini"}
+
+    def test_the_dynamic_alias_form_is_caught_too(self, db):
+        _model(db, "openrouter", "~openai/gpt-latest", enabled=True)
+
+        assert [d["model_id"] for d in consolidation.marketplace_duplicates(db)] == ["~openai/gpt-latest"]
+
+    def test_open_weight_models_the_direct_lane_cannot_serve_are_kept(self, db):
+        """gpt-oss-* are open weights; the OpenAI API has no endpoint for them.
+
+        Retiring by vendor prefix alone would lose these models rather than
+        deduplicate them, which is the opposite of the point.
+        """
+        for model_id in ("openai/gpt-oss-120b", "openai/gpt-oss-20b", "openai/gpt-oss-safeguard-20b"):
+            _model(db, "openrouter", model_id, enabled=True)
+
+        assert consolidation.marketplace_duplicates(db) == []
+
+    def test_other_vendors_are_untouched(self, db):
+        _model(db, "openrouter", "anthropic/claude-opus-4.8", enabled=True)
+        _model(db, "openrouter", "deepseek/deepseek-r1", enabled=True)
+
+        assert consolidation.marketplace_duplicates(db) == []
+
+    def test_applying_disables_them_reversibly(self, db):
+        _model(db, "openrouter", "openai/gpt-5.2-pro", enabled=True)
+
+        result = consolidation.run(db, apply=True)
+
+        assert db.models.find_one({"model_id": "openai/gpt-5.2-pro"})["enabled"] is False
+        assert {b["_id"] for b in db.bench_mutation_batches.find({})} == set(result["batches"])
