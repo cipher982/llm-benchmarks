@@ -16,6 +16,7 @@ from typing import Any
 import dotenv
 from pymongo import MongoClient
 
+from llm_bench.cloud.visible_tokens import VISIBLE_TOKEN_MARK
 from llm_bench.config import CloudConfig
 from llm_bench.logging import log_mongo
 from llm_bench.ops.error_rollups import upsert_error_rollup
@@ -25,6 +26,7 @@ from llm_bench.scheduler.mongo import PUBLISHED_PROFILE_ID
 from llm_bench.scheduler.mongo import error_rollups_collection_name
 from llm_bench.scheduler.mongo import errors_collection_name
 from llm_bench.scheduler.mongo import metrics_collection_name
+from llm_bench.scheduler.mongo import mongo_client
 from llm_bench.scheduler.mongo import mongo_env
 from llm_bench.scheduler.mongo import probe_metrics_collection_name
 from llm_bench.scheduler.routing import DIRECT_TRANSPORT
@@ -259,12 +261,74 @@ def profile_max_tokens(profile_id: str) -> int:
 EARLY_STOP_PROVIDERS = frozenset({"openrouter"})
 UNCAPPED_LANE_MAX_TOKENS = int(os.getenv("BENCHMARK_UNCAPPED_LANE_MAX_TOKENS", "64"))
 
+# What one measurement may cost. A token budget is the wrong unit to bound
+# spend in, because the same 2048 tokens cost a thousandth of a cent on a small
+# open model and 35 cents on a premium reasoning model: gpt-5.2-pro ran to the
+# full budget three times and was 67% of a day's spend on its own. Closing the
+# stream early does not always help either — some upstreams finish and bill the
+# whole generation whatever the client does, billing 2008 tokens against the 64
+# we read.
+MAX_COST_PER_RUN_USD = float(os.getenv("BENCHMARK_MAX_COST_PER_RUN_USD", "0.01"))
 
-def lane_max_tokens(transport_provider: str, profile_budget: int) -> int:
-    """Clamp the profile's budget to what this lane can stop consuming."""
-    if transport_provider in EARLY_STOP_PROVIDERS:
+
+def affordable_max_tokens(completion_price_per_token: float | None, profile_budget: int) -> int:
+    """The budget this model's price allows, floored at the measurement itself.
+
+    Below the 64-visible-token mark there is no measurement to buy, so the floor
+    is the mark rather than zero — a model too expensive to profile is measured
+    at the minimum instead of silently dropped. An unknown price buys nothing
+    but caution here: it means the catalogue has no entry, which is not a reason
+    to spend more, so it takes the same floor.
+    """
+    if not completion_price_per_token or completion_price_per_token <= 0:
         return profile_budget
-    return min(profile_budget, UNCAPPED_LANE_MAX_TOKENS)
+    affordable = int(MAX_COST_PER_RUN_USD / completion_price_per_token)
+    return max(VISIBLE_TOKEN_MARK, min(profile_budget, affordable))
+
+
+def lane_max_tokens(
+    transport_provider: str,
+    profile_budget: int,
+    *,
+    completion_price_per_token: float | None = None,
+) -> int:
+    """Clamp the profile's budget to what this lane can stop consuming, and afford."""
+    if transport_provider not in EARLY_STOP_PROVIDERS:
+        return min(profile_budget, UNCAPPED_LANE_MAX_TOKENS)
+    return affordable_max_tokens(completion_price_per_token, profile_budget)
+
+
+_PRICE_CACHE: dict[str, float | None] = {}
+
+
+def completion_price(model_id: str) -> float | None:
+    """Dollars per completion token, from the catalogue OpenRouter publishes.
+
+    Cached for the life of the process: prices move on the order of weeks and
+    this is read on the path of every run. A few catalogue rows carry sentinel
+    negative prices (the auto-router and BYOK entries), which are not a price
+    and must not be read as a cheap one.
+    """
+    if model_id in _PRICE_CACHE:
+        return _PRICE_CACHE[model_id]
+    price: float | None = None
+    try:
+        _, db_name = mongo_env()
+        client = mongo_client()
+        try:
+            doc = client[db_name]["openrouter_catalog"].find_one({"openrouter_id": model_id}, {"pricing": 1})
+        finally:
+            client.close()
+        raw = (doc or {}).get("pricing", {}).get("completion")
+        if raw is not None:
+            value = float(raw)
+            price = value if value > 0 else None
+    except Exception as exc:  # noqa: BLE001
+        # A pricing lookup must never fail a benchmark; an unknown price simply
+        # takes the cautious floor.
+        print(f"price lookup failed for {model_id}: {type(exc).__name__}: {exc}", flush=True)
+    _PRICE_CACHE[model_id] = price
+    return price
 
 
 def stable_hash(value: Any) -> str:
@@ -471,12 +535,22 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
     sample_role = str(job.get("sample_role") or SAMPLE_ROLE_PUBLISHED)
     profile_id = str(job.get("benchmark_profile_id") or DEFAULT_PROFILE_ID)
     decision = effective_job_route(job)
-    # The lane decides the budget: the profile asks for thinking headroom, and
-    # only a lane that stops at the measurement mark is allowed to be given it.
-    # Keyed on the provider whose code actually runs, not on the route label —
-    # a native OpenRouter row routes as "direct" and would otherwise be clamped
-    # to 64 on the one lane the headroom exists for.
-    max_tokens = lane_max_tokens(_transport_provider(decision), profile_max_tokens(profile_id))
+    # The lane and the price decide the budget: the profile asks for thinking
+    # headroom, only a lane that stops at the measurement mark is allowed to be
+    # given it, and only for as many tokens as one run may cost. Keyed on the
+    # provider whose code actually runs, not on the route label — a native
+    # OpenRouter row routes as "direct" and would otherwise be clamped to 64 on
+    # the one lane the headroom exists for.
+    lane = _transport_provider(decision)
+    max_tokens = lane_max_tokens(
+        lane,
+        profile_max_tokens(profile_id),
+        completion_price_per_token=(
+            completion_price(decision.transport_model_id or decision.source_model_id)
+            if lane in EARLY_STOP_PROVIDERS
+            else None
+        ),
+    )
     deadline_seconds = int(job.get("deadline_seconds") or policies.DEFAULT_DEADLINE_SECONDS)
     run_ts = get_current_timestamp()
     run_config = {
