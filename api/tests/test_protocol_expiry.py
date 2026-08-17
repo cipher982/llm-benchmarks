@@ -113,3 +113,64 @@ def test_requeues_are_still_bounded(db):
     queue.requeue_retryable_dead_letters(db, now=NOW)
 
     assert db.bench_jobs.find_one({"_id": "job-1"})["status"] == "dead_letter"
+
+
+class TestCancelledIsNotATrap:
+    """A cancelled job must not outlive the reason it was cancelled.
+
+    `cancel_job` is what the sweep writes when a model is not eligible. But
+    eligibility changes: 62 models were re-enabled in one afternoon, and each
+    had a cancelled job standing between it and ever being scheduled again.
+    They sat `never_run` and unschedulable, and nothing reported a fault,
+    because the scheduler had simply stopped offering them.
+    """
+
+    def _model(self, db):
+        db.models.insert_one({"provider": "openrouter", "model_id": "v/model", "enabled": True})
+
+    def test_a_cancelled_job_can_be_scheduled_again(self, db):
+        self._model(db)
+        db.bench_jobs.insert_one(
+            {
+                "_id": queue.scheduled_job_id("openrouter", "v/model"),
+                "provider": "openrouter",
+                "model_id": "v/model",
+                "status": "cancelled",
+            }
+        )
+
+        created = queue.enqueue_scheduled_job(db, provider="openrouter", model_id="v/model", priority=1.0, now=NOW)
+
+        assert created is True
+        assert db.bench_jobs.find_one({})["status"] == "queued"
+
+    def test_a_dead_letter_still_blocks(self, db):
+        """Dead letters have their own recovery path and must not be bypassed."""
+        self._model(db)
+        db.bench_jobs.insert_one(
+            {
+                "_id": queue.scheduled_job_id("openrouter", "v/model"),
+                "provider": "openrouter",
+                "model_id": "v/model",
+                "status": "dead_letter",
+            }
+        )
+
+        assert (
+            queue.enqueue_scheduled_job(db, provider="openrouter", model_id="v/model", priority=1.0, now=NOW) is False
+        )
+
+    def test_running_work_is_never_replaced(self, db):
+        self._model(db)
+        db.bench_jobs.insert_one(
+            {
+                "_id": queue.scheduled_job_id("openrouter", "v/model"),
+                "provider": "openrouter",
+                "model_id": "v/model",
+                "status": "running",
+            }
+        )
+
+        assert (
+            queue.enqueue_scheduled_job(db, provider="openrouter", model_id="v/model", priority=1.0, now=NOW) is False
+        )

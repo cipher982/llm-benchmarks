@@ -15,7 +15,16 @@ from llm_bench.scheduler.mongo import models_collection_name
 from llm_bench.scheduler.routing import freeze_route_snapshot
 
 ACTIVE_STATUSES = {"queued", "running"}
-TERMINAL_RETRYABLE_STATUSES = {"success", "failed", "timeout"}
+# States a model can be scheduled out of again. `cancelled` belongs here: it is
+# what the sweep writes when a model was not eligible at the time, and
+# eligibility changes — a model disabled last week and re-enabled today had a
+# cancelled job standing between it and ever being measured again. 76 enabled
+# models were in exactly that state, never_run and unschedulable, with nothing
+# reporting a fault because the scheduler had simply stopped offering them.
+#
+# The same shape as the four coverage outages this scheduler has already had:
+# any terminal state needs a way back, or it is a ratchet.
+TERMINAL_RETRYABLE_STATUSES = {"success", "failed", "timeout", "cancelled"}
 
 
 # Sample roles whose work is deliberately not published. Kept here rather than
