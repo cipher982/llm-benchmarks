@@ -16,6 +16,7 @@ from typing import Any
 from llm_bench.cloud.metrics import build_cloud_metrics
 from llm_bench.cloud.visible_tokens import VisibleTokenClock
 from llm_bench.cloud.visible_tokens import count_tokens
+from llm_bench.cloud.visible_tokens import stream_resolution
 from llm_bench.config import CloudConfig
 from llm_bench.scheduler.routing import OR_SERVED_POLICY
 from llm_bench.utils import get_current_timestamp
@@ -260,6 +261,14 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     times_between_tokens: list[float] = []
     time_to_first_token: float | None = None
     visible_clock = VisibleTokenClock(time_0)
+    # Stream resolution. A throughput number is only as fine-grained as the
+    # deltas it was timed from: Cerebras returned 256 tokens in 13 SSE chunks
+    # (~20 tokens each) where Groq sent 256 chunks for identical work. Timing
+    # a 20-token chunk measures the socket, not the decoder. Recording the
+    # chunk count and the widest chunk lets a consumer tell a resolved
+    # measurement from an unresolved one instead of guessing.
+    visible_chunks = 0
+    max_tokens_per_chunk = 0
     usage = None
     finish_reason = None
     response_id = None
@@ -285,6 +294,8 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         if not content:
             continue
         current_time = time.time()
+        visible_chunks += 1
+        max_tokens_per_chunk = max(max_tokens_per_chunk, count_tokens(str(content)))
         if not first_token_received:
             time_to_first_token = current_time - time_0
             first_token_received = True
@@ -329,6 +340,9 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
             "gen_ts": get_current_timestamp(),
             "output_text": response_text,
             "reasoning_output_text": reasoning_text,
+            "visible_stream_chunks": visible_chunks,
+            "max_tokens_per_chunk": max_tokens_per_chunk,
+            "stream_resolution": stream_resolution(visible_chunks, max_tokens_per_chunk),
         }
     )
 

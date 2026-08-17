@@ -21,6 +21,9 @@ from llm_bench.utils import get_current_timestamp
 logger = logging.getLogger(__name__)
 
 OPTIONAL_METRIC_FIELDS = (
+    "visible_stream_chunks",
+    "max_tokens_per_chunk",
+    "stream_resolution",
     "metrics_schema_version",
     "generated_output_tokens",
     "visible_output_tokens",

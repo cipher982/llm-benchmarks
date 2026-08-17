@@ -67,3 +67,29 @@ def count_tokens(text: str) -> int:
     provider's reported `reasoning_tokens` exactly.
     """
     return len(_encoder.encode(text)) if text else 0
+
+
+# A stream can only resolve throughput as finely as its deltas. Measured
+# 2026-08-17 on `openai/gpt-oss-120b`: Cerebras delivered 256 tokens in 13 SSE
+# chunks and legacy `tokens_per_second` reported 3730 tok/s from a 0.069s
+# post-TTFT window; Groq sent 256 chunks for identical work. Neither number is
+# wrong arithmetically — the first simply has nothing to measure with.
+#
+# One token per chunk is full resolution. Beyond a few tokens per chunk the
+# timing describes transport batching, and any rate derived from it is about
+# the socket rather than the decoder.
+RESOLVED_MAX_TOKENS_PER_CHUNK = 4
+
+
+def stream_resolution(chunks: int, max_tokens_per_chunk: int) -> str:
+    """Classify whether a stream's deltas can support a throughput number.
+
+    `resolved`   — deltas are fine-grained enough to time generation.
+    `batched`    — deltas carry many tokens; rate reflects transport batching.
+    `unmeasured` — nothing visible streamed, so there is nothing to classify.
+    """
+    if chunks <= 0:
+        return "unmeasured"
+    if max_tokens_per_chunk > RESOLVED_MAX_TOKENS_PER_CHUNK:
+        return "batched"
+    return "resolved"
