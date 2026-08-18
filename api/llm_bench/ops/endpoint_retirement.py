@@ -44,11 +44,19 @@ CAPABILITY_ERROR_KINDS = {"hard_capability", "hard_model"}
 #: `unknown` covers both transient noise and permanent incapability, so it only
 #: counts when the message itself is a capability statement. Matched on what
 #: the provider said, never on the model's name.
+#:
+#: "visible output text is empty" is deliberately NOT here. It is the same
+#: symptom a reasoning model produces when it spends its budget thinking before
+#: emitting anything -- a live dry run flagged `deepseek-r1-0528` alongside
+#: three genuine image endpoints. That case has its own verdict
+#: (`budget_exhausted`, terminal but protocol-dependent), and an endpoint whose
+#: emptiness is not yet explained belongs in the classifier's queue rather than
+#: in a retirement decided by a regex.
 CAPABILITY_MESSAGE_PATTERNS = (
-    r"visible output text is empty",
     r"does not support",
     r"no endpoints found",
     r"is not a valid model",
+    r"is not supported",
 )
 
 #: One failure is an incident. Repeated failure with no success ever is a fact

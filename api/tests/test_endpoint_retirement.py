@@ -53,19 +53,36 @@ def _enabled(db, model_id, tag):
 
 
 class TestRetirement:
-    def test_an_image_model_that_never_emits_text_is_retired(self, db):
+    def test_an_endpoint_classified_incapable_is_retired(self, db):
         _endpoint(db, "google/gemini-3-pro-image", "google-ai-studio/global")
         _health(
             db,
             "google/gemini-3-pro-image",
             "google-ai-studio/global",
-            kind="unknown",
-            message="visible output text is empty",
+            kind="hard_capability",
+            message="model returns images, not text",
             failures=5,
         )
         retired = endpoint_retirement.retire_unmeasurable_endpoints(db, now=NOW)
         assert len(retired) == 1
         assert _enabled(db, "google/gemini-3-pro-image", "google-ai-studio/global") is False
+
+    def test_empty_visible_text_alone_never_retires_anything(self, db):
+        # A live dry run flagged deepseek-r1-0528 on this message alongside
+        # three genuine image endpoints. A reasoning model that spends its
+        # budget thinking produces exactly the same symptom, so the message is
+        # not evidence of incapability -- it belongs to the classifier.
+        _endpoint(db, "deepseek/deepseek-r1-0528", "novita/fp8")
+        _health(
+            db,
+            "deepseek/deepseek-r1-0528",
+            "novita/fp8",
+            kind="unknown",
+            message="visible output text is empty",
+            failures=9,
+        )
+        assert endpoint_retirement.retire_unmeasurable_endpoints(db, now=NOW) == []
+        assert _enabled(db, "deepseek/deepseek-r1-0528", "novita/fp8") is True
 
     def test_the_decision_is_recorded_so_it_can_be_audited_and_reversed(self, db):
         _endpoint(db, "m", "t")
@@ -106,7 +123,7 @@ class TestRetirement:
                 "endpoint_tag": "t",
                 "status": "dead_letter",
                 "last_attempt_error_kind": "unknown",
-                "last_attempt_error_message": "visible output text is empty",
+                "last_attempt_error_message": "model does not support chat completions",
                 "attempt": 2,
             }
         )
