@@ -13,10 +13,11 @@ AI agents, not by David. He used to hand-curate the model catalogue; that is
 being retired because current models can do it continuously and cheaply.
 
 - **Gate on reversibility, not uncertainty.** Enabling or disabling a model,
-  requeuing jobs, adjusting concurrency, redeploying — reversible and logged.
-  Do them without asking.
+  requeuing jobs, redeploying — reversible and logged. Do them without asking.
+  **Concurrency and cadence are excluded** — see the spend rule below.
 - **Spend inference, not human attention.** Ambiguity is resolved with more
-  model calls, not a review queue. Hundreds of calls a day is acceptable.
+  model calls, not a review queue. This covers one-off calls to settle a
+  question; it does not cover raising the standing measurement rate.
 - **Never build a queue that waits on David.** Routing low confidence to
   "human review" is a design failure.
 - **Leave a trail.** Every mutation carries a reason and timestamp so a later
@@ -25,6 +26,52 @@ being retired because current models can do it continuously and cheaply.
   even then, notify and continue with everything else.
 
 Full context: `~/git/llmbench/AGENTS.md`. Roadmap: `docs/platform-plan.md`.
+
+---
+
+## DO NOT INCREASE SPEND RATE
+
+**Hard owner constraint, 2026-08-18. This overrides the "do it without asking"
+clauses above.** The budget for this site is a few dollars a day. Concurrency
+and cadence are not routine reversible changes — they set a recurring bill.
+
+The knobs are **not in this repo**. They are in the deployment compose:
+`~/git/me/domains/mytech/infrastructure/manual-apps/llm-bench-dashboard/compose.yaml`
+
+| Knob | Now | What it does |
+|---|---|---|
+| `FRESH_MINUTES` | `2880` (2 days) | **The spend lever** — sets the cadence, and so jobs/day |
+| `BENCHMARK_MAX_COST_PER_RUN_USD` | `0.005` | Ceiling on one run, not the average |
+| `OPENROUTER_CONCURRENCY` / `BENCHMARK_CONCURRENCY_OPENROUTER` | `4` | Burst ceiling only — how fast a backlog drains |
+
+```
+jobs/day  = enabled_targets / cadence_days
+$/day     = rows/day x measured_cost_per_row
+```
+
+Cost from **measured rows**, never from the per-run ceiling. Measured
+2026-08-18: 1,169 enabled targets (790 endpoint + 379 model-level); Aug 17
+produced 13,462 rows against a $45.75 bill = **$0.0034/row** against a $0.005
+ceiling. And rows are not jobs — the sampled ratio was ~4.6 rows per job, a
+multiplier nobody has yet explained, so treat any jobs/day figure as a lower
+bound.
+
+**Before changing any knob, compute the new $/day and put the number in the
+commit message.** A change whose cost was never calculated is not reversible in
+practice; it is an open-ended charge that surfaces on a bill days later.
+
+**Growing the catalogue is a spend change too.** If discovery admits another 500
+endpoints the bill rises proportionally with no config edit at all. Population
+is a spend input exactly as much as cadence is — which is how this happened:
+the endpoint cutover multiplied the fleet ~4.7x, `e8d3b14` then fixed a stuck
+pool and took throughput from 12/hour to ~340/hour, and both changes were
+correct. What was missing is that nobody recomputed the bill afterwards.
+
+**What this costs, honestly.** At this budget the sampling policy cannot reach
+its `official` tier in reasonable time — 30 samples at a 2-day cadence is ~60
+days per endpoint, and `preliminary` (8 samples) is ~16 days. That is a real
+conflict between the publication design and the budget. The budget wins until
+the owner says otherwise. Do not "fix" it by speeding the scheduler back up.
 
 ---
 

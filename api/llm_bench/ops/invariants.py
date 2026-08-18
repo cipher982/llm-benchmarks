@@ -45,7 +45,21 @@ THRESHOLD_VERSION = 4
 # Discovery runs daily; two missed runs is a signal, one is a blip.
 DISCOVERY_MAX_AGE = timedelta(hours=48)
 # A lane that has written nothing this long is not merely between jobs.
-PROVIDER_PROGRESS_MAX_AGE = timedelta(hours=2)
+#
+# This was a hard 2h constant, which is the same mistake model_measurement_period
+# below documents twice: a horizon pinned to one era's scheduling policy goes
+# permanently red the moment the policy moves. It was already firing for vertex
+# (3 enabled models, 3h cadence) before FRESH_MINUTES changed at all.
+#
+# Derived instead. A lane cannot write faster than its targets come around, so
+# two turns is the narrowest horizon that can distinguish a stalled lane from a
+# lane that is simply waiting. Floored at 2h so a fast cadence keeps the
+# original sensitivity.
+PROVIDER_PROGRESS_FLOOR = timedelta(hours=2)
+
+
+def provider_progress_max_age() -> timedelta:
+    return max(PROVIDER_PROGRESS_FLOOR, timedelta(seconds=policies.cadence_seconds() * 2))
 
 
 # How often a model's turn actually comes around. This is not the invariant
@@ -282,7 +296,7 @@ def every_provider_is_progressing(ctx: Context) -> list[Violation]:
     this is where a single dead lane is supposed to be caught.
     """
     desired = ctx.desired
-    cutoff = ctx.now - PROVIDER_PROGRESS_MAX_AGE
+    cutoff = ctx.now - provider_progress_max_age()
     # Published rows only. A lane emitting nothing but long-profile rows has a
     # dead published series; counting those rows here would hide exactly the
     # stall this check exists to catch. (Process liveness deliberately does
