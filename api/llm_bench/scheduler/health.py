@@ -146,21 +146,29 @@ def compute_freshness_status(
     return "fresh", staleness_seconds
 
 
-def _recent_counts(db: Database, *, provider: str, model_id: str, now: datetime) -> tuple[int, int, int]:
+def _recent_counts(
+    db: Database, *, provider: str, model_id: str, now: datetime, endpoint_tag: str | None = None
+) -> tuple[int, int, int]:
     # Published-profile rows only, on both sides. These counts describe the
     # model's primary health: a model succeeding only at 512 tokens is not
     # being measured for the site, and a model failing only long runs is not
+    #
+    # An endpoint doc counts only that endpoint's rows. Reusing the model's
+    # counts would let a healthy sibling endpoint mask a dead one, which is
+    # the same conflation that let one endpoint's run stand in for the model's.
     since = now - timedelta(hours=24)
+    scope: dict[str, Any] = {"provider": provider, "model_name": model_id}
+    if endpoint_tag:
+        scope["route_endpoint_tag"] = endpoint_tag
     successes = db[metrics_collection_name()].count_documents(
-        {"provider": provider, "model_name": model_id, "run_ts": {"$gte": since}, **published_profile_filter()}
+        {**scope, "run_ts": {"$gte": since}, **published_profile_filter()}
     )
     failures = db[errors_collection_name()].count_documents(
-        {"provider": provider, "model_name": model_id, "ts": {"$gte": since}, **published_profile_filter("profile_id")}
+        {**scope, "ts": {"$gte": since}, **published_profile_filter("profile_id")}
     )
     deadline_misses = db[errors_collection_name()].count_documents(
         {
-            "provider": provider,
-            "model_name": model_id,
+            **scope,
             "ts": {"$gte": since},
             "error_kind": "timeout",
             **published_profile_filter("profile_id"),
@@ -325,7 +333,9 @@ def record_success(
     now: datetime | None = None,
 ) -> None:
     now = now or utcnow()
-    successes, failures, deadline_misses = _recent_counts(db, provider=provider, model_id=model_id, now=now)
+    successes, failures, deadline_misses = _recent_counts(
+        db, provider=provider, model_id=model_id, now=now, endpoint_tag=endpoint_tag
+    )
     freshness_status, staleness_seconds = compute_freshness_status(
         enabled=True,
         cadence_seconds=cadence_seconds,
@@ -373,7 +383,9 @@ def record_error(
     now = now or utcnow()
     existing = health_collection(db).find_one(health_filter(provider, model_id, endpoint_tag)) or {}
     last_success_at = existing.get("last_success_at")
-    successes, failures, deadline_misses = _recent_counts(db, provider=provider, model_id=model_id, now=now)
+    successes, failures, deadline_misses = _recent_counts(
+        db, provider=provider, model_id=model_id, now=now, endpoint_tag=endpoint_tag
+    )
     freshness_status, staleness_seconds = compute_freshness_status(
         enabled=bool(existing.get("enabled", True)),
         cadence_seconds=cadence_seconds,

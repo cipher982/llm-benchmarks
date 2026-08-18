@@ -6,9 +6,13 @@ scheduler stops asking for an endpoint nobody ever benchmarked. The symptom is
 silence, which is the failure mode this codebase is worst at noticing.
 """
 
+from datetime import datetime
+from datetime import timezone
+
 import mongomock
 import pytest
 from llm_bench.scheduler import health
+from llm_bench.scheduler.mongo import metrics_collection_name
 from llm_bench.scheduler.queue import scheduled_job_id
 
 
@@ -121,3 +125,49 @@ def test_a_model_record_does_not_block_its_first_endpoint_record(db):
 
 def coll_count(db, model_id):
     return health.health_collection(db).count_documents({"model_id": model_id})
+
+
+class TestEndpointCompletionCreditsTheEndpointDoc:
+    """The hot-loop regression: 4142 rows against 16 targets in three hours.
+
+    An endpoint job's success was credited to the model-level health doc, so
+    the endpoint doc stayed `never_run`, kept maximum staleness priority, and
+    the same front-of-list slice was re-selected on every scheduler tick while
+    677 endpoints were never reached.
+    """
+
+    def test_success_lands_on_the_endpoint_doc_not_the_model_doc(self, db):
+        health.record_success(
+            db,
+            provider="openrouter",
+            model_id="anthropic/claude-opus-4.8",
+            endpoint_tag="anthropic",
+            cadence_seconds=10800,
+        )
+        endpoint_doc = health.health_collection(db).find_one(
+            health.health_filter("openrouter", "anthropic/claude-opus-4.8", "anthropic")
+        )
+        assert endpoint_doc is not None
+        assert endpoint_doc["last_success_at"] is not None
+        assert endpoint_doc["freshness_status"] == "fresh"
+
+        model_doc = health.health_collection(db).find_one(
+            health.health_filter("openrouter", "anthropic/claude-opus-4.8", None)
+        )
+        assert model_doc is None, "an endpoint run must not stand in for the model's"
+
+    def test_counts_are_scoped_to_the_endpoint(self, db):
+        now = datetime.now(timezone.utc)
+        for tag in ("anthropic", "anthropic", "anthropic/2"):
+            db[metrics_collection_name()].insert_one(
+                {
+                    "provider": "openrouter",
+                    "model_name": "m",
+                    "route_endpoint_tag": tag,
+                    "run_ts": now,
+                }
+            )
+        successes, _, _ = health._recent_counts(
+            db, provider="openrouter", model_id="m", now=now, endpoint_tag="anthropic"
+        )
+        assert successes == 2, "a sibling endpoint's rows must not count toward this one"

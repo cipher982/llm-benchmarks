@@ -232,6 +232,12 @@ def run_worker_loop(
                         result = run_job_in_child(job, deadline_seconds=remaining)
                 now = datetime.now(timezone.utc)
                 model_id = str(job.get("model_id"))
+                # The completion has to land on the doc the scheduler reads.
+                # Without the tag every endpoint run was credited to the
+                # model-level doc, so endpoint docs stayed `never_run`, sorted
+                # to the front of every pass forever, and the same front slice
+                # was re-run every tick while the rest of the catalogue starved.
+                endpoint_tag = job.get("endpoint_tag") or None
                 persist_route_cooldown(db, job=job, result=result, now=now)
 
                 if result.status == "success":
@@ -245,6 +251,7 @@ def run_worker_loop(
                                 db,
                                 provider=provider,
                                 model_id=model_id,
+                                endpoint_tag=endpoint_tag,
                                 cadence_seconds=cadence_seconds,
                                 now=now,
                             )
@@ -266,6 +273,7 @@ def run_worker_loop(
                         db,
                         provider=provider,
                         model_id=model_id,
+                        endpoint_tag=endpoint_tag,
                         cadence_seconds=cadence_seconds,
                         error_kind=error_kind,
                         error_message=error_message,

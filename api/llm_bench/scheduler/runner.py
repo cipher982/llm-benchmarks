@@ -177,6 +177,7 @@ def log_error_mongo(
                 "transport_model_id",
                 "route_model_id",
                 "route_provider_slug",
+                "route_endpoint_tag",
                 "observed_provider",
                 "observed_provider_slug",
                 "route_policy",
