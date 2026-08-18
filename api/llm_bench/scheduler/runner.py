@@ -81,6 +81,12 @@ class RunnerResult:
     transport_provider: str = DIRECT_TRANSPORT
     route_attempted: bool = False
     fallback_reason: str | None = None
+    # The endpoint this run actually measured, read off the decision that
+    # served it. Health must credit an endpoint on what happened, not on the
+    # absence of a fallback_reason: a job whose route snapshot has gone stale
+    # resolves straight to direct and sets no fallback reason at all, which
+    # credited 11 endpoints for runs that never touched them.
+    measured_endpoint_tag: str | None = None
 
 
 def load_provider_func(provider: str):
@@ -745,6 +751,7 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
         transport_provider=decision.transport_provider,
         route_attempted=route_attempted,
         fallback_reason=fallback_reason,
+        measured_endpoint_tag=decision.route_endpoint_tag,
     )
 
 

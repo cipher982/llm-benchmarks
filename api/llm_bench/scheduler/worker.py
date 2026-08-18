@@ -253,7 +253,7 @@ def run_worker_loop(
                             # success marks a deployment fresh that nothing ever
                             # benchmarked -- the scheduler then stops asking for
                             # it, and the silence looks like health.
-                            if endpoint_tag and result.fallback_reason:
+                            if endpoint_tag and result.measured_endpoint_tag != endpoint_tag:
                                 health.record_error(
                                     db,
                                     provider=provider,
@@ -261,7 +261,10 @@ def run_worker_loop(
                                     endpoint_tag=endpoint_tag,
                                     cadence_seconds=cadence_seconds,
                                     error_kind="pin_unverified",
-                                    error_message=result.fallback_reason,
+                                    error_message=(
+                                        result.fallback_reason
+                                        or f"run measured {result.measured_endpoint_tag!r}, not the job's endpoint"
+                                    ),
                                     now=now,
                                 )
                             else:

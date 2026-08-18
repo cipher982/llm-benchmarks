@@ -12,6 +12,7 @@ from datetime import timezone
 import mongomock
 import pytest
 from llm_bench.scheduler import health
+from llm_bench.scheduler import runner
 from llm_bench.scheduler.mongo import metrics_collection_name
 from llm_bench.scheduler.queue import scheduled_job_id
 
@@ -196,3 +197,20 @@ class TestFallbackIsNotAnEndpointMeasurement:
         assert doc["last_success_at"] is None
         assert doc["freshness_status"] != "fresh"
         assert doc["last_error_kind"] == "pin_unverified"
+
+
+class TestCreditRequiresTheEndpointToHaveBeenMeasured:
+    """A stale route snapshot resolves straight to direct and sets no
+    fallback_reason, so inferring "did we pin?" from fallback_reason credited
+    11 endpoints for runs that never touched them -- caught in production by
+    endpoint_freshness_is_backed_by_rows minutes after it shipped.
+    """
+
+    def test_a_direct_run_with_no_fallback_reason_is_not_a_measurement(self):
+        result = runner.RunnerResult(status="success", fallback_reason=None, measured_endpoint_tag=None)
+        job_tag = "novita/bf16"
+        assert result.measured_endpoint_tag != job_tag
+
+    def test_a_real_pin_reports_the_tag_it_measured(self):
+        result = runner.RunnerResult(status="success", measured_endpoint_tag="novita/bf16")
+        assert result.measured_endpoint_tag == "novita/bf16"
