@@ -16,6 +16,7 @@ from llm_bench.models_db import load_provider_models
 from llm_bench.ops import admission
 from llm_bench.ops import desired_set
 from llm_bench.ops import endpoint_discovery
+from llm_bench.ops import endpoint_retirement
 from llm_bench.ops import identity
 from llm_bench.ops import invariants
 from llm_bench.ops import llm_error_classifier
@@ -546,6 +547,18 @@ def run_openrouter_discovery_loop(*, stop_event: threading.Event, interval_secon
                 ]
                 endpoint_result = endpoint_discovery.refresh_endpoints(db, model_ids=enabled_ids)
                 print(f"Endpoint discovery: {endpoint_result}", flush=True)
+
+                # Retirement runs with discovery because both decide what the
+                # catalogue contains, and both need the same ordering: restore
+                # first, then retire. Restoring afterwards would re-enable an
+                # endpoint this very pass had just retired under the current
+                # protocol.
+                restored = endpoint_retirement.restore_stale_protocol_retirements(db)
+                if restored:
+                    print(f"Endpoint retirement: restored {len(restored)} on protocol change", flush=True)
+                retired = endpoint_retirement.retire_unmeasurable_endpoints(db)
+                if retired:
+                    print(f"Endpoint retirement: retired {len(retired)} unmeasurable endpoints", flush=True)
             finally:
                 client.close()
         except Exception as exc:  # noqa: BLE001
