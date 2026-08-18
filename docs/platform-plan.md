@@ -174,11 +174,26 @@ Provider routing: OpenRouter per the global agent config.
 
 ### A4. Chart display
 
+> **Reversed 2026-08-17.** Quantization is now part of endpoint identity and
+> splits the ranking axis: fp4 never ranks against bf16, and `unknown` is not
+> ranked at all. See `docs/specs/delivered-tps-vision.md` (Amendment) and
+> `docs/specs/endpoint-as-target.md`. The reasoning below is kept because it was
+> correct on the evidence available at the time; what changed is the evidence.
+
 Legend reads `bedrock / groq`, which is right. Measurement on 2026-08-04
 showed provider infrastructure, not quantization, drives the spread: on
 llama-3.3-70b, Groq runs 153 tok/s against DeepInfra's 13, and Together's FP8
 deployment sits mid-pack at 48. Provider hardware is the story the chart should
 tell, and it already does.
+
+**Why that no longer holds.** A4 compared providers that each served one
+deployment, so provider and quantization were confounded and provider won. The
+endpoint catalogue separates them: `gpt-oss-120b` alone is served at fp4, fp8
+and bf16 across thirteen deployments, several by the same provider. Within one
+provider, quantization is the only thing that differs, and an fp4 artifact is
+faster because it is smaller — not because that provider is quicker. Averaging
+a model's deployments reports a speed no deployment serves at, which is the
+comparison A4's evidence could not see.
 
 ---
 
