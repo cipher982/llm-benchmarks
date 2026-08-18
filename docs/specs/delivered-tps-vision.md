@@ -1,10 +1,16 @@
 # Delivered TPS — The Single-Metric Product Vision
 
-**Status:** approved direction (2026-08-12). Step 2 shipped: the runner records
-`time_to_64_visible_tokens_seconds` on streaming lanes (reasoning deltas never
-advance the clock), `/api/delivered-tps` derives the median per model, and the
-leaderboard renders above the charts on `/cloud`. Reasoning-model publication
-(2048-budget rows) is step 3, not yet live.
+**Status:** approved direction (2026-08-12), **amended 2026-08-18** — see
+"Amendment" below. The runner records `time_to_64_visible_tokens_seconds` on
+streaming lanes (reasoning deltas never advance the clock), `/api/delivered-tps`
+derives the estimate **per endpoint** and the leaderboard renders above the
+charts on `/cloud`. Reasoning-model publication (2048-budget rows) is step 3,
+not yet live.
+
+> **Two claims below are superseded and left in place for the record:** "one
+> scalar per model" (the unit is now the *endpoint*) and "no confidence
+> interval" (official rows publish one). The Amendment section is authoritative
+> where the two disagree.
 **Supersedes as product vision:** the two-metric (steady-state + floor latency)
 leaderboard proposal and any visible-vs-total split on the leaderboard.
 **Build order and owners-only decisions at the bottom.**
@@ -31,9 +37,13 @@ delivered_tok/s = 64 visible answer tokens / (time from request start to the 64t
 - The run uses a generous completion budget (see profiles) so reasoning models
   actually reach visible text; measurement ends at the 64th visible token, not
   at budget exhaustion.
-- One scalar per model. Chat and reasoning models perform the same visible
-  task, so Delivered TPS is comparable across model classes — no special
-  casing, which matters in a world where reasoning is becoming the default.
+- One scalar per **endpoint** (amended 2026-08-18; originally "per model").
+  Chat and reasoning models perform the same visible task, so Delivered TPS is
+  comparable across model classes — no special casing, which matters in a world
+  where reasoning is becoming the default. It is not comparable across
+  *deployments* of one model: `gpt-oss-120b` is served at fp4 and at bf16 by
+  different providers on different hardware, and averaging those reports a
+  speed nobody serves at.
 
 Rationale (why not the alternatives):
 - Total-token TPS (generated incl. reasoning / time) measures provider compute
@@ -64,10 +74,13 @@ Rationale (why not the alternatives):
 
 - One ranked list. Each row: rank, model + provider, **Delivered TPS**, a
   restrained freshness indicator.
-- Sort descending. One rounded value (`18.4 tok/s`). No burst/steady columns,
-  no visible/total split, no confidence interval, no reasoning badge, no
-  latency column. "Reasoning model" is not a badge when reasoning is the
-  default.
+- Ranked by **tier**, not by value (amended 2026-08-18). One rounded value
+  (`18.4 tok/s`) plus the 95% interval on official rows. No burst/steady
+  columns, no visible/total split, no reasoning badge, no latency column.
+  "Reasoning model" is not a badge when reasoning is the default.
+  - The original "sort descending, no confidence interval" is superseded. With
+    ~91% of the fleet's legacy timings batched and a 3h sampling cadence, an
+    ordering without an interval is a claim the measurement cannot support.
 - Provenance is a muted second line, not a column:
   ```
   Claude 4 · Anthropic
@@ -170,3 +183,115 @@ states are classified, never paged.
   bedrock; swept; green).
 - Wave evidence + decisions: `/private/tmp/openrouter-v4/v5_*` (mirrored to
   cube-artifacts `openrouter-consolidation/v5/`).
+---
+
+## Amendment (2026-08-18) — publication policy
+
+Authoritative where it disagrees with anything above. Decided by
+`hatch codex sol` at `xhigh` reasoning; implemented in
+`utils/endpointPublication.ts` and pinned by `tests/endpointPublication.test.js`.
+
+### The unit is the endpoint
+
+An OpenRouter endpoint is a (model, provider-deployment) pair — `novita/fp8`,
+`deepinfra/bf16`. 693 of them across 246 models and 61 providers. Deployments of
+one model differ in quantization and hardware and are not interchangeable, so
+quantization splits the ranking axis: fp4 never ranks against bf16.
+
+### Three publication states
+
+| State | Gate | Shown | Ranked |
+|---|---|---|---|
+| `insufficient` | < 8 usable samples | nothing | no |
+| `preliminary` | 8 samples, 24h span, 2 UTC dates, 4 of 6 blocks (~1 day) | figure only | **no** |
+| `official` | 30 samples, 96h span, 5 UTC dates, all 6 blocks (~4 days) | figure + 95% interval | yes |
+
+Re-evaluated on every refresh over a rolling 7-day window. An endpoint that
+stops qualifying loses its rank rather than keeping a stale one.
+
+Why not a floor of 5: an endpoint is measured on a 3h cadence, so a small
+sample is dominated by whichever few hours it happened to land in. Five samples
+ranks scheduling phase.
+
+### Two rules that carry most of it
+
+**Deduplicate to one sample per 30-minute bucket.** A scheduler re-running one
+endpoint in a tight loop must not be able to buy significance. Not
+hypothetical: on the night endpoint scheduling shipped, a health-identity bug
+put one endpoint at 348 samples inside a single 3-hour window.
+
+**Bootstrap over whole UTC dates, not runs.** Runs within a day share load,
+routing and time of day. Resampling them individually treats correlated
+observations as independent and reports a precision the sampling design cannot
+support. 10,000 replicates, seed derived from endpoint identity so a refresh
+does not reshuffle the interval.
+
+### The estimate is `64 / median(T64)`
+
+Not the median of per-run rates. Per-run rates are a constant over a
+right-skewed time, so their median exaggerates fast runs. Take the median on
+the timing scale and convert once. The original implementation had the other
+one.
+
+### Ranking by non-overlap only
+
+A is faster than B only when A's whole interval sits above B's. Anything
+transitively connected by overlap forms one tier, shares a rank, is listed
+alphabetically, and is labelled **order unresolved** — not *equal*. The claim
+is that this measurement cannot tell them apart.
+
+These are conservative tiers, not a proven global ordering: individual 95%
+intervals give no family-wise guarantee across hundreds of comparisons.
+
+`unknown` quantization is not ranked at all. It is missing metadata rather than
+a coherent class, and it covers 310 of 693 endpoints including Groq — ranking
+it would silently compare an fp4 deployment against a bf16 one. **This narrows
+the earlier owner decision** (2026-08-17: "`unknown` never merges with a known
+value"), which put unknown on its own axis rather than excluding it. Reversible
+in one line in `rankEndpoints`.
+
+### Availability is a separate property
+
+Timeouts, 429s, 5xx and completions shorter than 64 visible tokens are counted
+as outcomes and never enter the speed estimate. Folding them in lets an
+endpoint that fails most requests look fast on the few it serves.
+`/api/endpoint-availability`.
+
+### OpenRouter's own telemetry
+
+Their `/endpoints` API returns p50/p75/p90/p99 throughput over the trailing 30
+minutes of their real traffic. It is **never** a prior, a fallback for
+endpoints below threshold, a sample filter, or a ranking input: it aggregates
+uncontrolled workloads with varying prompt and output lengths, and mixing it
+with a controlled 64-token measurement produces a number that means neither.
+It may appear on an endpoint detail page under an explicit external-telemetry
+label. `uptime_1d` and status belong in the availability section.
+
+### Legacy `tokens_per_second`
+
+Frozen, retained, never blended, never deleted. Stamped `legacy_sse_window`
+with `rank_eligible=false` (`utils/legacyMetric.ts`). It is timed from batched
+SSE deltas — 4440 batched against 413 resolved on pinned rows — so it cannot
+support a comparison between providers. The charts keep the history and now
+disclose what it is; no surface orders anything by it.
+
+### Naming
+
+**"Delivered TPS (64-token, end-to-end)."** The site should not describe itself
+as measuring decoder or generation throughput: at high speed this is
+predominantly startup latency, and it measures client-observed delivery for one
+specific workload. TTFT may be shown as diagnostic metadata and never combined
+into another ranking.
+
+### Where it renders (owner decision, 2026-08-18)
+
+David removed the ranked leaderboard from `/cloud` (`deb3b83`). The page keeps
+the throughput distribution as its primary visual comparison; Delivered TPS is
+served from `/api/delivered-tps` for consumers that need an end-to-end ranking,
+with publication state, interval and tier on every row.
+
+This **narrows sol's "sole published headline" recommendation**: the ranking
+policy above governs the metric wherever it is consumed, but the site does not
+currently present a ranked list. The gate is what makes that safe either way —
+an endpoint below threshold has no publishable number regardless of which
+surface asks for it.
