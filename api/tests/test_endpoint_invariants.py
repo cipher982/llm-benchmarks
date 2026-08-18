@@ -96,3 +96,30 @@ def test_both_checks_are_registered():
     names = {inv.name for inv in invariants.INVARIANTS}
     assert "endpoint_targets_are_being_measured" in names
     assert "endpoint_freshness_is_backed_by_rows" in names
+
+
+class TestVerdictIsReadFromWhicheverRecordHasOne:
+    """Eight endpoints held `budget_exhausted` on their job and nothing on
+    their health doc, because they failed before completions were credited per
+    endpoint. Reading only the health doc reported them as starving, which
+    sends someone to fix a scheduler that is working correctly.
+    """
+
+    def test_a_job_verdict_excludes_an_endpoint_the_profile_cannot_measure(self, db):
+        _endpoint(db, model_id="anthropic/claude-opus-5", tag="anthropic")
+        db[invariants.jobs_collection_name()].insert_one(
+            {
+                "_id": "openrouter:anthropic/claude-opus-5:anthropic",
+                "provider": "openrouter",
+                "model_id": "anthropic/claude-opus-5",
+                "endpoint_tag": "anthropic",
+                "status": "dead_letter",
+                "last_attempt_error_kind": "budget_exhausted",
+            }
+        )
+        assert invariants.endpoint_targets_are_being_measured(_ctx(db)) == []
+
+    def test_an_endpoint_with_no_verdict_anywhere_is_still_starving(self, db):
+        _endpoint(db, model_id="m", tag="novita/fp8")
+        violations = invariants.endpoint_targets_are_being_measured(_ctx(db))
+        assert len(violations) == 1

@@ -400,7 +400,21 @@ def endpoint_targets_are_being_measured(ctx: Context) -> list[Violation]:
         # measurement-design question, not a scheduling fault, and is reported
         # by models_measurable_by_the_published_profile instead. Scheduling it
         # harder only spends money.
-        if doc.get("last_error_kind") == "budget_exhausted":
+        #
+        # The verdict is read from the health doc first and from the endpoint's
+        # own job second. Those disagreed for eight endpoints: the runs failed
+        # before completions were credited per endpoint, so the job holds
+        # `budget_exhausted` while the health doc holds nothing at all. Trusting
+        # only the health doc would report them as starving and send someone to
+        # fix a scheduler that is working.
+        verdict = doc.get("last_error_kind")
+        if verdict is None:
+            job = ctx.db[jobs_collection_name()].find_one(
+                {"provider": "openrouter", "model_id": doc["model_id"], "endpoint_tag": doc["endpoint_tag"]},
+                {"last_attempt_error_kind": 1},
+            )
+            verdict = (job or {}).get("last_attempt_error_kind")
+        if verdict == "budget_exhausted":
             continue
         subject = f"{doc['model_id']}:{doc['endpoint_tag']}"
         detail = (
