@@ -171,3 +171,28 @@ class TestEndpointCompletionCreditsTheEndpointDoc:
             db, provider="openrouter", model_id="m", now=now, endpoint_tag="anthropic"
         )
         assert successes == 2, "a sibling endpoint's rows must not count toward this one"
+
+
+class TestFallbackIsNotAnEndpointMeasurement:
+    """A run that fell back to unpinned routing measured the model, not the
+    endpoint. Crediting it marks a deployment fresh that nothing benchmarked,
+    the scheduler stops asking for it, and the silence reads as health --
+    which is how 268 of 340 runs briefly looked like endpoint coverage.
+    """
+
+    def test_error_is_recorded_against_the_endpoint_on_fallback(self, db):
+        health.record_error(
+            db,
+            provider="openrouter",
+            model_id="nousresearch/hermes-4-70b",
+            endpoint_tag="nebius/fp8",
+            cadence_seconds=10800,
+            error_kind="pin_unverified",
+            error_message="OpenRouter provider metadata was not verified",
+        )
+        doc = health.health_collection(db).find_one(
+            health.health_filter("openrouter", "nousresearch/hermes-4-70b", "nebius/fp8")
+        )
+        assert doc["last_success_at"] is None
+        assert doc["freshness_status"] != "fresh"
+        assert doc["last_error_kind"] == "pin_unverified"

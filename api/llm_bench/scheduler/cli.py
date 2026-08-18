@@ -229,10 +229,11 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
             if provider == "openrouter" and policies.endpoint_targets_enabled():
                 endpoint_budget = policies.endpoint_targets_per_pass()
                 created_endpoints = 0
-                quantizations = {
-                    (r["model_id"], r["endpoint_tag"]): r.get("quantization")
+                catalogue = {
+                    (r["model_id"], r["endpoint_tag"]): r
                     for r in db[endpoint_discovery.endpoints_collection_name()].find(
-                        {"enabled": True}, {"model_id": 1, "endpoint_tag": 1, "quantization": 1}
+                        {"enabled": True},
+                        {"model_id": 1, "endpoint_tag": 1, "quantization": 1, "provider_name": 1},
                     )
                 }
                 for priority, model_id, tag in _endpoint_candidates(
@@ -251,7 +252,8 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
                             model_id,
                             endpoint_tag=tag,
                             provider_canonical=endpoint_discovery.provider_canonical(tag),
-                            quantization=quantizations.get((model_id, tag)),
+                            quantization=(catalogue.get((model_id, tag)) or {}).get("quantization"),
+                            provider_display=(catalogue.get((model_id, tag)) or {}).get("provider_name"),
                             now=now,
                         ),
                         endpoint_tag=tag,

@@ -247,14 +247,32 @@ def run_worker_loop(
                         # freshness reflect what we tried, not what we publish.
                         is_published = runner.publishes(result.sample_role)
                         if job.get("job_kind") != "smoke_hang" and is_published:
-                            health.record_success(
-                                db,
-                                provider=provider,
-                                model_id=model_id,
-                                endpoint_tag=endpoint_tag,
-                                cadence_seconds=cadence_seconds,
-                                now=now,
-                            )
+                            # A run that fell back to unpinned routing produced a
+                            # valid row for the model but never measured the
+                            # endpoint the job named. Crediting it as an endpoint
+                            # success marks a deployment fresh that nothing ever
+                            # benchmarked -- the scheduler then stops asking for
+                            # it, and the silence looks like health.
+                            if endpoint_tag and result.fallback_reason:
+                                health.record_error(
+                                    db,
+                                    provider=provider,
+                                    model_id=model_id,
+                                    endpoint_tag=endpoint_tag,
+                                    cadence_seconds=cadence_seconds,
+                                    error_kind="pin_unverified",
+                                    error_message=result.fallback_reason,
+                                    now=now,
+                                )
+                            else:
+                                health.record_success(
+                                    db,
+                                    provider=provider,
+                                    model_id=model_id,
+                                    endpoint_tag=endpoint_tag,
+                                    cadence_seconds=cadence_seconds,
+                                    now=now,
+                                )
                     print(f"Completed job {job['_id']} status=success", flush=True)
                     continue
 

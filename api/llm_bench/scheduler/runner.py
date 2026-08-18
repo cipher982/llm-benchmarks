@@ -442,6 +442,7 @@ def _config_for_decision(
     if decision.transport_provider == OPENROUTER_TRANSPORT:
         misc["route_provider_slug"] = decision.route_provider_slug
         misc["route_endpoint_tag"] = decision.route_endpoint_tag
+        misc["route_provider_display"] = decision.route_provider_display
         misc["route_model_id"] = decision.route_model_id
         misc["route_probe_id"] = decision.route_probe_id
         misc["route_snapshot_at"] = decision.route_snapshot_at

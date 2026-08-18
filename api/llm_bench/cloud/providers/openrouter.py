@@ -210,10 +210,23 @@ def _provider_key(value: Any) -> str:
     return " ".join(str(value).casefold().replace("_", " ").replace("-", " ").split())
 
 
+def _display_key(value: Any) -> str:
+    """Collapse a provider name to letters and digits.
+
+    Both sides of this comparison come from OpenRouter -- the /endpoints
+    catalogue and the generation response -- so they normally agree exactly.
+    Collapsing punctuation and spacing anyway costs nothing and avoids the
+    failure that hid 37 real models behind an org-prefix mismatch: a name that
+    differs only in shape is the same provider.
+    """
+    return "".join(ch for ch in str(value).casefold() if ch.isalnum())
+
+
 def _observed_provider(
     metadata: Mapping[str, Any] | None,
     *,
     expected_slug: str | None = None,
+    expected_display: str | None = None,
     verify_catalog: bool = True,
 ) -> tuple[str | None, str | None]:
     if not metadata:
@@ -226,6 +239,13 @@ def _observed_provider(
     if selected:
         provider = provider or selected.get("provider") or selected.get("provider_name") or selected.get("name")
         slug = slug or selected.get("provider_slug") or selected.get("slug")
+    if provider and not slug and expected_display and _display_key(provider) == _display_key(expected_display):
+        # Confirmed against the display name OpenRouter reported for this exact
+        # endpoint at discovery, which is authoritative and covers all 65
+        # providers. The reviewed allowlist below maps display names onto our
+        # own direct-lane slugs -- a migration concern -- and knows only 9
+        # providers, so it rejected 550 of 693 endpoints as unverifiable.
+        slug = expected_slug
     if provider and not slug:
         candidates = REVIEWED_PROVIDER_DISPLAY_SLUGS.get(_provider_key(provider), ())
         if expected_slug and expected_slug.casefold() in {candidate.casefold() for candidate in candidates}:
@@ -354,6 +374,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     observed_provider, observed_provider_slug = _observed_provider(
         route_metadata,
         expected_slug=config.misc.get("route_provider_slug"),
+        expected_display=config.misc.get("route_provider_display"),
         verify_catalog=config.misc.get("route_policy") != OR_SERVED_POLICY,
     )
     if observed_provider is not None:

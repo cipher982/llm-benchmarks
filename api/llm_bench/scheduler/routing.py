@@ -89,6 +89,11 @@ class RouteDecision:
     # bf16 one because it is a smaller artifact, not because the provider is
     # quicker, so the row cannot publish the speed without it.
     route_endpoint_quantization: str | None = None
+    # The display name OpenRouter itself reported for this endpoint at
+    # discovery. It is the only key that can confirm a pin for an arbitrary
+    # provider: the response echoes a display name, never the tag, and a
+    # hand-written slug allowlist covered 9 of the fleet's 65 providers.
+    route_provider_display: str | None = None
     observed_provider: str | None = None
     observed_provider_slug: str | None = None
     route_policy: str = DIRECT_POLICY
@@ -178,6 +183,9 @@ class RouteDecision:
                     str(snapshot["route_endpoint_quantization"])
                     if snapshot.get("route_endpoint_quantization")
                     else None
+                ),
+                route_provider_display=(
+                    str(snapshot["route_provider_display"]) if snapshot.get("route_provider_display") else None
                 ),
                 route_policy=PINNED_ENDPOINT_POLICY,
                 route_snapshot_at=snapshot.get("route_snapshot_at"),
@@ -291,6 +299,9 @@ class RouteDecision:
             route_endpoint_tag=(str(snapshot["route_endpoint_tag"]) if snapshot.get("route_endpoint_tag") else None),
             route_endpoint_quantization=(
                 str(snapshot["route_endpoint_quantization"]) if snapshot.get("route_endpoint_quantization") else None
+            ),
+            route_provider_display=(
+                str(snapshot["route_provider_display"]) if snapshot.get("route_provider_display") else None
             ),
             observed_provider=str(snapshot.get("observed_provider") or ""),
             observed_provider_slug=str(snapshot["observed_provider_slug"]),
@@ -445,6 +456,7 @@ def endpoint_route_snapshot(
     endpoint_tag: str,
     provider_canonical: str,
     quantization: str | None = None,
+    provider_display: str | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """A route that pins one named endpoint, built from the catalogue.
@@ -471,6 +483,7 @@ def endpoint_route_snapshot(
         "route_provider_slug": provider_canonical,
         "route_endpoint_tag": endpoint_tag,
         "route_endpoint_quantization": quantization,
+        "route_provider_display": provider_display,
         "route_policy": PINNED_ENDPOINT_POLICY,
         "route_snapshot_at": now.isoformat(),
         "route_revocation_generation": 0,
