@@ -33,6 +33,7 @@ from pymongo.database import Database
 from llm_bench.ops import desired_set as desired_set_module
 from llm_bench.scheduler import policies
 from llm_bench.scheduler.mongo import collection_name
+from llm_bench.scheduler.mongo import health_collection_name
 from llm_bench.scheduler.mongo import jobs_collection_name
 from llm_bench.scheduler.mongo import metrics_collection_name
 from llm_bench.scheduler.mongo import models_collection_name
@@ -350,6 +351,117 @@ def pending_work_is_being_decided(ctx: Context) -> list[Violation]:
     ]
 
 
+def endpoint_targets_are_being_measured(ctx: Context) -> list[Violation]:
+    """No endpoint sits unmeasured past the cadence its own health doc sets.
+
+    The same shape as `pending_work_is_being_decided`, one identity down. Three
+    defects shipped on the night endpoint scheduling went live, and all three
+    were invisible to every existing check because each one looked like health:
+
+    - Endpoint completions were credited to the model's health doc, so endpoint
+      docs stayed `never_run`, held maximum staleness priority forever, and the
+      same 16 of 693 were re-run every 30 seconds while 677 were never measured.
+    - A run that fell back to unpinned routing was recorded as an endpoint
+      success, so 469 endpoints read `fresh` with zero rows carrying their tag.
+    - A 9-provider slug allowlist could not verify 550 of 693 endpoints, which
+      were served as unpinned fallbacks under an endpoint label.
+
+    Counters could not see any of them: the scheduler enqueued, the workers
+    completed, the rows were written. What separates all three from a healthy
+    fleet is item age in an unmeasured state, which is what this reads.
+
+    `last_success_at` is the only field trusted here, and deliberately not
+    `freshness_status`: two of the three defects wrote a status that was wrong.
+    A cross-check against rows actually carrying the endpoint's tag is what
+    catches a success recorded for a run that measured something else.
+    """
+    violations: list[Violation] = []
+    for doc in ctx.db[health_collection_name()].find(
+        {"provider": "openrouter", "endpoint_tag": {"$ne": None}, "enabled": True},
+        {
+            "model_id": 1,
+            "endpoint_tag": 1,
+            "last_success_at": 1,
+            "last_error_kind": 1,
+            "cadence_seconds": 1,
+        },
+    ):
+        # The endpoint's own cadence, not a global one. The deadline this check
+        # enforces has to be the deadline that endpoint's policy set, or it
+        # measures the check's assumptions instead of the fleet.
+        cadence = timedelta(seconds=int(doc.get("cadence_seconds") or policies.cadence_seconds()))
+        # Generous slack. One missed pass is not starvation; an endpoint that
+        # has gone three of its own cycles unmeasured is not being served.
+        cutoff = ctx.now - (cadence * 3)
+        last = _as_utc(doc.get("last_success_at"))
+        if last is not None and last >= cutoff:
+            continue
+        # An endpoint the published profile cannot measure is a
+        # measurement-design question, not a scheduling fault, and is reported
+        # by models_measurable_by_the_published_profile instead. Scheduling it
+        # harder only spends money.
+        if doc.get("last_error_kind") == "budget_exhausted":
+            continue
+        subject = f"{doc['model_id']}:{doc['endpoint_tag']}"
+        detail = (
+            f"never measured; cadence is {int(cadence.total_seconds())}s"
+            if last is None
+            else f"last measured {last.isoformat()}, more than three cadences ago"
+        )
+        violations.append(
+            Violation(
+                subject=subject,
+                detail=detail,
+                data={"model_id": doc["model_id"], "endpoint_tag": doc["endpoint_tag"]},
+            )
+        )
+    return violations
+
+
+def endpoint_freshness_is_backed_by_rows(ctx: Context) -> list[Violation]:
+    """An endpoint marked measured has rows that actually carry its tag.
+
+    This is the check that catches a success credited to the wrong identity,
+    which no age-based check can see: 469 endpoints read `fresh` with
+    `successes_24h: 0` because a run that fell back to unpinned routing was
+    recorded against the endpoint it failed to pin. The row was written
+    honestly -- it carried no endpoint tag, because none was measured -- so the
+    health record and the evidence disagreed, and only the health record was
+    ever read.
+
+    Comparing the two is cheap and is the only thing that would have caught it.
+    """
+    # Only recently-credited endpoints: an old record predates the identity
+    # fixes and is covered by the starvation check above.
+    cutoff = ctx.now - timedelta(seconds=policies.cadence_seconds() * 3)
+    violations: list[Violation] = []
+    for doc in ctx.db[health_collection_name()].find(
+        {
+            "provider": "openrouter",
+            "endpoint_tag": {"$ne": None},
+            "last_success_at": {"$ne": None, "$gte": cutoff},
+        },
+        {"model_id": 1, "endpoint_tag": 1, "last_success_at": 1},
+    ):
+        rows = ctx.db[metrics_collection_name()].count_documents(
+            {"model_name": doc["model_id"], "route_endpoint_tag": doc["endpoint_tag"]},
+            limit=1,
+        )
+        if rows:
+            continue
+        violations.append(
+            Violation(
+                subject=f"{doc['model_id']}:{doc['endpoint_tag']}",
+                detail=(
+                    f"marked measured at {_as_utc(doc.get('last_success_at'))} but no row carries "
+                    "this endpoint tag; a run that measured something else was credited here"
+                ),
+                data={"model_id": doc["model_id"], "endpoint_tag": doc["endpoint_tag"]},
+            )
+        )
+    return violations
+
+
 def _unmeasurable_by_profile(ctx: Context) -> set[tuple[str, str]]:
     """Models whose newest attempt exhausted the published profile's budget.
 
@@ -664,6 +776,16 @@ INVARIANTS: list[Invariant] = [
         "pending_work_is_being_decided",
         "Nothing waits in a pending pool past the deadline its own policy sets",
         pending_work_is_being_decided,
+    ),
+    Invariant(
+        "endpoint_targets_are_being_measured",
+        "No endpoint sits unmeasured past three of its own cadences",
+        endpoint_targets_are_being_measured,
+    ),
+    Invariant(
+        "endpoint_freshness_is_backed_by_rows",
+        "Every endpoint marked measured has a row carrying its tag",
+        endpoint_freshness_is_backed_by_rows,
     ),
     Invariant(
         "models_measurable_by_the_published_profile",
