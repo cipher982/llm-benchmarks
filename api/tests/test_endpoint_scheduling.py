@@ -12,6 +12,7 @@ from datetime import timezone
 import mongomock
 import pytest
 from llm_bench.ops import endpoint_discovery
+from llm_bench.scheduler import cli
 from llm_bench.scheduler import health
 from llm_bench.scheduler import policies
 from llm_bench.scheduler import queue
@@ -212,3 +213,74 @@ class TestEndpointPinRoundTrip:
 
         assert decision.transport_provider == "direct"
         assert decision.reason == "endpoint-route-has-no-tag"
+
+
+class TestStalenessIsDerivedNotCached:
+    """An endpoint measured once was never scheduled again.
+
+    `record_success` writes `freshness_status: "fresh"` and only a later
+    success would change it. Nothing recomputes that label for an endpoint --
+    model docs get a reconcile pass, endpoint docs are in no such loop -- so the
+    label said "fresh" indefinitely while the measurement aged out. In
+    production 705 endpoints carried "fresh" while 618 of them had gone more
+    than three cadences unmeasured, and throughput fell to 12 endpoints an hour
+    against a catalogue of 690.
+    """
+
+    def _catalogued(self, db, model_id="m", tag="novita/fp8"):
+        db[endpoint_discovery.endpoints_collection_name()].insert_one(
+            {"model_id": model_id, "endpoint_tag": tag, "enabled": True}
+        )
+
+    def test_a_stale_endpoint_is_selected_despite_a_fresh_label(self, db):
+        now = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc)
+        self._catalogued(db)
+        health.health_collection(db).insert_one(
+            {
+                "_id": "openrouter:m:novita/fp8",
+                "provider": "openrouter",
+                "model_id": "m",
+                "endpoint_tag": "novita/fp8",
+                "enabled": True,
+                "cadence_seconds": 10800,
+                # The stored label is the lie; the timestamp is the fact.
+                "freshness_status": "fresh",
+                "last_success_at": now - timedelta(hours=14),
+            }
+        )
+        candidates = cli._endpoint_candidates(db, provider="openrouter", cadence_seconds=10800, now=now)
+        assert [(m, t) for _, m, t in candidates] == [("m", "novita/fp8")]
+
+    def test_a_genuinely_fresh_endpoint_is_not_reselected(self, db):
+        now = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc)
+        self._catalogued(db)
+        health.health_collection(db).insert_one(
+            {
+                "_id": "openrouter:m:novita/fp8",
+                "provider": "openrouter",
+                "model_id": "m",
+                "endpoint_tag": "novita/fp8",
+                "enabled": True,
+                "cadence_seconds": 10800,
+                "freshness_status": "stale",
+                "last_success_at": now - timedelta(minutes=30),
+            }
+        )
+        assert cli._endpoint_candidates(db, provider="openrouter", cadence_seconds=10800, now=now) == []
+
+    def test_a_never_measured_endpoint_is_still_selected(self, db):
+        now = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc)
+        self._catalogued(db)
+        health.health_collection(db).insert_one(
+            {
+                "_id": "openrouter:m:novita/fp8",
+                "provider": "openrouter",
+                "model_id": "m",
+                "endpoint_tag": "novita/fp8",
+                "enabled": True,
+                "cadence_seconds": 10800,
+                "last_success_at": None,
+            }
+        )
+        candidates = cli._endpoint_candidates(db, provider="openrouter", cadence_seconds=10800, now=now)
+        assert len(candidates) == 1

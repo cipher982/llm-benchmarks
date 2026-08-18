@@ -120,7 +120,14 @@ def _freshness_priority(doc: dict, cadence_seconds: int) -> float:
     return multiplier * float(staleness) / max(1, cadence_seconds)
 
 
-def _endpoint_candidates(db, *, provider: str, cadence_seconds: int) -> list[tuple[float, str, str]]:
+def _as_utc(value) -> datetime:
+    """Mongo hands back naive datetimes; comparing one to an aware `now` raises."""
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _endpoint_candidates(
+    db, *, provider: str, cadence_seconds: int, now: datetime | None = None
+) -> list[tuple[float, str, str]]:
     """Stale endpoint targets, stalest first.
 
     One entry per `(model, endpoint tag)` the catalogue still wants measured.
@@ -129,6 +136,7 @@ def _endpoint_candidates(db, *, provider: str, cadence_seconds: int) -> list[tup
     pass creates. Bounding the population instead of the batch is what starved
     twelve DeepInfra models for months.
     """
+    now = now or datetime.now(timezone.utc)
     candidates: list[tuple[float, str, str]] = []
     endpoints = db[endpoint_discovery.endpoints_collection_name()].find(
         {"enabled": True}, {"model_id": 1, "endpoint_tag": 1}
@@ -160,8 +168,25 @@ def _endpoint_candidates(db, *, provider: str, cadence_seconds: int) -> list[tup
                 print(f"endpoint health registration failed {model_id}:{tag}: {exc}", flush=True)
                 continue
             doc = health.health_collection(db).find_one(health.health_filter(provider, model_id, tag))
-        if not doc or doc.get("freshness_status") not in {"stale", "critical", "never_run"}:
+        if not doc:
             continue
+        # Staleness is computed from `last_success_at`, never read from the
+        # stored `freshness_status`.
+        #
+        # Nothing recomputes that label for an endpoint. `record_success`
+        # writes "fresh" and only a later success would change it, so an
+        # endpoint measured once was marked fresh forever and never selected
+        # again: 705 endpoints carried "fresh" while 618 of them had not been
+        # measured in more than three cadences, and throughput had fallen to 12
+        # endpoints an hour against a catalogue of 690. Model docs escape this
+        # because a reconcile pass rewrites them; endpoint docs are in no such
+        # loop, so the scheduler has to derive the fact rather than trust a
+        # cached one.
+        last_success = doc.get("last_success_at")
+        if last_success is not None:
+            age = (now - _as_utc(last_success)).total_seconds()
+            if age < int(doc.get("cadence_seconds") or cadence_seconds):
+                continue
         candidates.append((_freshness_priority(doc, cadence_seconds), model_id, tag))
     candidates.sort(key=lambda item: -item[0])
     return candidates
@@ -238,7 +263,7 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
                     )
                 }
                 for priority, model_id, tag in _endpoint_candidates(
-                    db, provider=provider, cadence_seconds=cadence_seconds
+                    db, provider=provider, cadence_seconds=cadence_seconds, now=now
                 ):
                     if created_endpoints >= endpoint_budget:
                         break
