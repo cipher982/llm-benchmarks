@@ -93,11 +93,12 @@ def _hard_errors_since(
     provider: str,
     model: str,
     since: Optional[datetime],
-    kind: str,
+    kind: str | Sequence[str] = "hard_model",
     limit: int = 5000,
 ) -> List[Dict[str, Any]]:
     errors_coll = _coll("MONGODB_COLLECTION_ERRORS", "errors_cloud")
-    query: Dict[str, Any] = {"provider": provider, "model_name": model, "error_kind": kind}
+    kind_filter: Any = {"$in": list(kind)} if isinstance(kind, (list, tuple, set)) else kind
+    query: Dict[str, Any] = {"provider": provider, "model_name": model, "error_kind": kind_filter}
     if since is not None:
         query["ts"] = {"$gte": since}
     # Failures from a non-default benchmark profile (long or reasoning runs)

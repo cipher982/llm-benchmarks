@@ -401,6 +401,10 @@ def endpoint_targets_are_being_measured(ctx: Context) -> list[Violation]:
             "cadence_seconds": 1,
         },
     ):
+        # Skip endpoints whose parent model is explicitly disabled/quarantined in the catalogue
+        parent_model = ctx.db[models_collection_name()].find_one({"model_id": doc["model_id"]})
+        if parent_model is not None and not parent_model.get("enabled"):
+            continue
         # The endpoint's own cadence, not a global one. The deadline this check
         # enforces has to be the deadline that endpoint's policy set, or it
         # measures the check's assumptions instead of the fleet.
@@ -430,7 +434,11 @@ def endpoint_targets_are_being_measured(ctx: Context) -> list[Violation]:
         )
         job_verdict = (job or {}).get("last_attempt_error_kind")
         job_msg = str((job or {}).get("last_attempt_error_message") or "").lower()
-        if verdict == "budget_exhausted" or job_verdict == "budget_exhausted":
+        if verdict in ("budget_exhausted", "hard_model", "hard_capability") or job_verdict in (
+            "budget_exhausted",
+            "hard_model",
+            "hard_capability",
+        ):
             continue
         if "visible output text is empty" in doc_msg or "visible output text is empty" in job_msg:
             continue

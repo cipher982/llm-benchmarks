@@ -33,7 +33,7 @@ def _endpoint(db, model_id, tag, enabled=True, **extra):
     )
 
 
-def _health(db, model_id, tag, *, kind=None, message=None, failures=0, last_success_at=None):
+def _health(db, model_id, tag, *, kind=None, message=None, failures=0, consecutive_failures=0, last_success_at=None):
     db[health_collection_name()].insert_one(
         {
             "provider": "openrouter",
@@ -43,6 +43,7 @@ def _health(db, model_id, tag, *, kind=None, message=None, failures=0, last_succ
             "last_error_kind": kind,
             "last_error_message": message,
             "failures_24h": failures,
+            "consecutive_failures": consecutive_failures,
         }
     )
 
@@ -146,6 +147,35 @@ class TestRetirement:
         _endpoint(db, "some/image-to-text-model", "t")
         _health(db, "some/image-to-text-model", "t", last_success_at=NOW)
         assert endpoint_retirement.retire_unmeasurable_endpoints(db, now=NOW) == []
+
+    def test_pin_unverified_endpoint_is_retired(self, db):
+        _endpoint(db, "z-ai/glm-5.1", "wafer/fp4")
+        _health(
+            db,
+            "z-ai/glm-5.1",
+            "wafer/fp4",
+            kind="pin_unverified",
+            message="NotFoundError: Error code: 404 - {'error': {'message': 'No allowed providers are available'}}",
+            failures=4,
+        )
+        retired = endpoint_retirement.retire_unmeasurable_endpoints(db, now=NOW)
+        assert len(retired) == 1
+        assert _enabled(db, "z-ai/glm-5.1", "wafer/fp4") is False
+
+    def test_consecutive_failures_counted_when_failures_24h_is_zero(self, db):
+        _endpoint(db, "m", "t")
+        _health(
+            db,
+            "m",
+            "t",
+            kind="hard_capability",
+            message="does not support streaming",
+            failures=0,
+            consecutive_failures=5,
+        )
+        retired = endpoint_retirement.retire_unmeasurable_endpoints(db, now=NOW)
+        assert len(retired) == 1
+        assert _enabled(db, "m", "t") is False
 
 
 class TestTheWayBack:

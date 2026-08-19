@@ -71,6 +71,13 @@ class TestStarvation:
         _endpoint(db, model_id="m", tag="groq", error_kind="budget_exhausted")
         assert invariants.endpoint_targets_are_being_measured(_ctx(db)) == []
 
+    def test_disabled_parent_model_endpoints_are_not_flagged(self, db):
+        _endpoint(db, model_id="disabled-model", tag="groq")
+        db[invariants.models_collection_name()].insert_one(
+            {"model_id": "disabled-model", "provider": "openrouter", "enabled": False}
+        )
+        assert invariants.endpoint_targets_are_being_measured(_ctx(db)) == []
+
 
 class TestFreshnessIsBackedByEvidence:
     def test_false_fresh_from_a_fallback_is_caught(self, db):

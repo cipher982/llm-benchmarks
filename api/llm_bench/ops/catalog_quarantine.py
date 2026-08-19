@@ -53,22 +53,34 @@ def should_quarantine(
     min_failures: int,
     min_span_minutes: int,
     health_error_kind: str | None = None,
+    last_success: datetime | None = None,
 ) -> bool:
     if not failures:
         return False
-    # A hard_model error with 404, 'not found', or 'deprecated' is terminal:
+    # A hard error with 400/404, 'not found', 'deprecated', or capability refusal is terminal:
     # the scheduler halts future retries, so it will never accumulate multiple timestamps.
-    if health_error_kind == "hard_model":
+    if health_error_kind in ("hard_model", "hard_capability"):
         latest = failures[-1]
-        if latest.get("http_status") == 404:
+        if latest.get("http_status") in (400, 404):
             return True
         msg = (latest.get("normalized_message") or latest.get("message") or "").lower()
-        if "not found" in msg or "no endpoints found" in msg or "deprecated" in msg or "does not exist" in msg:
+        if (
+            "not found" in msg
+            or "no endpoints found" in msg
+            or "deprecated" in msg
+            or "does not exist" in msg
+            or "does not support" in msg
+            or "is not supported" in msg
+            or "expected <" in msg
+            or "invalid_request_error" in msg
+        ):
             return True
     if len(failures) < min_failures:
         return False
     timestamps = [item.get("ts") for item in failures if isinstance(item.get("ts"), datetime)]
     if len(timestamps) < 2:
+        if last_success is None and len(failures) >= min_failures:
+            return True
         return False
     return (max(timestamps) - min(timestamps)) >= timedelta(minutes=min_span_minutes)
 
@@ -108,19 +120,28 @@ def find_candidates(
             provider=provider,
             model=model_id,
             since=since,
-            kind="hard_model",
+            kind=("hard_model", "hard_capability"),
         )
         health_coll = os.getenv("MONGODB_COLLECTION_MODEL_HEALTH", "bench_model_health")
         health = db[health_coll].find_one(
             {"provider": provider, "model_id": model_id, "endpoint_tag": {"$in": [None, ""]}},
-            {"last_error_kind": 1, "last_error_message": 1},
+            {"last_error_kind": 1, "last_error_message": 1, "consecutive_failures": 1},
         )
         health_kind = health.get("last_error_kind") if isinstance(health, dict) else None
+        if not failures and last_success is None and health_kind not in ("budget_exhausted", None):
+            failures = _hard_errors_since(
+                db=db,
+                provider=provider,
+                model=model_id,
+                since=since,
+                kind=("hard_model", "hard_capability", "unknown", "transient_provider"),
+            )
         if not should_quarantine(
             failures,
             min_failures=min_failures,
             min_span_minutes=min_span_minutes,
             health_error_kind=health_kind,
+            last_success=last_success,
         ):
             continue
         timestamps = [item["ts"] for item in failures if isinstance(item.get("ts"), datetime)]
@@ -187,12 +208,28 @@ def quarantine(
                             "enabled": False,
                             "disabled_class": "hard_model",
                             "disabled_reason": (
-                                f"Provider hard_model failure ({candidate.failures} "
+                                f"Provider hard failure ({candidate.failures} "
                                 f"failure{'s' if candidate.failures > 1 else ''}); quarantined by catalog_quarantine"
                             ),
                             "disabled_at": datetime.now(UTC),
                             "disabled_by": "catalog_quarantine",
                             "catalog_quarantine": True,
+                        }
+                    },
+                )
+                health_coll = os.getenv("MONGODB_COLLECTION_MODEL_HEALTH", "bench_model_health")
+                db[health_coll].update_many(
+                    {"provider": candidate.provider, "model_id": candidate.model_id},
+                    {"$set": {"enabled": False}},
+                )
+                endpoints_coll = os.getenv("MONGODB_COLLECTION_ENDPOINTS", "bench_endpoints")
+                db[endpoints_coll].update_many(
+                    {"model_id": candidate.model_id},
+                    {
+                        "$set": {
+                            "enabled": False,
+                            "disabled_reason": f"Parent model quarantined ({candidate.provider}/{candidate.model_id})",
+                            "disabled_at": datetime.now(UTC),
                         }
                     },
                 )

@@ -59,6 +59,15 @@ CAPABILITY_MESSAGE_PATTERNS = (
     r"is not supported",
     r"not supported for this model",
     r"no allowed providers",
+    r"notfounderror",
+    r"not found",
+    r"badrequesterror",
+    r"bad request",
+    r"invalid_request_error",
+    r"expected <",
+    r"tokens_per_second <= 0",
+    r"run measured None",
+    r"not the job's endpoint",
 )
 
 #: One failure is an incident. Repeated failure with no success ever is a fact
@@ -69,9 +78,13 @@ MIN_ATTEMPTS = 3
 def _is_capability_failure(kind: str | None, message: str | None) -> bool:
     if kind in CAPABILITY_ERROR_KINDS:
         return True
-    if kind != "unknown":
-        return False
+    if kind == "pin_unverified":
+        return True
     text = message or ""
+    if "visible output text is empty" in text.lower():
+        return False
+    if kind == "timeout":
+        return False
     return any(re.search(pattern, text, re.IGNORECASE) for pattern in CAPABILITY_MESSAGE_PATTERNS)
 
 
@@ -83,13 +96,20 @@ def _verdict(db: Database, doc: dict[str, Any]) -> tuple[str | None, str | None,
     """
     kind = doc.get("last_error_kind")
     message = doc.get("last_error_message")
-    attempts = int(doc.get("failures_24h") or 0)
+    attempts = max(
+        int(doc.get("failures_24h") or 0),
+        int(doc.get("consecutive_failures") or 0),
+    )
     job = db[jobs_collection_name()].find_one(
         {"provider": "openrouter", "model_id": doc.get("model_id"), "endpoint_tag": doc.get("endpoint_tag")},
         {"last_attempt_error_kind": 1, "last_attempt_error_message": 1, "attempt": 1, "status": 1},
     )
     if job:
-        kind = kind or job.get("last_attempt_error_kind")
+        job_kind = job.get("last_attempt_error_kind")
+        if job_kind in CAPABILITY_ERROR_KINDS:
+            kind = job_kind
+        else:
+            kind = kind or job_kind
         message = message or job.get("last_attempt_error_message")
         attempts = max(attempts, int(job.get("attempt") or 0))
         # A dead letter has exhausted its attempts by definition; the counter
@@ -110,7 +130,14 @@ def retire_unmeasurable_endpoints(
 
     for doc in db[health_collection_name()].find(
         {"provider": "openrouter", "endpoint_tag": {"$ne": None}, "last_success_at": None},
-        {"model_id": 1, "endpoint_tag": 1, "last_error_kind": 1, "last_error_message": 1, "failures_24h": 1},
+        {
+            "model_id": 1,
+            "endpoint_tag": 1,
+            "last_error_kind": 1,
+            "last_error_message": 1,
+            "failures_24h": 1,
+            "consecutive_failures": 1,
+        },
     ):
         kind, message, attempts = _verdict(db, doc)
         if attempts < MIN_ATTEMPTS or not _is_capability_failure(kind, message):
