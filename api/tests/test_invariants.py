@@ -407,3 +407,39 @@ class TestProbeWorkIsNotAViolation:
         db.models.insert_one({"provider": "groq", "model_id": "cand", "enabled": False, "status": "probing"})
         db.bench_jobs.insert_one({"_id": "s1", "provider": "groq", "model_id": "cand", "status": "queued"})
         assert names(invariants.no_work_for_disabled_models(ctx(db))) == ["groq/cand"]
+
+
+class TestRecordCheckRun:
+    def test_pages_flag_partitions_operational_results_and_audits(self, db):
+        op_res = invariants.Result(
+            name="operational_check",
+            description="op desc",
+            ok=True,
+            violations=[],
+            remediable=False,
+            checked_at=NOW,
+            pages=True,
+        )
+        audit_res = invariants.Result(
+            name="audit_check",
+            description="audit desc",
+            ok=False,
+            violations=[invariants.Violation(subject="m1", detail="audit violation")],
+            remediable=False,
+            checked_at=NOW,
+            pages=False,
+        )
+
+        invariants.record_check_run(db, [op_res, audit_res], now=NOW, cadence_seconds=1800)
+        doc = db[invariants.check_runs_collection_name()].find_one()
+
+        assert doc is not None
+        assert len(doc["results"]) == 1
+        assert doc["results"][0]["name"] == "operational_check"
+        assert doc["results"][0]["ok"] is True
+
+        assert len(doc["audits"]) == 1
+        assert doc["audits"][0]["name"] == "audit_check"
+        assert doc["audits"][0]["count"] == 1
+        assert doc["audits"][0]["subjects"] == ["m1"]
+        assert "ok" not in doc["audits"][0]

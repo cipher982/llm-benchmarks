@@ -156,6 +156,7 @@ class Result:
     violations: list[Violation]
     remediable: bool
     checked_at: datetime
+    pages: bool = True
     error: str | None = None
     evaluated: bool = True
 
@@ -179,6 +180,9 @@ class Invariant:
     # violation itself. Anything that spends money, changes what is published,
     # or removes a model from the desired set is deliberately not in this class.
     remediable: bool = False
+    # True when a failure is an operational defect that should page operators.
+    # False for product/measurement design audits (e.g. reasoning models).
+    pages: bool = True
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -835,6 +839,7 @@ INVARIANTS: list[Invariant] = [
         "models_measurable_by_the_published_profile",
         "Every enabled model can produce a publishable measurement under the published profile",
         models_measurable_by_the_published_profile,
+        pages=False,
     ),
     Invariant(
         "desired_set_is_not_silently_shrinking",
@@ -877,10 +882,30 @@ def evaluate(
             continue
         try:
             violations = inv.check(ctx)
-            results.append(Result(inv.name, inv.description, not violations, violations, inv.remediable, now))
+            results.append(
+                Result(
+                    inv.name,
+                    inv.description,
+                    not violations,
+                    violations,
+                    inv.remediable,
+                    now,
+                    pages=inv.pages,
+                )
+            )
         except CannotEvaluate as exc:
             results.append(
-                Result(inv.name, inv.description, False, [], inv.remediable, now, error=str(exc), evaluated=False)
+                Result(
+                    inv.name,
+                    inv.description,
+                    False,
+                    [],
+                    inv.remediable,
+                    now,
+                    pages=inv.pages,
+                    error=str(exc),
+                    evaluated=False,
+                )
             )
         except Exception as exc:  # noqa: BLE001
             # An invariant that cannot run tells us nothing, so it must not
@@ -893,6 +918,7 @@ def evaluate(
                     [],
                     inv.remediable,
                     now,
+                    pages=inv.pages,
                     error=f"{type(exc).__name__}: {exc}",
                 )
             )
@@ -914,6 +940,9 @@ def record_check_run(
     where nothing ran — which is how a disabled Sauron job passed for three
     months as a live data source.
     """
+    operational_results = [r for r in results if r.pages]
+    audit_results = [r for r in results if not r.pages]
+
     db[check_runs_collection_name()].insert_one(
         {
             "checked_at": now,
@@ -928,7 +957,17 @@ def record_check_run(
                     "error": r.error,
                     "subjects": [v.subject for v in r.violations[:50]],
                 }
-                for r in results
+                for r in operational_results
+            ],
+            "audits": [
+                {
+                    "name": r.name,
+                    "description": r.description,
+                    "count": len(r.violations),
+                    "subjects": [v.subject for v in r.violations[:50]],
+                    "error": r.error,
+                }
+                for r in audit_results
             ],
         }
     )
