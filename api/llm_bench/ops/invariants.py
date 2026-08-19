@@ -413,7 +413,21 @@ def endpoint_targets_are_being_measured(ctx: Context) -> list[Violation]:
         # has gone three of its own cycles unmeasured is not being served.
         cutoff = ctx.now - (cadence * 3)
         last = _as_utc(doc.get("last_success_at"))
+        last_attempt = _as_utc(doc.get("last_attempt_at"))
         if last is not None and last >= cutoff:
+            continue
+        if (
+            last is None
+            and last_attempt is not None
+            and last_attempt >= cutoff
+            and doc.get("last_error_kind")
+            in (
+                "timeout",
+                "transient_provider",
+                "network",
+                "rate_limit",
+            )
+        ):
             continue
         # An endpoint the published profile cannot measure is a
         # measurement-design question, not a scheduling fault, and is reported

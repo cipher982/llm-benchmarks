@@ -233,6 +233,21 @@ def quarantine(
                         }
                     },
                 )
+                jobs_coll = os.getenv("MONGODB_COLLECTION_JOBS", "bench_jobs")
+                db[jobs_coll].update_many(
+                    {
+                        "provider": candidate.provider,
+                        "model_id": candidate.model_id,
+                        "status": {"$in": ["queued", "running"]},
+                    },
+                    {
+                        "$set": {
+                            "status": "cancelled",
+                            "cancelled_reason": "Parent model quarantined",
+                            "updated_at": datetime.now(UTC),
+                        }
+                    },
+                )
     finally:
         client.close()
 
