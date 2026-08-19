@@ -66,6 +66,10 @@ class TestRetirement:
         retired = endpoint_retirement.retire_unmeasurable_endpoints(db, now=NOW)
         assert len(retired) == 1
         assert _enabled(db, "google/gemini-3-pro-image", "google-ai-studio/global") is False
+        health_doc = db[health_collection_name()].find_one(
+            {"model_id": "google/gemini-3-pro-image", "endpoint_tag": "google-ai-studio/global"}
+        )
+        assert health_doc["enabled"] is False
 
     def test_empty_visible_text_alone_never_retires_anything(self, db):
         # A live dry run flagged deepseek-r1-0528 on this message alongside
@@ -154,12 +158,15 @@ class TestTheWayBack:
             disabled_reason="no measurement in 3 attempts",
             disabled_protocol_version=policies.MEASUREMENT_PROTOCOL_VERSION - 1,
         )
+        _health(db, "m", "t", failures=3)
         restored = endpoint_retirement.restore_stale_protocol_retirements(db, now=NOW)
         assert len(restored) == 1
         doc = db[endpoint_discovery.endpoints_collection_name()].find_one({"model_id": "m"})
         assert doc["enabled"] is True
         assert "disabled_reason" not in doc
         assert doc["missing_passes"] == 0
+        health_doc = db[health_collection_name()].find_one({"model_id": "m", "endpoint_tag": "t"})
+        assert health_doc["enabled"] is True
 
     def test_a_current_protocol_verdict_stands(self, db):
         _endpoint(

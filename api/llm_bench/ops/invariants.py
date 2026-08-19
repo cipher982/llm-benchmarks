@@ -397,6 +397,7 @@ def endpoint_targets_are_being_measured(ctx: Context) -> list[Violation]:
             "endpoint_tag": 1,
             "last_success_at": 1,
             "last_error_kind": 1,
+            "last_error_message": 1,
             "cadence_seconds": 1,
         },
     ):

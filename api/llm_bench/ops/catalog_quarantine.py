@@ -59,10 +59,10 @@ def should_quarantine(
     # A hard_model error with 404, 'not found', or 'deprecated' is terminal:
     # the scheduler halts future retries, so it will never accumulate multiple timestamps.
     if health_error_kind == "hard_model":
-        first = failures[0]
-        if first.get("http_status") == 404:
+        latest = failures[-1]
+        if latest.get("http_status") == 404:
             return True
-        msg = (first.get("normalized_message") or first.get("message") or "").lower()
+        msg = (latest.get("normalized_message") or latest.get("message") or "").lower()
         if "not found" in msg or "no endpoints found" in msg or "deprecated" in msg or "does not exist" in msg:
             return True
     if len(failures) < min_failures:
@@ -112,7 +112,7 @@ def find_candidates(
         )
         health_coll = os.getenv("MONGODB_COLLECTION_MODEL_HEALTH", "bench_model_health")
         health = db[health_coll].find_one(
-            {"provider": provider, "model_id": model_id},
+            {"provider": provider, "model_id": model_id, "endpoint_tag": {"$in": [None, ""]}},
             {"last_error_kind": 1, "last_error_message": 1},
         )
         health_kind = health.get("last_error_kind") if isinstance(health, dict) else None
