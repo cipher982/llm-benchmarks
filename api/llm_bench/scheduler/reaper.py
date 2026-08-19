@@ -17,6 +17,7 @@ def run_reaper_pass(*, cadence_seconds: int) -> int:
         db = client[db_name]
         expired = queue.expire_orphaned_running(db)
         requeued = queue.requeue_retryable_dead_letters(db)
+        cancelled = queue.cancel_ineligible_jobs(db)
         for job in expired:
             log_error_mongo(
                 provider=str(job.get("provider")),
@@ -44,7 +45,9 @@ def run_reaper_pass(*, cadence_seconds: int) -> int:
             print(f"Reaper expired {len(expired)} running jobs", flush=True)
         if requeued:
             print(f"Reaper requeued {len(requeued)} retryable dead letters", flush=True)
-        return len(expired) + len(requeued)
+        if cancelled:
+            print(f"Reaper cancelled {cancelled} jobs for disabled models", flush=True)
+        return len(expired) + len(requeued) + cancelled
     finally:
         client.close()
 
