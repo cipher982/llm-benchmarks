@@ -422,13 +422,16 @@ def endpoint_targets_are_being_measured(ctx: Context) -> list[Violation]:
         # only the health doc would report them as starving and send someone to
         # fix a scheduler that is working.
         verdict = doc.get("last_error_kind")
-        if verdict is None:
-            job = ctx.db[jobs_collection_name()].find_one(
-                {"provider": "openrouter", "model_id": doc["model_id"], "endpoint_tag": doc["endpoint_tag"]},
-                {"last_attempt_error_kind": 1},
-            )
-            verdict = (job or {}).get("last_attempt_error_kind")
-        if verdict == "budget_exhausted":
+        doc_msg = str(doc.get("last_error_message") or "").lower()
+        job = ctx.db[jobs_collection_name()].find_one(
+            {"provider": "openrouter", "model_id": doc["model_id"], "endpoint_tag": doc["endpoint_tag"]},
+            {"last_attempt_error_kind": 1, "last_attempt_error_message": 1},
+        )
+        job_verdict = (job or {}).get("last_attempt_error_kind")
+        job_msg = str((job or {}).get("last_attempt_error_message") or "").lower()
+        if verdict == "budget_exhausted" or job_verdict == "budget_exhausted":
+            continue
+        if "visible output text is empty" in doc_msg or "visible output text is empty" in job_msg:
             continue
         subject = f"{doc['model_id']}:{doc['endpoint_tag']}"
         detail = (

@@ -57,6 +57,8 @@ CAPABILITY_MESSAGE_PATTERNS = (
     r"no endpoints found",
     r"is not a valid model",
     r"is not supported",
+    r"not supported for this model",
+    r"no allowed providers",
 )
 
 #: One failure is an incident. Repeated failure with no success ever is a fact
@@ -138,6 +140,10 @@ def retire_unmeasurable_endpoints(
                 }
             },
         )
+        db[health_collection_name()].update_one(
+            {"provider": "openrouter", "model_id": doc["model_id"], "endpoint_tag": doc["endpoint_tag"]},
+            {"$set": {"enabled": False}},
+        )
     return retired
 
 
@@ -169,4 +175,9 @@ def restore_stale_protocol_retirements(
                 "$unset": {"disabled_reason": "", "disabled_at": "", "disabled_protocol_version": ""},
             },
         )
+        for item in restored:
+            db[health_collection_name()].update_one(
+                {"provider": "openrouter", "model_id": item["model_id"], "endpoint_tag": item["endpoint_tag"]},
+                {"$set": {"enabled": True}},
+            )
     return restored

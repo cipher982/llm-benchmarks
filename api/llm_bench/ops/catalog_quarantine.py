@@ -52,7 +52,19 @@ def should_quarantine(
     *,
     min_failures: int,
     min_span_minutes: int,
+    health_error_kind: str | None = None,
 ) -> bool:
+    if not failures:
+        return False
+    # A hard_model error with 404, 'not found', or 'deprecated' is terminal:
+    # the scheduler halts future retries, so it will never accumulate multiple timestamps.
+    if health_error_kind == "hard_model":
+        first = failures[0]
+        if first.get("http_status") == 404:
+            return True
+        msg = (first.get("normalized_message") or first.get("message") or "").lower()
+        if "not found" in msg or "no endpoints found" in msg or "deprecated" in msg or "does not exist" in msg:
+            return True
     if len(failures) < min_failures:
         return False
     timestamps = [item.get("ts") for item in failures if isinstance(item.get("ts"), datetime)]
@@ -98,10 +110,17 @@ def find_candidates(
             since=since,
             kind="hard_model",
         )
+        health_coll = os.getenv("MONGODB_COLLECTION_MODEL_HEALTH", "bench_model_health")
+        health = db[health_coll].find_one(
+            {"provider": provider, "model_id": model_id},
+            {"last_error_kind": 1, "last_error_message": 1},
+        )
+        health_kind = health.get("last_error_kind") if isinstance(health, dict) else None
         if not should_quarantine(
             failures,
             min_failures=min_failures,
             min_span_minutes=min_span_minutes,
+            health_error_kind=health_kind,
         ):
             continue
         timestamps = [item["ts"] for item in failures if isinstance(item.get("ts"), datetime)]
@@ -166,8 +185,13 @@ def quarantine(
                     {
                         "$set": {
                             "enabled": False,
-                            "disabled_reason": "Repeated hard_model failures; quarantined by catalog_quarantine",
+                            "disabled_class": "hard_model",
+                            "disabled_reason": (
+                                f"Provider hard_model failure ({candidate.failures} "
+                                f"failure{'s' if candidate.failures > 1 else ''}); quarantined by catalog_quarantine"
+                            ),
                             "disabled_at": datetime.now(UTC),
+                            "disabled_by": "catalog_quarantine",
                             "catalog_quarantine": True,
                         }
                     },
