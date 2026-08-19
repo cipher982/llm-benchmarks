@@ -83,8 +83,6 @@ def _is_capability_failure(kind: str | None, message: str | None) -> bool:
     text = message or ""
     if "visible output text is empty" in text.lower():
         return False
-    if kind == "timeout":
-        return False
     return any(re.search(pattern, text, re.IGNORECASE) for pattern in CAPABILITY_MESSAGE_PATTERNS)
 
 

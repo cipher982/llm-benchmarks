@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 
+from llm_bench.ops import endpoint_retirement
 from llm_bench.scheduler import health
 from llm_bench.scheduler import policies
 from llm_bench.scheduler import queue
@@ -18,6 +19,7 @@ def run_reaper_pass(*, cadence_seconds: int) -> int:
         expired = queue.expire_orphaned_running(db)
         requeued = queue.requeue_retryable_dead_letters(db)
         cancelled = queue.cancel_ineligible_jobs(db)
+        retired = endpoint_retirement.retire_unmeasurable_endpoints(db)
         for job in expired:
             log_error_mongo(
                 provider=str(job.get("provider")),
@@ -47,7 +49,9 @@ def run_reaper_pass(*, cadence_seconds: int) -> int:
             print(f"Reaper requeued {len(requeued)} retryable dead letters", flush=True)
         if cancelled:
             print(f"Reaper cancelled {cancelled} jobs for disabled models", flush=True)
-        return len(expired) + len(requeued) + cancelled
+        if retired:
+            print(f"Reaper retired {len(retired)} unmeasurable endpoints", flush=True)
+        return len(expired) + len(requeued) + cancelled + len(retired)
     finally:
         client.close()
 
