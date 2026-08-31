@@ -21,7 +21,7 @@ services:
       # this list with no worker has no heartbeat, which liveness now reads as a
       # dead thread and restarts the container for. The retired providers were
       # still listed here after consolidation.
-      - BENCHMARK_LIVENESS_PROVIDERS=${BENCHMARK_LIVENESS_PROVIDERS:-openai,vertex,openrouter}
+      - BENCHMARK_LIVENESS_PROVIDERS=${BENCHMARK_LIVENESS_PROVIDERS:-openai,vertex}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
