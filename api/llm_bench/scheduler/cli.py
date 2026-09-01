@@ -162,8 +162,6 @@ def _endpoint_candidates(db, *, provider: str, now: datetime | None = None) -> l
     health_coll = health.health_collection(db)
     candidates: list[tuple[float, str, str, int]] = []
     for model_id, model_rows in rows_by_model.items():
-        if model_id in active_models:
-            continue
         provider_count = len(
             {
                 row.get("provider_canonical") or endpoint_discovery.provider_canonical(row["endpoint_tag"])
@@ -214,6 +212,9 @@ def _endpoint_candidates(db, *, provider: str, now: datetime | None = None) -> l
                 attempted_at = _as_utc(attempted_at)
                 if model_last_attempt is None or attempted_at > model_last_attempt:
                     model_last_attempt = attempted_at
+
+        if model_id in active_models:
+            continue
 
         if model_last_attempt is not None:
             model_age = max(0.0, (now - model_last_attempt).total_seconds())

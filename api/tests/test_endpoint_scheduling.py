@@ -185,6 +185,8 @@ class TestRotatingSchedulerPass:
         )
 
         assert cli._endpoint_candidates(db, provider="openrouter") == []
+        docs = list(health.health_collection(db).find({"model_id": "m"}))
+        assert {doc["endpoint_rotation_policy_version"] for doc in docs} == {1}
 
     def test_an_unpinned_job_also_blocks_endpoint_rotation(self, db):
         seed_endpoints(db, ["alpha"], model_id="m")
