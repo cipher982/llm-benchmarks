@@ -40,7 +40,7 @@ The knobs are **not in this repo**. They are in the deployment compose:
 
 | Knob | Now | What it does |
 |---|---|---|
-| `FRESH_MINUTES` | `2880` (2 days) | **The spend lever** — sets the cadence, and so jobs/day |
+| `FRESH_MINUTES` | `5760` (4 days) | **The spend lever** — sets the cadence, and so jobs/day |
 | `BENCHMARK_MAX_COST_PER_RUN_USD` | `0.005` | Ceiling on one run, not the average |
 | `OPENROUTER_CONCURRENCY` / `BENCHMARK_CONCURRENCY_OPENROUTER` | `4` | Burst ceiling only — how fast a backlog drains |
 
@@ -49,12 +49,12 @@ jobs/day  = enabled_targets / cadence_days
 $/day     = rows/day x measured_cost_per_row
 ```
 
-Cost from **measured rows**, never from the per-run ceiling. Measured
-2026-08-18: 1,169 enabled targets (790 endpoint + 379 model-level); Aug 17
-produced 13,462 rows against a $45.75 bill = **$0.0034/row** against a $0.005
-ceiling. And rows are not jobs — the sampled ratio was ~4.6 rows per job, a
-multiplier nobody has yet explained, so treat any jobs/day figure as a lower
-bound.
+Measured 2026-09-01: 1,060 enabled targets (793 endpoint + 267 model-level);
+344 current-architecture requests cost $1.036, or **$0.00301/run**. A four-day
+cadence projects 265 runs/day, **$0.80/day, or about $24/month**. The dedicated
+key has a separate $30 monthly hard cap. The earlier rows/job multiplier mixed
+the pre-cutover metrics shape with scheduler jobs and is not a spend input for
+the current one-request-per-target architecture.
 
 **Before changing any knob, compute the new $/day and put the number in the
 commit message.** A change whose cost was never calculated is not reversible in
@@ -68,10 +68,10 @@ pool and took throughput from 12/hour to ~340/hour, and both changes were
 correct. What was missing is that nobody recomputed the bill afterwards.
 
 **What this costs, honestly.** At this budget the sampling policy cannot reach
-its `official` tier in reasonable time — 30 samples at a 2-day cadence is ~60
-days per endpoint, and `preliminary` (8 samples) is ~16 days. That is a real
-conflict between the publication design and the budget. The budget wins until
-the owner says otherwise. Do not "fix" it by speeding the scheduler back up.
+its `official` tier quickly — 30 samples at a 4-day cadence is ~120 days per
+endpoint, and `preliminary` (8 samples) is ~32 days. That is a real conflict
+between the publication design and the budget. The budget wins until the owner
+says otherwise. Do not "fix" it by speeding the scheduler back up.
 
 ---
 
