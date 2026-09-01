@@ -405,6 +405,7 @@ def endpoint_targets_are_being_measured(ctx: Context) -> list[Violation]:
             "last_error_message": 1,
             "cadence_seconds": 1,
             "updated_at": 1,
+            "endpoint_rotation_policy_started_at": 1,
         },
     ):
         # Skip endpoints whose parent model is explicitly disabled/quarantined in the catalogue
@@ -420,13 +421,11 @@ def endpoint_targets_are_being_measured(ctx: Context) -> list[Violation]:
         cutoff = ctx.now - (cadence * 3)
         last = _as_utc(doc.get("last_success_at"))
         last_attempt = _as_utc(doc.get("last_attempt_at"))
-        if last is not None and last >= cutoff:
-            continue
-        if last is None and last_attempt is not None and last_attempt >= cutoff:
+        policy_started = _as_utc(doc.get("endpoint_rotation_policy_started_at"))
+        if any(clock is not None and clock >= cutoff for clock in (last, last_attempt, policy_started)):
             continue
         if last is None and last_attempt is None:
-            introduced_raw = doc.get("updated_at")
-            introduced_at = _as_utc(introduced_raw) if introduced_raw is not None else None
+            introduced_at = _as_utc(doc.get("updated_at"))
             if introduced_at is not None and introduced_at >= cutoff:
                 continue
         # An endpoint the published profile cannot measure is a

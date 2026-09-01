@@ -193,11 +193,21 @@ def _endpoint_candidates(db, *, provider: str, now: datetime | None = None) -> l
                     print(f"endpoint health registration failed {model_id}:{tag}: {exc}", flush=True)
                     continue
                 doc = health_coll.find_one(query)
-            elif doc.get("cadence_seconds") != endpoint_cadence:
-                health_coll.update_one(query, {"$set": {"cadence_seconds": endpoint_cadence}})
-                doc["cadence_seconds"] = endpoint_cadence
             if not doc:
                 continue
+            health_updates = {}
+            if doc.get("cadence_seconds") != endpoint_cadence:
+                health_updates["cadence_seconds"] = endpoint_cadence
+            if doc.get("endpoint_rotation_policy_version") != policies.ENDPOINT_ROTATION_POLICY_VERSION:
+                health_updates.update(
+                    {
+                        "endpoint_rotation_policy_version": policies.ENDPOINT_ROTATION_POLICY_VERSION,
+                        "endpoint_rotation_policy_started_at": now,
+                    }
+                )
+            if health_updates:
+                health_coll.update_one(query, {"$set": health_updates})
+                doc.update(health_updates)
             endpoint_docs.append((tag, doc))
             attempted_at = doc.get("last_attempt_at") or doc.get("last_success_at")
             if attempted_at is not None:

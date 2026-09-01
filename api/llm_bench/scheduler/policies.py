@@ -165,6 +165,9 @@ def endpoint_targets_per_pass() -> int:
         return 25
 
 
+ENDPOINT_ROTATION_POLICY_VERSION = 1
+
+
 def endpoint_tier_interval_seconds(provider_count: int) -> int:
     """How often one model earns an endpoint measurement opportunity.
 

@@ -76,6 +76,8 @@ class TestCandidates:
         assert sorted(tag for _, _, tag, _ in found) == ["deepinfra/bf16", "deepinfra/turbo", "groq"]
         docs = list(health.health_collection(db).find({"model_id": "openai/gpt-oss-120b"}))
         assert {doc["cadence_seconds"] for doc in docs} == {3 * 96 * 60 * 60}
+        assert {doc["endpoint_rotation_policy_version"] for doc in docs} == {1}
+        assert all(doc["endpoint_rotation_policy_started_at"] is not None for doc in docs)
 
     def test_provider_count_change_updates_endpoint_revisit_cadence(self, db):
         seed_endpoints(db, ["p1", "p2"], model_id="m")

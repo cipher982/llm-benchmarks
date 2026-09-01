@@ -30,7 +30,16 @@ def _ctx(db):
     return invariants.Context(db=db, now=NOW)
 
 
-def _endpoint(db, *, model_id, tag, last_success_at=None, error_kind=None, updated_at=None):
+def _endpoint(
+    db,
+    *,
+    model_id,
+    tag,
+    last_success_at=None,
+    error_kind=None,
+    updated_at=None,
+    policy_started_at=None,
+):
     doc = {
         "_id": f"openrouter:{model_id}:{tag}",
         "provider": "openrouter",
@@ -43,6 +52,8 @@ def _endpoint(db, *, model_id, tag, last_success_at=None, error_kind=None, updat
     }
     if updated_at is not None:
         doc["updated_at"] = updated_at
+    if policy_started_at is not None:
+        doc["endpoint_rotation_policy_started_at"] = policy_started_at
     db[health_collection_name()].insert_one(doc)
 
 
@@ -58,6 +69,16 @@ class TestStarvation:
 
     def test_a_new_never_run_endpoint_gets_its_rotation_grace(self, db):
         _endpoint(db, model_id="new", tag="novita/fp8", updated_at=NOW)
+        assert invariants.endpoint_targets_are_being_measured(_ctx(db)) == []
+
+    def test_policy_adoption_gives_old_measurements_a_rotation_grace(self, db):
+        _endpoint(
+            db,
+            model_id="old",
+            tag="novita/fp8",
+            last_success_at=NOW - timedelta(days=30),
+            policy_started_at=NOW,
+        )
         assert invariants.endpoint_targets_are_being_measured(_ctx(db)) == []
 
     def test_a_recently_measured_endpoint_is_not_a_violation(self, db):
