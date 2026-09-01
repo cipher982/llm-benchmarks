@@ -34,6 +34,7 @@ from llm_bench.ops.openrouter_discovery import DEFAULT_BASE_URL
 from llm_bench.ops.openrouter_discovery import is_router
 from llm_bench.ops.openrouter_discovery import utcnow
 from llm_bench.scheduler.mongo import collection_name
+from llm_bench.scheduler.mongo import health_collection_name
 
 # Endpoints the site reaches on its own credentials. Publishing them through
 # OpenRouter as well would double-count the same deployment under two lanes.
@@ -222,14 +223,22 @@ def refresh_endpoints(
                 continue
             doc = endpoint_doc(model_id, endpoint, now=now)
             seen.add(doc["endpoint_tag"])
-            endpoints.update_one(
-                {"model_id": model_id, "endpoint_tag": doc["endpoint_tag"]},
-                {
-                    "$set": {**doc, "missing_passes": 0},
-                    "$setOnInsert": {"first_seen_at": now, "enabled": True},
-                },
-                upsert=True,
-            )
+            query = {"model_id": model_id, "endpoint_tag": doc["endpoint_tag"]}
+            existing = endpoints.find_one(query, {"enabled": 1, "disabled_by": 1})
+            update: dict[str, Any] = {
+                "$set": {**doc, "missing_passes": 0},
+                "$setOnInsert": {"first_seen_at": now, "enabled": True},
+            }
+            restored = bool(existing and existing.get("disabled_by") == "endpoint-discovery")
+            if restored:
+                update["$set"]["enabled"] = True
+                update["$unset"] = {"disabled_reason": "", "disabled_at": "", "disabled_by": ""}
+            endpoints.update_one(query, update, upsert=True)
+            if restored:
+                db[health_collection_name()].update_one(
+                    {"provider": "openrouter", "model_id": model_id, "endpoint_tag": doc["endpoint_tag"]},
+                    {"$set": {"enabled": True}},
+                )
             admitted += 1
         seen_by_model[model_id] = seen
 
@@ -254,6 +263,11 @@ def refresh_endpoints(
                 )
                 retired += 1
             endpoints.update_one({"_id": row["_id"]}, {"$set": update})
+            if misses >= MISSING_PASSES_BEFORE_RETIREMENT:
+                db[health_collection_name()].update_one(
+                    {"provider": "openrouter", "model_id": model_id, "endpoint_tag": row["endpoint_tag"]},
+                    {"$set": {"enabled": False}},
+                )
 
     record = {
         "started_at": started_at,

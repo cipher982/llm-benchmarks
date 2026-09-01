@@ -31,6 +31,7 @@ from typing import Any
 from pymongo.database import Database
 
 from llm_bench.ops import desired_set as desired_set_module
+from llm_bench.ops import endpoint_discovery
 from llm_bench.scheduler import policies
 from llm_bench.scheduler.mongo import collection_name
 from llm_bench.scheduler.mongo import health_collection_name
@@ -408,6 +409,12 @@ def endpoint_targets_are_being_measured(ctx: Context) -> list[Violation]:
             "endpoint_rotation_policy_started_at": 1,
         },
     ):
+        endpoint = ctx.db[endpoint_discovery.endpoints_collection_name()].find_one(
+            {"model_id": doc["model_id"], "endpoint_tag": doc["endpoint_tag"], "enabled": True},
+            {"_id": 1},
+        )
+        if endpoint is None:
+            continue
         # Skip endpoints whose parent model is explicitly disabled/quarantined in the catalogue
         parent_model = ctx.db[models_collection_name()].find_one({"model_id": doc["model_id"]})
         if parent_model is not None and not parent_model.get("enabled"):

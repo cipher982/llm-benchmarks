@@ -9,6 +9,7 @@ partial discovery pass mass-retiring healthy targets.
 import mongomock
 import pytest
 from llm_bench.ops import endpoint_discovery as ed
+from llm_bench.scheduler.mongo import health_collection_name
 
 
 @pytest.fixture
@@ -132,6 +133,29 @@ class TestRefresh:
         row = db[ed.endpoints_collection_name()].find_one({"endpoint_tag": "novita/fp8"})
         assert row["missing_passes"] == 0
         assert row["enabled"] is True
+
+    def test_discovery_retirement_and_return_sync_endpoint_health(self, db):
+        ed.refresh_endpoints(db, model_ids=["m"], fetcher=lambda m: [endpoint("novita/fp8")])
+        db[health_collection_name()].insert_one(
+            {
+                "provider": "openrouter",
+                "model_id": "m",
+                "endpoint_tag": "novita/fp8",
+                "enabled": True,
+            }
+        )
+        for _ in range(ed.MISSING_PASSES_BEFORE_RETIREMENT):
+            ed.refresh_endpoints(db, model_ids=["m"], fetcher=lambda m: [])
+
+        catalogue = db[ed.endpoints_collection_name()]
+        assert catalogue.find_one({"endpoint_tag": "novita/fp8"})["enabled"] is False
+        assert db[health_collection_name()].find_one({"endpoint_tag": "novita/fp8"})["enabled"] is False
+
+        ed.refresh_endpoints(db, model_ids=["m"], fetcher=lambda m: [endpoint("novita/fp8")])
+        restored = catalogue.find_one({"endpoint_tag": "novita/fp8"})
+        assert restored["enabled"] is True
+        assert "disabled_by" not in restored
+        assert db[health_collection_name()].find_one({"endpoint_tag": "novita/fp8"})["enabled"] is True
 
     def test_routers_are_never_endpoint_targets(self, db):
         called = []

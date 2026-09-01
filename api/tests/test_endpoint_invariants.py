@@ -13,6 +13,7 @@ from datetime import timezone
 
 import mongomock
 import pytest
+from llm_bench.ops import endpoint_discovery
 from llm_bench.ops import invariants
 from llm_bench.scheduler.mongo import health_collection_name
 from llm_bench.scheduler.mongo import metrics_collection_name
@@ -55,6 +56,9 @@ def _endpoint(
     if policy_started_at is not None:
         doc["endpoint_rotation_policy_started_at"] = policy_started_at
     db[health_collection_name()].insert_one(doc)
+    db[endpoint_discovery.endpoints_collection_name()].insert_one(
+        {"model_id": model_id, "endpoint_tag": tag, "enabled": True}
+    )
 
 
 class TestStarvation:
@@ -78,6 +82,19 @@ class TestStarvation:
             tag="novita/fp8",
             last_success_at=NOW - timedelta(days=30),
             policy_started_at=NOW,
+        )
+        assert invariants.endpoint_targets_are_being_measured(_ctx(db)) == []
+
+    def test_a_retired_endpoint_is_not_starvation(self, db):
+        _endpoint(
+            db,
+            model_id="retired",
+            tag="novita/fp8",
+            last_success_at=NOW - timedelta(days=30),
+        )
+        db[endpoint_discovery.endpoints_collection_name()].update_one(
+            {"model_id": "retired", "endpoint_tag": "novita/fp8"},
+            {"$set": {"enabled": False}},
         )
         assert invariants.endpoint_targets_are_being_measured(_ctx(db)) == []
 
