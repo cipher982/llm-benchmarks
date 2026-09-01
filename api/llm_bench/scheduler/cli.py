@@ -125,70 +125,104 @@ def _as_utc(value) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
-def _endpoint_candidates(
-    db, *, provider: str, cadence_seconds: int, now: datetime | None = None
-) -> list[tuple[float, str, str]]:
-    """Stale endpoint targets, stalest first.
+def _endpoint_candidates(db, *, provider: str, now: datetime | None = None) -> list[tuple[float, str, str, int]]:
+    """Endpoint candidates under the provider-count rotating tier policy.
 
-    One entry per `(model, endpoint tag)` the catalogue still wants measured.
-    Selection mirrors the model path exactly: consider every eligible endpoint,
-    order by how long it has waited, and let the caller bound how many jobs one
-    pass creates. Bounding the population instead of the batch is what starved
-    twelve DeepInfra models for months.
+    A model earns one scheduling opportunity per tier interval. Its endpoint
+    rows rotate oldest-first, so provider-family count controls how often the
+    model page changes without multiplying every opportunity into a full sweep.
     """
     now = now or datetime.now(timezone.utc)
-    candidates: list[tuple[float, str, str]] = []
+    enabled_models = set(
+        db[models_collection_name()].distinct(
+            "model_id",
+            {"provider": provider, "enabled": True, "deprecated": {"$ne": True}},
+        )
+    )
+    rows_by_model: dict[str, list[dict]] = {}
     endpoints = db[endpoint_discovery.endpoints_collection_name()].find(
-        {"enabled": True}, {"model_id": 1, "endpoint_tag": 1}
+        {"enabled": True, "model_id": {"$in": sorted(enabled_models)}},
+        {"model_id": 1, "endpoint_tag": 1, "provider_canonical": 1},
     )
     for row in endpoints:
         model_id = row.get("model_id")
         tag = row.get("endpoint_tag")
-        if not model_id or not tag:
+        if model_id and tag:
+            rows_by_model.setdefault(model_id, []).append(row)
+
+    active_models = set(
+        queue.jobs_collection(db).distinct(
+            "model_id",
+            {
+                "provider": provider,
+                "status": {"$in": sorted(queue.ACTIVE_STATUSES)},
+            },
+        )
+    )
+    health_coll = health.health_collection(db)
+    candidates: list[tuple[float, str, str, int]] = []
+    for model_id, model_rows in rows_by_model.items():
+        if model_id in active_models:
             continue
-        doc = health.health_collection(db).find_one(health.health_filter(provider, model_id, tag))
-        if not doc:
-            # Never measured and never registered. Register it now so the next
-            # pass can see it rather than skipping it forever.
-            #
-            # Isolated deliberately: one endpoint that cannot be registered must
-            # cost only itself. A DuplicateKeyError raised here once aborted the
-            # entire scheduler pass, so no provider was scheduled at all while
-            # the loop kept reporting healthy.
-            try:
-                health.refresh_model_health_doc(
-                    db,
-                    provider=provider,
-                    model_id=model_id,
-                    endpoint_tag=tag,
-                    enabled=True,
-                    cadence_seconds=cadence_seconds,
-                )
-            except Exception as exc:  # noqa: BLE001
-                print(f"endpoint health registration failed {model_id}:{tag}: {exc}", flush=True)
+        provider_count = len(
+            {
+                row.get("provider_canonical") or endpoint_discovery.provider_canonical(row["endpoint_tag"])
+                for row in model_rows
+            }
+        )
+        endpoint_count = len(model_rows)
+        model_interval = policies.endpoint_tier_interval_seconds(provider_count)
+        endpoint_cadence = model_interval * endpoint_count
+        model_last_attempt: datetime | None = None
+        endpoint_docs: list[tuple[str, dict]] = []
+        for row in model_rows:
+            tag = row["endpoint_tag"]
+            query = health.health_filter(provider, model_id, tag)
+            doc = health_coll.find_one(query)
+            if not doc:
+                try:
+                    health.refresh_model_health_doc(
+                        db,
+                        provider=provider,
+                        model_id=model_id,
+                        endpoint_tag=tag,
+                        enabled=True,
+                        cadence_seconds=endpoint_cadence,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    print(f"endpoint health registration failed {model_id}:{tag}: {exc}", flush=True)
+                    continue
+                doc = health_coll.find_one(query)
+            elif doc.get("cadence_seconds") != endpoint_cadence:
+                health_coll.update_one(query, {"$set": {"cadence_seconds": endpoint_cadence}})
+                doc["cadence_seconds"] = endpoint_cadence
+            if not doc:
                 continue
-            doc = health.health_collection(db).find_one(health.health_filter(provider, model_id, tag))
-        if not doc:
-            continue
-        # Staleness is computed from `last_success_at`, never read from the
-        # stored `freshness_status`.
-        #
-        # Nothing recomputes that label for an endpoint. `record_success`
-        # writes "fresh" and only a later success would change it, so an
-        # endpoint measured once was marked fresh forever and never selected
-        # again: 705 endpoints carried "fresh" while 618 of them had not been
-        # measured in more than three cadences, and throughput had fallen to 12
-        # endpoints an hour against a catalogue of 690. Model docs escape this
-        # because a reconcile pass rewrites them; endpoint docs are in no such
-        # loop, so the scheduler has to derive the fact rather than trust a
-        # cached one.
-        last_success = doc.get("last_success_at")
-        if last_success is not None:
-            age = (now - _as_utc(last_success)).total_seconds()
-            if age < int(doc.get("cadence_seconds") or cadence_seconds):
+            endpoint_docs.append((tag, doc))
+            attempted_at = doc.get("last_attempt_at") or doc.get("last_success_at")
+            if attempted_at is not None:
+                attempted_at = _as_utc(attempted_at)
+                if model_last_attempt is None or attempted_at > model_last_attempt:
+                    model_last_attempt = attempted_at
+
+        if model_last_attempt is not None:
+            model_age = max(0.0, (now - model_last_attempt).total_seconds())
+            if model_age < model_interval:
                 continue
-        candidates.append((_freshness_priority(doc, cadence_seconds), model_id, tag))
-    candidates.sort(key=lambda item: -item[0])
+            model_priority = model_age / model_interval
+        else:
+            model_priority = 1000.0
+
+        for tag, doc in endpoint_docs:
+            last_success = doc.get("last_success_at")
+            endpoint_priority = (
+                1000.0
+                if last_success is None
+                else max(0.0, (now - _as_utc(last_success)).total_seconds()) / endpoint_cadence
+            )
+            priority = model_priority + min(endpoint_priority, 1000.0) / 1000.0
+            candidates.append((priority, model_id, tag, endpoint_cadence))
+    candidates.sort(key=lambda item: (-item[0], item[1], item[2]))
     return candidates
 
 
@@ -203,6 +237,12 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
         selected = _selected_providers(providers, provider_models)
         health.refresh_all_model_docs(db, cadence_seconds=cadence_seconds, now=now)
         for provider in selected:
+            endpoint_mode = provider == "openrouter" and policies.endpoint_targets_enabled()
+            endpoint_model_ids = (
+                set(db[endpoint_discovery.endpoints_collection_name()].distinct("model_id", {"enabled": True}))
+                if endpoint_mode
+                else set()
+            )
             # Every model is considered; the cap bounds how much work one pass
             # creates, not which models are allowed to exist.
             #
@@ -216,6 +256,8 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
             # own.
             candidates = []
             for model_id in provider_models.get(provider, []):
+                if model_id in endpoint_model_ids:
+                    continue
                 # Model-level freshness only. Endpoint health records live in
                 # the same collection and would otherwise satisfy this lookup,
                 # letting one endpoint's run stand in for the model's.
@@ -252,7 +294,7 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
             # Endpoint targets are the unit the site publishes. They share the
             # OpenRouter lane, so they get their own bound rather than
             # competing for the model allowance.
-            if provider == "openrouter" and policies.endpoint_targets_enabled():
+            if endpoint_mode:
                 endpoint_budget = policies.endpoint_targets_per_pass()
                 created_endpoints = 0
                 catalogue = {
@@ -262,9 +304,10 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
                         {"model_id": 1, "endpoint_tag": 1, "quantization": 1, "provider_name": 1},
                     )
                 }
-                for priority, model_id, tag in _endpoint_candidates(
-                    db, provider=provider, cadence_seconds=cadence_seconds, now=now
-                ):
+                scheduled_endpoint_models: set[str] = set()
+                for priority, model_id, tag, endpoint_cadence in _endpoint_candidates(db, provider=provider, now=now):
+                    if model_id in scheduled_endpoint_models:
+                        continue
                     if created_endpoints >= endpoint_budget:
                         break
                     if queue.enqueue_scheduled_job(
@@ -283,8 +326,10 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
                             now=now,
                         ),
                         endpoint_tag=tag,
+                        cadence_seconds=endpoint_cadence,
                     ):
                         enqueued += 1
+                        scheduled_endpoint_models.add(model_id)
                         created_endpoints += 1
         health.heartbeat(
             db,

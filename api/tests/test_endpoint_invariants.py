@@ -30,19 +30,20 @@ def _ctx(db):
     return invariants.Context(db=db, now=NOW)
 
 
-def _endpoint(db, *, model_id, tag, last_success_at=None, error_kind=None):
-    db[health_collection_name()].insert_one(
-        {
-            "_id": f"openrouter:{model_id}:{tag}",
-            "provider": "openrouter",
-            "model_id": model_id,
-            "endpoint_tag": tag,
-            "enabled": True,
-            "cadence_seconds": CADENCE,
-            "last_success_at": last_success_at,
-            "last_error_kind": error_kind,
-        }
-    )
+def _endpoint(db, *, model_id, tag, last_success_at=None, error_kind=None, updated_at=None):
+    doc = {
+        "_id": f"openrouter:{model_id}:{tag}",
+        "provider": "openrouter",
+        "model_id": model_id,
+        "endpoint_tag": tag,
+        "enabled": True,
+        "cadence_seconds": CADENCE,
+        "last_success_at": last_success_at,
+        "last_error_kind": error_kind,
+    }
+    if updated_at is not None:
+        doc["updated_at"] = updated_at
+    db[health_collection_name()].insert_one(doc)
 
 
 class TestStarvation:
@@ -54,6 +55,10 @@ class TestStarvation:
         violations = invariants.endpoint_targets_are_being_measured(_ctx(db))
         assert len(violations) == 5
         assert all("never measured" in v.detail for v in violations)
+
+    def test_a_new_never_run_endpoint_gets_its_rotation_grace(self, db):
+        _endpoint(db, model_id="new", tag="novita/fp8", updated_at=NOW)
+        assert invariants.endpoint_targets_are_being_measured(_ctx(db)) == []
 
     def test_a_recently_measured_endpoint_is_not_a_violation(self, db):
         _endpoint(db, model_id="m", tag="groq", last_success_at=NOW - timedelta(seconds=CADENCE))
@@ -96,6 +101,17 @@ class TestFreshnessIsBackedByEvidence:
     def test_a_sibling_endpoints_rows_do_not_vouch_for_this_one(self, db):
         _endpoint(db, model_id="m", tag="novita/bf16", last_success_at=NOW)
         db[metrics_collection_name()].insert_one({"model_name": "m", "route_endpoint_tag": "novita/fp8", "run_ts": NOW})
+        assert len(invariants.endpoint_freshness_is_backed_by_rows(_ctx(db))) == 1
+
+    def test_an_old_tagged_row_does_not_vouch_for_a_new_credit(self, db):
+        _endpoint(db, model_id="m", tag="novita/fp8", last_success_at=NOW)
+        db[metrics_collection_name()].insert_one(
+            {
+                "model_name": "m",
+                "route_endpoint_tag": "novita/fp8",
+                "run_ts": NOW - timedelta(seconds=CADENCE * 2),
+            }
+        )
         assert len(invariants.endpoint_freshness_is_backed_by_rows(_ctx(db))) == 1
 
 

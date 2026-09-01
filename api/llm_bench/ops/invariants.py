@@ -404,6 +404,7 @@ def endpoint_targets_are_being_measured(ctx: Context) -> list[Violation]:
             "last_error_kind": 1,
             "last_error_message": 1,
             "cadence_seconds": 1,
+            "updated_at": 1,
         },
     ):
         # Skip endpoints whose parent model is explicitly disabled/quarantined in the catalogue
@@ -423,6 +424,11 @@ def endpoint_targets_are_being_measured(ctx: Context) -> list[Violation]:
             continue
         if last is None and last_attempt is not None and last_attempt >= cutoff:
             continue
+        if last is None and last_attempt is None:
+            introduced_raw = doc.get("updated_at")
+            introduced_at = _as_utc(introduced_raw) if introduced_raw is not None else None
+            if introduced_at is not None and introduced_at >= cutoff:
+                continue
         # An endpoint the published profile cannot measure is a
         # measurement-design question, not a scheduling fault, and is reported
         # by models_measurable_by_the_published_profile instead. Scheduling it
@@ -481,18 +487,28 @@ def endpoint_freshness_is_backed_by_rows(ctx: Context) -> list[Violation]:
     """
     # Only recently-credited endpoints: an old record predates the identity
     # fixes and is covered by the starvation check above.
-    cutoff = ctx.now - timedelta(seconds=policies.cadence_seconds() * 3)
     violations: list[Violation] = []
     for doc in ctx.db[health_collection_name()].find(
         {
             "provider": "openrouter",
             "endpoint_tag": {"$ne": None},
-            "last_success_at": {"$ne": None, "$gte": cutoff},
+            "last_success_at": {"$ne": None},
         },
-        {"model_id": 1, "endpoint_tag": 1, "last_success_at": 1},
+        {"model_id": 1, "endpoint_tag": 1, "last_success_at": 1, "cadence_seconds": 1},
     ):
+        cadence_seconds = int(doc.get("cadence_seconds") or policies.cadence_seconds())
+        last_success = _as_utc(doc["last_success_at"])
+        if last_success < ctx.now - timedelta(seconds=cadence_seconds * 3):
+            continue
         rows = ctx.db[metrics_collection_name()].count_documents(
-            {"model_name": doc["model_id"], "route_endpoint_tag": doc["endpoint_tag"]},
+            {
+                "model_name": doc["model_id"],
+                "route_endpoint_tag": doc["endpoint_tag"],
+                "run_ts": {
+                    "$gte": last_success - timedelta(seconds=cadence_seconds),
+                    "$lte": last_success,
+                },
+            },
             limit=1,
         )
         if rows:
@@ -501,8 +517,8 @@ def endpoint_freshness_is_backed_by_rows(ctx: Context) -> list[Violation]:
             Violation(
                 subject=f"{doc['model_id']}:{doc['endpoint_tag']}",
                 detail=(
-                    f"marked measured at {_as_utc(doc.get('last_success_at'))} but no row carries "
-                    "this endpoint tag; a run that measured something else was credited here"
+                    f"marked measured at {last_success} but no row carries this endpoint tag "
+                    "near that credit; a run that measured something else was credited here"
                 ),
                 data={"model_id": doc["model_id"], "endpoint_tag": doc["endpoint_tag"]},
             )
@@ -651,7 +667,7 @@ def discovery_completed_recently(ctx: Context) -> list[Violation]:
     runs = ctx.db[discovery_runs_collection_name()]
     if runs.estimated_document_count() == 0:
         raise CannotEvaluate(
-            "no discovery run ledger exists; provider absence cannot be distinguished " "from a failed or partial sync"
+            "no discovery run ledger exists; provider absence cannot be distinguished from a failed or partial sync"
         )
     cutoff = ctx.now - DISCOVERY_MAX_AGE
     latest_by_provider: dict[str, dict[str, Any]] = {}

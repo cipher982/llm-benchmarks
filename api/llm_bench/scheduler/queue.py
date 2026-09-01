@@ -9,6 +9,7 @@ from pymongo import ReturnDocument
 from pymongo.collection import Collection
 from pymongo.database import Database
 
+from llm_bench.ops import endpoint_discovery
 from llm_bench.scheduler import policies
 from llm_bench.scheduler.mongo import jobs_collection_name
 from llm_bench.scheduler.mongo import models_collection_name
@@ -127,9 +128,15 @@ def enqueue_scheduled_job(
     now: datetime | None = None,
     route_snapshot: dict[str, Any] | None = None,
     endpoint_tag: str | None = None,
+    cadence_seconds: int | None = None,
 ) -> bool:
     now = now or utcnow()
     job_id = scheduled_job_id(provider, model_id, endpoint_tag)
+    extra: dict[str, Any] = {}
+    if endpoint_tag:
+        extra["endpoint_tag"] = endpoint_tag
+    if cadence_seconds is not None:
+        extra["cadence_seconds"] = cadence_seconds
     doc = _new_job_doc(
         job_id=job_id,
         provider=provider,
@@ -139,9 +146,14 @@ def enqueue_scheduled_job(
         now=now,
         not_before=not_before,
         route_snapshot=route_snapshot,
-        extra={"endpoint_tag": endpoint_tag} if endpoint_tag else None,
+        extra=extra,
     )
     coll = jobs_collection(db)
+    if endpoint_tag and coll.find_one(
+        {"provider": provider, "model_id": model_id, "status": {"$in": sorted(ACTIVE_STATUSES)}},
+        {"_id": 1},
+    ):
+        return False
     existing = coll.find_one({"_id": job_id}, {"status": 1})
     if existing and existing.get("status") in ACTIVE_STATUSES | {"dead_letter"}:
         return False
@@ -250,17 +262,13 @@ def claim_next_job(
         sort=[("priority", -1), ("created_at", 1)],
         return_document=ReturnDocument.AFTER,
     )
-    if job is not None and not is_model_eligible(
-        db,
-        provider=provider,
-        model_id=job.get("model_id"),
-        sample_role=job.get("sample_role") or "published",
-    ):
-        # The catalogue is the authority on what should be benchmarked. Jobs
-        # outlive catalogue decisions, so a model disabled after its job was
-        # queued would otherwise keep consuming a worker slot forever.
-        cancel_job(db, job_id=job["_id"], reason="model no longer enabled", now=now)
-        return None
+    if job is not None:
+        reason = job_ineligibility_reason(db, job)
+        if reason:
+            # Catalogue decisions outlive queued jobs. Refuse stale work after
+            # claiming it so a retired target never reaches a paid provider.
+            cancel_job(db, job_id=job["_id"], reason=reason, now=now)
+            return None
     return job
 
 
@@ -295,6 +303,32 @@ def is_model_eligible(db: Database, *, provider: str, model_id: Any, sample_role
     return bool(doc.get("enabled"))
 
 
+def job_ineligibility_reason(db: Database, job: dict[str, Any]) -> str | None:
+    provider = str(job.get("provider") or "")
+    model_id = job.get("model_id")
+    if not is_model_eligible(
+        db,
+        provider=provider,
+        model_id=model_id,
+        sample_role=job.get("sample_role") or "published",
+    ):
+        return "model no longer enabled"
+
+    endpoint_tag = job.get("endpoint_tag")
+    endpoints = db[endpoint_discovery.endpoints_collection_name()]
+    if endpoint_tag:
+        target = endpoints.find_one(
+            {"model_id": model_id, "endpoint_tag": endpoint_tag, "enabled": True},
+            {"_id": 1},
+        )
+        if target is None:
+            return "endpoint no longer enabled"
+    elif provider == "openrouter" and job.get("job_kind") == "scheduled":
+        if endpoints.find_one({"model_id": model_id, "enabled": True}, {"_id": 1}) is not None:
+            return "superseded by endpoint rotation"
+    return None
+
+
 def cancel_job(db: Database, *, job_id: Any, reason: str, now: datetime | None = None) -> bool:
     now = now or utcnow()
     result = jobs_collection(db).update_one(
@@ -314,22 +348,13 @@ def cancel_job(db: Database, *, job_id: Any, reason: str, now: datetime | None =
 
 
 def cancel_ineligible_jobs(db: Database, *, now: datetime | None = None) -> int:
-    """Cancel queued or running jobs whose model is no longer enabled.
-
-    Demotion has to reach work already in the queue. Without this, disabling a
-    model stops new scheduling but leaves its existing jobs cycling.
-    """
+    """Cancel active jobs superseded by current model and endpoint catalogues."""
     now = now or utcnow()
-    enabled = {
-        (m["provider"], m["model_id"])
-        for m in db[models_collection_name()].find(
-            {"enabled": True, "deprecated": {"$ne": True}}, {"provider": 1, "model_id": 1}
-        )
-    }
     cancelled = 0
-    for job in jobs_collection(db).find({"status": {"$in": ["queued", "running"]}}, {"provider": 1, "model_id": 1}):
-        if (job.get("provider"), job.get("model_id")) not in enabled:
-            cancelled += int(cancel_job(db, job_id=job["_id"], reason="model no longer enabled", now=now))
+    for job in jobs_collection(db).find({"status": {"$in": ["queued", "running"]}}):
+        reason = job_ineligibility_reason(db, job)
+        if reason:
+            cancelled += int(cancel_job(db, job_id=job["_id"], reason=reason, now=now))
     return cancelled
 
 
@@ -454,9 +479,20 @@ def requeue_retryable_dead_letters(
     }
     transitioned: list[dict[str, Any]] = []
     for job in coll.find(query):
-        if not is_model_eligible(db, provider=job.get("provider"), model_id=job.get("model_id")):
-            # Do not resurrect work for a model the catalogue has demoted.
-            cancel_job(db, job_id=job["_id"], reason="model no longer enabled", now=now)
+        reason = job_ineligibility_reason(db, job)
+        if reason:
+            # Do not resurrect work the current catalogues have superseded.
+            cancel_job(db, job_id=job["_id"], reason=reason, now=now)
+            continue
+        if job.get("endpoint_tag") and coll.find_one(
+            {
+                "provider": job.get("provider"),
+                "model_id": job.get("model_id"),
+                "status": {"$in": sorted(ACTIVE_STATUSES)},
+                "_id": {"$ne": job["_id"]},
+            },
+            {"_id": 1},
+        ):
             continue
         if int(job.get("dead_letter_requeues") or 0) >= policies.MAX_DEAD_LETTER_REQUEUES:
             continue

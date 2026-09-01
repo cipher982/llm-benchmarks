@@ -1,8 +1,8 @@
-"""Endpoint targets are scheduled per endpoint, bounded, and stalest-first.
+"""Endpoint targets rotate by model popularity, bounded and oldest-first.
 
-The bound applies to jobs created, never to which endpoints are eligible. A cap
-applied to the population is how twelve DeepInfra models went unscheduled for
-months with no error and nothing disabled.
+The bound applies to jobs created, never to which models are eligible. Within a
+model, one oldest endpoint is scheduled per tier opportunity so provider count
+does not multiply a popular model's faster cadence into a full sweep.
 """
 
 from datetime import datetime
@@ -16,6 +16,7 @@ from llm_bench.scheduler import cli
 from llm_bench.scheduler import health
 from llm_bench.scheduler import policies
 from llm_bench.scheduler import queue
+from llm_bench.scheduler.mongo import models_collection_name
 
 
 @pytest.fixture
@@ -24,8 +25,21 @@ def db():
 
 
 def seed_endpoints(db, tags, model_id="openai/gpt-oss-120b"):
+    db[models_collection_name()].update_one(
+        {"provider": "openrouter", "model_id": model_id},
+        {"$set": {"enabled": True, "deprecated": False}},
+        upsert=True,
+    )
     db[endpoint_discovery.endpoints_collection_name()].insert_many(
-        [{"model_id": model_id, "endpoint_tag": t, "enabled": True} for t in tags]
+        [
+            {
+                "model_id": model_id,
+                "endpoint_tag": tag,
+                "provider_canonical": endpoint_discovery.provider_canonical(tag),
+                "enabled": True,
+            }
+            for tag in tags
+        ]
     )
 
 
@@ -38,21 +52,46 @@ class TestGate:
         monkeypatch.setenv("BENCHMARK_ENDPOINT_TARGETS", "1")
         assert policies.endpoint_targets_enabled() is True
 
+    def test_default_provider_count_tiers(self, monkeypatch):
+        for name in (
+            "BENCHMARK_ENDPOINT_HOT_PROVIDER_MIN",
+            "BENCHMARK_ENDPOINT_MEDIUM_PROVIDER_MIN",
+            "BENCHMARK_ENDPOINT_HOT_HOURS",
+            "BENCHMARK_ENDPOINT_MEDIUM_HOURS",
+            "BENCHMARK_ENDPOINT_LONG_HOURS",
+        ):
+            monkeypatch.delenv(name, raising=False)
+        assert policies.endpoint_tier_interval_seconds(2) == 96 * 60 * 60
+        assert policies.endpoint_tier_interval_seconds(3) == 24 * 60 * 60
+        assert policies.endpoint_tier_interval_seconds(8) == 3 * 60 * 60
+
 
 class TestCandidates:
     def test_each_endpoint_is_its_own_target(self, db):
         from llm_bench.scheduler.cli import _endpoint_candidates
 
         seed_endpoints(db, ["groq", "deepinfra/bf16", "deepinfra/turbo"])
-        found = _endpoint_candidates(db, provider="openrouter", cadence_seconds=3600)
+        found = _endpoint_candidates(db, provider="openrouter")
 
-        assert sorted(tag for _, _, tag in found) == ["deepinfra/bf16", "deepinfra/turbo", "groq"]
+        assert sorted(tag for _, _, tag, _ in found) == ["deepinfra/bf16", "deepinfra/turbo", "groq"]
+        docs = list(health.health_collection(db).find({"model_id": "openai/gpt-oss-120b"}))
+        assert {doc["cadence_seconds"] for doc in docs} == {3 * 96 * 60 * 60}
 
-    def test_a_freshly_measured_endpoint_is_not_a_candidate(self, db):
+    def test_provider_count_change_updates_endpoint_revisit_cadence(self, db):
+        seed_endpoints(db, ["p1", "p2"], model_id="m")
+        cli._endpoint_candidates(db, provider="openrouter")
+        coll = health.health_collection(db)
+        assert {doc["cadence_seconds"] for doc in coll.find({"model_id": "m"})} == {2 * 96 * 60 * 60}
+
+        seed_endpoints(db, [f"p{i}" for i in range(3, 9)], model_id="m")
+        cli._endpoint_candidates(db, provider="openrouter")
+        assert {doc["cadence_seconds"] for doc in coll.find({"model_id": "m"})} == {8 * 3 * 60 * 60}
+
+    def test_one_recent_endpoint_paces_the_whole_model(self, db):
         from llm_bench.scheduler.cli import _endpoint_candidates
 
         seed_endpoints(db, ["groq", "novita/fp8"])
-        _endpoint_candidates(db, provider="openrouter", cadence_seconds=3600)
+        _endpoint_candidates(db, provider="openrouter")
         health.record_success(
             db,
             provider="openrouter",
@@ -61,8 +100,8 @@ class TestCandidates:
             cadence_seconds=3600,
         )
 
-        found = _endpoint_candidates(db, provider="openrouter", cadence_seconds=3600)
-        assert [tag for _, _, tag in found] == ["novita/fp8"]
+        found = _endpoint_candidates(db, provider="openrouter")
+        assert found == []
 
     def test_disabled_endpoints_are_never_scheduled(self, db):
         from llm_bench.scheduler.cli import _endpoint_candidates
@@ -71,49 +110,108 @@ class TestCandidates:
         db[endpoint_discovery.endpoints_collection_name()].insert_one(
             {"model_id": "openai/gpt-oss-120b", "endpoint_tag": "sambanova", "enabled": False}
         )
-        found = _endpoint_candidates(db, provider="openrouter", cadence_seconds=3600)
-        assert [tag for _, _, tag in found] == ["groq"]
+        found = _endpoint_candidates(db, provider="openrouter")
+        assert [tag for _, _, tag, _ in found] == ["groq"]
 
     def test_the_stalest_endpoint_sorts_first(self, db):
         from llm_bench.scheduler.cli import _endpoint_candidates
 
         seed_endpoints(db, ["groq", "novita/fp8"])
-        _endpoint_candidates(db, provider="openrouter", cadence_seconds=3600)
+        _endpoint_candidates(db, provider="openrouter")
 
         now = datetime.now(timezone.utc)
         coll = health.health_collection(db)
         coll.update_one(
             health.health_filter("openrouter", "openai/gpt-oss-120b", "groq"),
-            {"$set": {"staleness_seconds": 100, "freshness_status": "stale", "last_success_at": now}},
+            {"$set": {"freshness_status": "stale", "last_success_at": now - timedelta(days=5)}},
         )
         coll.update_one(
             health.health_filter("openrouter", "openai/gpt-oss-120b", "novita/fp8"),
             {
                 "$set": {
-                    "staleness_seconds": 99999,
                     "freshness_status": "critical",
-                    "last_success_at": now - timedelta(days=3),
+                    "last_success_at": now - timedelta(days=6),
                 }
             },
         )
 
-        found = _endpoint_candidates(db, provider="openrouter", cadence_seconds=3600)
+        found = _endpoint_candidates(db, provider="openrouter")
         assert found[0][2] == "novita/fp8", "the endpoint that waited longest must go first"
 
 
+class TestRotatingSchedulerPass:
+    def test_enqueues_one_endpoint_per_model_without_unpinned_duplicates(self, db, monkeypatch):
+        seed_endpoints(db, ["alpha", "beta"], model_id="m1")
+        seed_endpoints(db, ["alpha"], model_id="m2")
+        monkeypatch.setenv("BENCHMARK_ENDPOINT_TARGETS", "1")
+        monkeypatch.setenv("BENCHMARK_ENDPOINT_TARGETS_PER_PASS", "25")
+        monkeypatch.setattr(cli, "mongo_env", lambda: ("unused", "db"))
+        monkeypatch.setattr(cli, "load_provider_models", lambda: {"openrouter": ["m1", "m2", "fallback"]})
+        monkeypatch.setattr(cli.health, "refresh_all_model_docs", lambda *args, **kwargs: None)
+        monkeypatch.setattr(cli.health, "heartbeat", lambda *args, **kwargs: None)
+        monkeypatch.setattr(cli, "route_snapshot", lambda *args, **kwargs: None)
+
+        class Client:
+            def __getitem__(self, name):
+                return db
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(cli, "mongo_client", Client)
+        enqueued = []
+        monkeypatch.setattr(
+            cli.queue,
+            "enqueue_scheduled_job",
+            lambda *args, **kwargs: enqueued.append(kwargs) or True,
+        )
+
+        assert cli.scheduler_pass(providers="openrouter", limit=100, cadence_seconds=96 * 60 * 60) == 2
+        assert [(job["model_id"], job.get("endpoint_tag")) for job in enqueued] == [
+            ("m1", "alpha"),
+            ("m2", "alpha"),
+        ]
+
+    def test_an_active_endpoint_job_paces_its_siblings(self, db):
+        seed_endpoints(db, ["alpha", "beta"], model_id="m")
+        queue.enqueue_scheduled_job(
+            db,
+            provider="openrouter",
+            model_id="m",
+            endpoint_tag="alpha",
+            priority=1,
+        )
+
+        assert cli._endpoint_candidates(db, provider="openrouter") == []
+
+    def test_an_unpinned_job_also_blocks_endpoint_rotation(self, db):
+        seed_endpoints(db, ["alpha"], model_id="m")
+        queue.enqueue_scheduled_job(db, provider="openrouter", model_id="m", priority=1)
+
+        assert cli._endpoint_candidates(db, provider="openrouter") == []
+
+
 class TestEnqueue:
-    def test_two_endpoints_of_one_model_produce_two_jobs(self, db):
-        for tag in ("deepinfra/bf16", "deepinfra/turbo"):
-            queue.enqueue_scheduled_job(
-                db,
-                provider="openrouter",
-                model_id="openai/gpt-oss-120b",
-                priority=1.0,
-                endpoint_tag=tag,
-            )
+    def test_only_one_endpoint_job_per_model_can_be_active(self, db):
+        assert queue.enqueue_scheduled_job(
+            db,
+            provider="openrouter",
+            model_id="openai/gpt-oss-120b",
+            priority=1.0,
+            endpoint_tag="deepinfra/bf16",
+            cadence_seconds=123,
+        )
+        assert not queue.enqueue_scheduled_job(
+            db,
+            provider="openrouter",
+            model_id="openai/gpt-oss-120b",
+            priority=1.0,
+            endpoint_tag="deepinfra/turbo",
+        )
         jobs = list(db["bench_jobs"].find({}))
-        assert len(jobs) == 2, "endpoints collapsed into one job"
-        assert sorted(j["endpoint_tag"] for j in jobs) == ["deepinfra/bf16", "deepinfra/turbo"]
+        assert len(jobs) == 1
+        assert jobs[0]["endpoint_tag"] == "deepinfra/bf16"
+        assert jobs[0]["cadence_seconds"] == 123
 
 
 class TestRowIdentity:
@@ -228,9 +326,7 @@ class TestStalenessIsDerivedNotCached:
     """
 
     def _catalogued(self, db, model_id="m", tag="novita/fp8"):
-        db[endpoint_discovery.endpoints_collection_name()].insert_one(
-            {"model_id": model_id, "endpoint_tag": tag, "enabled": True}
-        )
+        seed_endpoints(db, [tag], model_id=model_id)
 
     def test_a_stale_endpoint_is_selected_despite_a_fresh_label(self, db):
         now = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc)
@@ -245,11 +341,11 @@ class TestStalenessIsDerivedNotCached:
                 "cadence_seconds": 10800,
                 # The stored label is the lie; the timestamp is the fact.
                 "freshness_status": "fresh",
-                "last_success_at": now - timedelta(hours=14),
+                "last_success_at": now - timedelta(days=5),
             }
         )
-        candidates = cli._endpoint_candidates(db, provider="openrouter", cadence_seconds=10800, now=now)
-        assert [(m, t) for _, m, t in candidates] == [("m", "novita/fp8")]
+        candidates = cli._endpoint_candidates(db, provider="openrouter", now=now)
+        assert [(m, t) for _, m, t, _ in candidates] == [("m", "novita/fp8")]
 
     def test_a_genuinely_fresh_endpoint_is_not_reselected(self, db):
         now = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc)
@@ -266,7 +362,7 @@ class TestStalenessIsDerivedNotCached:
                 "last_success_at": now - timedelta(minutes=30),
             }
         )
-        assert cli._endpoint_candidates(db, provider="openrouter", cadence_seconds=10800, now=now) == []
+        assert cli._endpoint_candidates(db, provider="openrouter", now=now) == []
 
     def test_a_never_measured_endpoint_is_still_selected(self, db):
         now = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc)
@@ -282,5 +378,5 @@ class TestStalenessIsDerivedNotCached:
                 "last_success_at": None,
             }
         )
-        candidates = cli._endpoint_candidates(db, provider="openrouter", cadence_seconds=10800, now=now)
+        candidates = cli._endpoint_candidates(db, provider="openrouter", now=now)
         assert len(candidates) == 1

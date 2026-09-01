@@ -238,6 +238,7 @@ def run_worker_loop(
                 # to the front of every pass forever, and the same front slice
                 # was re-run every tick while the rest of the catalogue starved.
                 endpoint_tag = job.get("endpoint_tag") or None
+                job_cadence_seconds = int(job.get("cadence_seconds") or cadence_seconds)
                 persist_route_cooldown(db, job=job, result=result, now=now)
 
                 if result.status == "success":
@@ -259,7 +260,7 @@ def run_worker_loop(
                                     provider=provider,
                                     model_id=model_id,
                                     endpoint_tag=endpoint_tag,
-                                    cadence_seconds=cadence_seconds,
+                                    cadence_seconds=job_cadence_seconds,
                                     error_kind="pin_unverified",
                                     error_message=(
                                         result.fallback_reason
@@ -273,7 +274,7 @@ def run_worker_loop(
                                     provider=provider,
                                     model_id=model_id,
                                     endpoint_tag=endpoint_tag,
-                                    cadence_seconds=cadence_seconds,
+                                    cadence_seconds=job_cadence_seconds,
                                     now=now,
                                 )
                     print(f"Completed job {job['_id']} status=success", flush=True)
@@ -295,7 +296,7 @@ def run_worker_loop(
                         provider=provider,
                         model_id=model_id,
                         endpoint_tag=endpoint_tag,
-                        cadence_seconds=cadence_seconds,
+                        cadence_seconds=job_cadence_seconds,
                         error_kind=error_kind,
                         error_message=error_message,
                         now=now,

@@ -6,8 +6,13 @@ model stopped new scheduling but left its existing jobs cycling, and the
 dead-letter sweep kept resurrecting them.
 """
 
+from datetime import datetime
+from datetime import timedelta
+from datetime import timezone
+
 import mongomock
 import pytest
+from llm_bench.ops import endpoint_discovery
 from llm_bench.scheduler import queue
 
 
@@ -47,3 +52,73 @@ def test_cancel_ineligible_jobs_sweeps_the_existing_queue(db):
     assert queue.cancel_ineligible_jobs(db) == 2
     assert db.bench_jobs.count_documents({"status": "cancelled"}) == 2
     assert db.bench_jobs.find_one({"model_id": "live"})["status"] == "queued"
+
+
+def _endpoint(db, model_id, tag, *, enabled=True):
+    db[endpoint_discovery.endpoints_collection_name()].insert_one(
+        {"model_id": model_id, "endpoint_tag": tag, "enabled": enabled}
+    )
+
+
+def test_endpoint_catalogue_supersedes_unpinned_and_retired_scheduled_jobs(db):
+    _enable(db, "openrouter", "m")
+    _endpoint(db, "m", "alpha")
+    _endpoint(db, "m", "retired", enabled=False)
+
+    assert (
+        queue.job_ineligibility_reason(
+            db,
+            {"provider": "openrouter", "model_id": "m", "job_kind": "scheduled"},
+        )
+        == "superseded by endpoint rotation"
+    )
+    assert (
+        queue.job_ineligibility_reason(
+            db,
+            {
+                "provider": "openrouter",
+                "model_id": "m",
+                "job_kind": "scheduled",
+                "endpoint_tag": "retired",
+            },
+        )
+        == "endpoint no longer enabled"
+    )
+    assert (
+        queue.job_ineligibility_reason(
+            db,
+            {
+                "provider": "openrouter",
+                "model_id": "m",
+                "job_kind": "scheduled",
+                "endpoint_tag": "alpha",
+            },
+        )
+        is None
+    )
+
+
+def test_dead_letter_endpoint_stays_parked_while_sibling_is_active(db):
+    _enable(db, "openrouter", "m")
+    _endpoint(db, "m", "alpha")
+    _endpoint(db, "m", "beta")
+    now = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    assert queue.enqueue_scheduled_job(
+        db, provider="openrouter", model_id="m", endpoint_tag="alpha", priority=1, now=now
+    )
+    db.bench_jobs.update_one(
+        {"_id": "openrouter:m:alpha"},
+        {
+            "$set": {
+                "status": "dead_letter",
+                "updated_at": now - timedelta(days=8),
+                "last_attempt_error_kind": "rate_limit",
+            }
+        },
+    )
+    assert queue.enqueue_scheduled_job(
+        db, provider="openrouter", model_id="m", endpoint_tag="beta", priority=1, now=now
+    )
+
+    assert queue.requeue_retryable_dead_letters(db, now=now) == []
+    assert db.bench_jobs.find_one({"_id": "openrouter:m:alpha"})["status"] == "dead_letter"

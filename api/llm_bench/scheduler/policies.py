@@ -163,3 +163,22 @@ def endpoint_targets_per_pass() -> int:
         return max(1, int(os.getenv("BENCHMARK_ENDPOINT_TARGETS_PER_PASS", "25")))
     except ValueError:
         return 25
+
+
+def endpoint_tier_interval_seconds(provider_count: int) -> int:
+    """How often one model earns an endpoint measurement opportunity.
+
+    Provider count is a cheap popularity proxy. A tier opportunity measures one
+    oldest endpoint, not every endpoint, so a popular model costs one request
+    per interval instead of multiplying its faster cadence by every provider.
+    """
+
+    hot_min = int(os.getenv("BENCHMARK_ENDPOINT_HOT_PROVIDER_MIN", "8"))
+    medium_min = int(os.getenv("BENCHMARK_ENDPOINT_MEDIUM_PROVIDER_MIN", "3"))
+    if provider_count >= hot_min:
+        hours = float(os.getenv("BENCHMARK_ENDPOINT_HOT_HOURS", "3"))
+    elif provider_count >= medium_min:
+        hours = float(os.getenv("BENCHMARK_ENDPOINT_MEDIUM_HOURS", "24"))
+    else:
+        hours = float(os.getenv("BENCHMARK_ENDPOINT_LONG_HOURS", "96"))
+    return max(60, int(hours * 60 * 60))
