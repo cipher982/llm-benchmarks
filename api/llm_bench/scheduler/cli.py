@@ -320,12 +320,11 @@ def run_liveness_watchdog(
     *,
     providers: list[str],
     stop_event: threading.Event,
-    max_idle_seconds: int,
     startup_grace_seconds: int,
     tick_seconds: int,
     exit_process=os._exit,
 ) -> None:
-    """Restart the container when the direct runner stops making progress."""
+    """Restart the container when the scheduler or a worker thread stops."""
     started_at = time.monotonic()
     while not stop_event.wait(max(5, min(tick_seconds, 60))):
         if time.monotonic() - started_at < startup_grace_seconds:
@@ -336,7 +335,6 @@ def run_liveness_watchdog(
             try:
                 healthy, details = health.liveness_status(
                     client[db_name],
-                    max_idle_seconds=max_idle_seconds,
                     providers=providers,
                 )
             finally:
@@ -665,7 +663,6 @@ def daemon(
         kwargs={
             "providers": selected,
             "stop_event": stop_event,
-            "max_idle_seconds": int(os.getenv("BENCHMARK_LIVENESS_MAX_IDLE_SECONDS", "900")),
             "startup_grace_seconds": int(os.getenv("BENCHMARK_LIVENESS_STARTUP_GRACE_SECONDS", "600")),
             "tick_seconds": tick_seconds,
         },

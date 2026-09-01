@@ -104,14 +104,10 @@ def ensure_indexes(db: Database) -> None:
         [("provider", 1), ("model_name", 1), ("run_ts", -1)],
         background=True,
     )
-    # liveness_status() asks for the newest completed benchmark across the
-    # configured providers, sorting on gen_ts then run_ts. No index above serves
-    # that sort: gen_ts only ever appears behind model_name, so Mongo fetched
-    # every document for the provider and sorted them in memory -- 426,588 docs
-    # examined to return 1, about 1.6s per provider. The container healthcheck
-    # runs that on all eight every 60s, which is why the probe took 9.5s against
-    # a 10s timeout and flapped the container unhealthy while it was fine.
-    # Matching the full sort key takes it to 1 document examined.
+    # provider_progress() asks for each provider's newest completion, sorting on
+    # gen_ts then run_ts. Without this index Mongo sorted the full metrics
+    # collection in memory for every health payload; matching the sort key
+    # reduces each lookup to one examined document.
     db[metrics_collection_name()].create_index(
         [("provider", 1), ("gen_ts", -1), ("run_ts", -1)],
         background=True,
@@ -519,49 +515,23 @@ def stale_worker_lanes(
 def liveness_status(
     db: Database,
     *,
-    max_idle_seconds: int,
     providers: list[str] | None = None,
     now: datetime | None = None,
 ) -> tuple[bool, dict[str, Any]]:
-    """Check that this direct runner is alive and making the progress it should.
+    """Check that the scheduler loop and every configured worker lane are alive.
 
-    Two different questions, on two different clocks. Are the worker threads
-    alive — answered by heartbeats, in minutes, regardless of workload. And has
-    any work completed lately — answered by completion age, which must be
-    generous enough to span the scheduling period, because a runner with nothing
-    stale to measure is idle by design and killing it for that detects the
-    configuration rather than a fault.
-
-    Deliberately aggregate: this drives process exit, and restarting the
-    container does not fix a single provider's auth or billing failure. A stalled
-    individual lane is a real fault, but it is reported through
-    `provider_progress` and acted on by the invariant layer, not by killing a
-    process that is working fine for every other provider.
+    Process health is answered entirely by heartbeats. Workers write one on
+    every poll, including an idle poll, so this catches the original failure
+    where worker threads died while the process stayed up. Benchmark completion
+    is a product outcome, not process liveness: cadence can make an idle runner
+    correct, and auth or billing failures are not repaired by restarting it.
+    Provider progress remains in the payload for diagnosis and is enforced by
+    the invariant monitor.
     """
     now = _as_utc(now or utcnow())
-    # Deliberately NOT filtered to the published profile: this drives process
-    # exit (BENCHMARK_LIVENESS_*), and a completed long-profile run is real
-    # proof the process is making progress. Process liveness is not published
-    # progress — the per-series checks (provider_progress and the coverage
-    # invariants) are the ones that must not count long rows.
-    query: dict[str, Any] = {}
-    if providers:
-        query["provider"] = {"$in": providers}
-    latest = db[metrics_collection_name()].find_one(
-        query,
-        {"provider": 1, "gen_ts": 1, "run_ts": 1},
-        sort=[("gen_ts", -1), ("run_ts", -1)],
-    )
-    latest_at = _as_utc((latest or {}).get("gen_ts") or (latest or {}).get("run_ts"))
-    latest_age = int((now - latest_at).total_seconds()) if latest_at else None
-
     scheduler_heartbeat = db[heartbeats_collection_name()].find_one({"_id": "scheduler"}, {"updated_at": 1})
     heartbeat_at = _as_utc((scheduler_heartbeat or {}).get("updated_at"))
     heartbeat_age = int((now - heartbeat_at).total_seconds()) if heartbeat_at else None
-    # Its own limit, not a function of max_idle_seconds. Deriving it from the
-    # completion budget meant raising that to span a longer scheduling period
-    # silently disabled the heartbeat check too — the two answer different
-    # questions and must not share a clock.
     heartbeat_limit = control_heartbeat_max_age_seconds()
     worker_limit = worker_heartbeat_max_age_seconds()
     stale_lanes = (
@@ -569,27 +539,15 @@ def liveness_status(
     )
 
     details = {
-        "latest_provider": (latest or {}).get("provider"),
-        "latest_completed_at": latest_at.isoformat() if latest_at else None,
-        "latest_age_seconds": latest_age,
         "scheduler_heartbeat_at": heartbeat_at.isoformat() if heartbeat_at else None,
         "scheduler_heartbeat_age_seconds": heartbeat_age,
-        "max_idle_seconds": max_idle_seconds,
         "worker_heartbeat_max_age_seconds": worker_limit,
         "stale_worker_lanes": stale_lanes,
         "providers": providers or [],
-        # Present even when the aggregate check passes, so a stalled lane is
-        # visible in the same payload rather than needing a separate query.
         "provider_progress": provider_progress(db, providers=providers, now=now) if providers else {},
     }
     if stale_lanes:
         details["reason"] = "worker threads have stopped checking in"
-        return False, details
-    if latest_age is None:
-        details["reason"] = "no completed benchmark found"
-        return False, details
-    if latest_age > max_idle_seconds:
-        details["reason"] = "benchmark completion is stale"
         return False, details
     if heartbeat_age is None or heartbeat_age > heartbeat_limit:
         details["reason"] = "scheduler heartbeat is stale"

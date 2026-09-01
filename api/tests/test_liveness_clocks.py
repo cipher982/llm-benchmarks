@@ -1,15 +1,10 @@
-"""Liveness asks two questions and they need two clocks.
+"""Process liveness is independent of benchmark completion.
 
 The watchdog exists because worker threads died on an unhandled Mongo error
-while the process stayed up, and the runner produced nothing for eight days with
-RestartCount=0. The signal it used was completion age, which conflates "the
-workers are dead" with "there is nothing due to measure" — fine at a 45-minute
-scheduling period, fatal at 4.5 hours, where the runner is idle by design and a
-15-minute completion limit kills it every 15 minutes forever.
-
-Worker heartbeats answer the first question on their own clock: they are written
-on every poll, including idle ones, so a dead thread goes quiet whether or not
-there was work.
+while the process stayed up for eight days. Workers now heartbeat on every
+poll, including an idle one, and the scheduler loop has its own heartbeat.
+Those clocks detect process failure without conflating it with a long sampling
+cadence or an upstream auth or billing outage.
 """
 
 from datetime import datetime
@@ -39,44 +34,30 @@ def _scheduler(db, ago_seconds=5):
     db.bench_scheduler_heartbeats.insert_one({"_id": "scheduler", "updated_at": NOW - timedelta(seconds=ago_seconds)})
 
 
-def _completion(db, ago_seconds):
-    db.metrics_cloud_v2.insert_one({"provider": "openrouter", "gen_ts": NOW - timedelta(seconds=ago_seconds)})
-
-
-def _healthy_fixture(db, *, completion_ago):
+def _healthy_fixture(db):
     for provider in PROVIDERS:
         _worker(db, provider, 0, 10)
     _scheduler(db)
-    _completion(db, completion_ago)
 
 
 class TestIdleByDesignIsNotAFault:
-    def test_a_long_gap_between_scheduling_rounds_is_healthy(self, db):
-        """4h with no completions at a 4.5h period is the configuration working."""
-        _healthy_fixture(db, completion_ago=4 * 3600)
+    def test_no_completed_work_is_healthy_when_process_heartbeats_are_live(self, db):
+        _healthy_fixture(db)
 
-        ok, details = health.liveness_status(db, max_idle_seconds=6 * 3600, providers=PROVIDERS, now=NOW)
+        ok, details = health.liveness_status(db, providers=PROVIDERS, now=NOW)
 
         assert ok, details["reason"]
-
-    def test_the_old_fixed_limit_would_have_killed_it(self, db):
-        """Documents the bug: same state, 15-minute limit, dead."""
-        _healthy_fixture(db, completion_ago=4 * 3600)
-
-        ok, _ = health.liveness_status(db, max_idle_seconds=900, providers=PROVIDERS, now=NOW)
-
-        assert not ok
+        assert details["provider_progress"]["openrouter"]["latest_completed_at"] is None
 
 
 class TestDeadWorkersAreCaughtRegardless:
-    def test_silent_workers_fail_even_when_completions_are_recent(self, db):
+    def test_silent_workers_fail_regardless_of_recent_completions(self, db):
         """The eight-day failure: process up, threads gone."""
         for provider in PROVIDERS:
             _worker(db, provider, 0, 9999)
         _scheduler(db)
-        _completion(db, 30)
 
-        ok, details = health.liveness_status(db, max_idle_seconds=6 * 3600, providers=PROVIDERS, now=NOW)
+        ok, details = health.liveness_status(db, providers=PROVIDERS, now=NOW)
 
         assert not ok
         assert details["reason"] == "worker threads have stopped checking in"
@@ -86,9 +67,8 @@ class TestDeadWorkersAreCaughtRegardless:
         _worker(db, "openrouter", 0, 10)
         _worker(db, "openai", 0, 9999)
         _scheduler(db)
-        _completion(db, 30)
 
-        ok, details = health.liveness_status(db, max_idle_seconds=6 * 3600, providers=PROVIDERS, now=NOW)
+        ok, details = health.liveness_status(db, providers=PROVIDERS, now=NOW)
 
         assert not ok
         assert [lane["provider"] for lane in details["stale_worker_lanes"]] == ["openai"]
@@ -99,9 +79,8 @@ class TestDeadWorkersAreCaughtRegardless:
         _worker(db, "openrouter", 1, 10)
         _worker(db, "openai", 0, 10)
         _scheduler(db)
-        _completion(db, 30)
 
-        ok, details = health.liveness_status(db, max_idle_seconds=6 * 3600, providers=PROVIDERS, now=NOW)
+        ok, details = health.liveness_status(db, providers=PROVIDERS, now=NOW)
 
         assert ok, details["reason"]
 
@@ -111,28 +90,20 @@ class TestDeadWorkersAreCaughtRegardless:
             _worker(db, provider, 0, 10)
         _worker(db, "deepinfra", 0, 30 * 24 * 3600)
         _scheduler(db)
-        _completion(db, 30)
 
-        ok, details = health.liveness_status(db, max_idle_seconds=6 * 3600, providers=PROVIDERS, now=NOW)
+        ok, details = health.liveness_status(db, providers=PROVIDERS, now=NOW)
 
         assert ok, details["reason"]
 
 
 class TestTheControlClockIsIndependent:
-    def test_the_scheduler_heartbeat_limit_does_not_follow_max_idle(self, db):
-        """It used to be max(max_idle_seconds, 180).
-
-        Raising the completion budget to span a longer scheduling period would
-        then have silently widened the scheduler check from 15 minutes to six
-        hours — disabling, as a side effect, the check that notices the loop
-        that creates the work has stopped.
-        """
+    def test_a_stale_scheduler_heartbeat_fails(self, db):
+        """The scheduler loop must stay observable regardless of data cadence."""
         for provider in PROVIDERS:
             _worker(db, provider, 0, 10)
         _scheduler(db, ago_seconds=3600)
-        _completion(db, 30)
 
-        ok, details = health.liveness_status(db, max_idle_seconds=6 * 3600, providers=PROVIDERS, now=NOW)
+        ok, details = health.liveness_status(db, providers=PROVIDERS, now=NOW)
 
         assert not ok
         assert details["reason"] == "scheduler heartbeat is stale"

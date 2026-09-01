@@ -6,18 +6,18 @@ This system replaces brittle keyword-matching with intelligent LLM classificatio
 
 ### 1. Initial Classification (Hot Path)
 
-When an error occurs, `error_taxonomy.py::classify_error()` does minimal classification:
+When an error occurs, `error_taxonomy.py::classify_error()` does minimal,
+deterministic classification:
 
 - Extracts HTTP status codes
-- Classifies based ONLY on status codes:
-  - 401/403 → `auth`
-  - 402 → `billing`
-  - 429 → `rate_limit`
-  - 5xx → `transient_provider`
-  - 404 → `hard_model`
-  - Everything else → `unknown`
+- Classifies 401/403 as `auth`, 402 as `billing`, 429 as `rate_limit`, 5xx as
+  `transient_provider`, and 404 as `hard_model`
+- Recognizes a small set of exact protocol messages whose HTTP status is
+  overloaded. OpenRouter's 403 `key limit exceeded` is billing, not bad auth.
+- Leaves everything else `unknown` for the asynchronous classifier
 
-This keeps the hot path fast and avoids brittle string matching.
+This keeps the hot path fast without letting known provider protocol quirks
+drive the wrong retry policy.
 
 ### 2. LLM Classification (Async, Batched)
 

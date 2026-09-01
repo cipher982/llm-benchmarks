@@ -37,7 +37,6 @@ def main() -> int:
             db.command("ping")
             healthy, details = health.liveness_status(
                 db,
-                max_idle_seconds=int(os.getenv("BENCHMARK_LIVENESS_MAX_IDLE_SECONDS", "900")),
                 providers=_providers(),
             )
         finally:

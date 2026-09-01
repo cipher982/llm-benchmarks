@@ -60,3 +60,8 @@ def test_real_failures_keep_their_classification():
     assert classify_error(message="Error code: 404 - not found").kind is ErrorKind.HARD_MODEL
     assert classify_error(message="Error code: 429 - slow down").kind is ErrorKind.RATE_LIMIT
     assert classify_error(message="Error code: 401 - bad key").kind is ErrorKind.AUTH
+
+
+def test_openrouter_monthly_key_limit_is_billing_not_auth():
+    message = "PermissionDeniedError: Error code: 403 - {'error': {'message': 'Key limit exceeded (monthly limit).'}}"
+    assert classify_error(message=message).kind is ErrorKind.BILLING

@@ -33,15 +33,15 @@ def workers(db, *providers, ago=timedelta(seconds=10)):
         db.bench_scheduler_heartbeats.insert_one({"_id": f"worker:{provider}:0", "updated_at": NOW - ago})
 
 
-def test_liveness_rejects_stale_direct_runner_metric(db):
-    metric(db, "openai", ago=timedelta(minutes=20))
+def test_liveness_ignores_stale_completion_when_process_heartbeats_are_live(db):
+    metric(db, "openai", ago=timedelta(days=30))
     heartbeat(db)
     workers(db, "openai")
 
-    healthy, details = health.liveness_status(db, max_idle_seconds=900, providers=["openai"], now=NOW)
+    healthy, details = health.liveness_status(db, providers=["openai"], now=NOW)
 
-    assert not healthy
-    assert details["reason"] == "benchmark completion is stale"
+    assert healthy
+    assert details["provider_progress"]["openai"]["age_seconds"] == 30 * 24 * 3600
 
 
 def test_liveness_stays_healthy_when_one_lane_stalls(db):
@@ -58,7 +58,7 @@ def test_liveness_stays_healthy_when_one_lane_stalls(db):
     # Together's threads are alive and polling; it is Together that is broken.
     workers(db, "openai", "together")
 
-    healthy, details = health.liveness_status(db, max_idle_seconds=900, providers=["openai", "together"], now=NOW)
+    healthy, details = health.liveness_status(db, providers=["openai", "together"], now=NOW)
 
     assert healthy
     assert details["provider_progress"]["together"]["age_seconds"] == 9 * 3600

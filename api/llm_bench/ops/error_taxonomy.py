@@ -66,15 +66,18 @@ def normalize_error_message(message: str) -> str:
 
 
 def classify_error(*, message: str, exc_type: str = "") -> ClassifiedError:
-    """
-    Initial error classification based ONLY on HTTP status codes.
+    """Classify explicit provider errors that determine retry behavior.
 
-    Returns UNKNOWN for all errors without clear HTTP status signals.
-    LLM-based classification happens later via llm_error_classifier.py.
+    HTTP status is the default signal. Provider messages override it only when
+    the status is overloaded, as with OpenRouter returning 403 for an exhausted
+    monthly credit limit.
     """
     raw = message or ""
     http_status = _extract_http_status(raw)
     normalized = normalize_error_message(raw)
+
+    if "key limit exceeded" in normalized:
+        return ClassifiedError(kind=ErrorKind.BILLING, normalized_message=normalized, http_status=http_status)
 
     # Only use explicit HTTP status codes for classification
     if http_status in (401, 403):
