@@ -216,3 +216,36 @@ class TestScheduling:
         seed_model(db, "m", [("a", 100, 90), ("b", 100, 80), ("c", 100, 70)])
         found = cli._endpoint_candidates(db, provider="openrouter", now=NOW)
         assert {cad for _, _, _, cad in found} == {3 * policies.endpoint_tier_interval_seconds(3)}
+
+
+class TestFlagships:
+    def test_newest_model_per_first_party_vendor_joins_the_core(self, db):
+        seed_population(db, models=22)
+        seed_model(db, "anthropic/claude-opus-5", [("anthropic", 100, 40)])
+        seed_model(db, "anthropic/claude-fable-5.1", [("anthropic", 100, 30), ("google-vertex", 99, 50)])
+        seed_model(db, "openai/gpt-5.6-terra", [("openai", 100, 60)])
+        seed_model(db, "vendor/not-first-party", [("a", 100, 999)])
+        db.openrouter_catalog.insert_many(
+            [
+                {"openrouter_id": "anthropic/claude-opus-5", "created": NOW - timedelta(days=90)},
+                {"openrouter_id": "anthropic/claude-fable-5.1", "created": NOW - timedelta(days=40)},
+                {"openrouter_id": "openai/gpt-5.6-terra", "first_seen_at": NOW - timedelta(days=60)},
+                # Older than the recency window, so only the vendor rule could pick it up.
+                {"openrouter_id": "vendor/not-first-party", "created": NOW - timedelta(days=30)},
+            ]
+        )
+        members = {(m["model_id"], m["endpoint_tag"]): m for m in core_set.select(db, now=NOW)}
+        assert ("anthropic/claude-fable-5.1", "anthropic") in members
+        assert ("anthropic/claude-opus-5", "anthropic") not in members
+        assert members[("anthropic/claude-fable-5.1", "anthropic")]["reason"].startswith(
+            "newest anthropic model on OpenRouter (created"
+        )
+        assert members[("openai/gpt-5.6-terra", "openai")]["reason"].startswith(
+            "newest openai model on OpenRouter (first seen"
+        )
+        assert not any(m == "vendor/not-first-party" for m, _ in members)
+
+    def test_a_flagship_without_an_enabled_endpoint_is_not_invented(self, db):
+        seed_population(db, models=5)
+        db.openrouter_catalog.insert_one({"openrouter_id": "google/gemini-3.8-flash", "created": NOW})
+        assert not any(m["model_id"].startswith("google/") for m in core_set.select(db, now=NOW))

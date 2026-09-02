@@ -38,7 +38,7 @@ from llm_bench.scheduler.mongo import models_collection_name
 STATE_ID = "openrouter:core_set"
 PROVIDER_STATE_COLLECTION = "provider_state"
 CATALOG_COLLECTION = "openrouter_catalog"
-CORE_SET_POLICY_VERSION = 1
+CORE_SET_POLICY_VERSION = 2
 
 # 5.5h: 4.36 samples/day per core endpoint, so thirty deduplicated samples
 # arrive inside the seven-day publication window, and successive samples land
@@ -51,6 +51,14 @@ RECOMPUTE_AFTER = timedelta(hours=24)
 TOP_MODELS = 20
 DEEP_MODELS = 10
 RECENT_DAYS = 14
+
+# First-party vendors, as a policy list (not a model list): the newest model
+# each of these has on OpenRouter joins the core, chosen by the catalogue's
+# `created` date. Provider count never selects a flagship — a Claude or GPT
+# is served by one or two endpoints, not thirty — and a benchmark that shows
+# no Claude, GPT, Gemini, Grok or Mistral is not showing what a new visitor
+# came to compare. Vendor ids are OpenRouter's org prefixes.
+FIRST_PARTY_VENDORS: tuple[str, ...] = ("anthropic", "openai", "google", "x-ai", "mistralai")
 
 # The stretch cannot be less than one (that would speed the tail up) and is
 # capped so a pathological population cannot park the tail for months.
@@ -140,6 +148,33 @@ def _recent_models(db: Database, *, now: datetime) -> dict[str, str]:
     return out
 
 
+def _flagship_models(db: Database, rows_by_model: dict[str, list[dict[str, Any]]]) -> dict[str, str]:
+    """The newest model per first-party vendor that has an enabled endpoint, with why."""
+    candidates: dict[str, list[tuple[datetime, str, str]]] = {}
+    ids = [m for m in rows_by_model if "/" in m and m.split("/", 1)[0] in FIRST_PARTY_VENDORS]
+    if not ids:
+        return {}
+    for doc in db[CATALOG_COLLECTION].find(
+        {"openrouter_id": {"$in": ids}},
+        {"openrouter_id": 1, "created": 1, "first_seen_at": 1},
+    ):
+        model_id = doc.get("openrouter_id")
+        created = _as_utc(doc.get("created"))
+        basis = "created"
+        if created is None:
+            created = _as_utc(doc.get("first_seen_at"))
+            basis = "first seen"
+        if not model_id or created is None:
+            continue
+        vendor = model_id.split("/", 1)[0]
+        candidates.setdefault(vendor, []).append((created, model_id, basis))
+    out: dict[str, str] = {}
+    for vendor, rows in candidates.items():
+        created, model_id, basis = max(rows)
+        out[model_id] = f"newest {vendor} model on OpenRouter ({basis} {created.date().isoformat()})"
+    return out
+
+
 def select(db: Database, *, provider: str = "openrouter", now: datetime | None = None) -> list[dict[str, Any]]:
     """The core members, each carrying the reason it was chosen.
 
@@ -196,6 +231,11 @@ def select(db: Database, *, provider: str = "openrouter", now: datetime | None =
         rows = rows_by_model.get(model_id)
         if not rows:
             continue
+        best = sorted(rows, key=_served_rank)[0]
+        add(model_id, best, why + "; best-served endpoint", provider_count(rows))
+
+    for model_id, why in sorted(_flagship_models(db, rows_by_model).items()):
+        rows = rows_by_model[model_id]
         best = sorted(rows, key=_served_rank)[0]
         add(model_id, best, why + "; best-served endpoint", provider_count(rows))
 
