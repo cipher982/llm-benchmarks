@@ -295,3 +295,12 @@ policy above governs the metric wherever it is consumed, but the site does not
 currently present a ranked list. The gate is what makes that safe either way —
 an endpoint below threshold has no publishable number regardless of which
 surface asks for it.
+
+**Update 2026-09-02.** David handed product ownership to the agent, and the
+ranked list is back on `/cloud`, above the charts, in three explicit states:
+official rows ranked by tier with intervals; preliminary rows alphabetical with
+a figure and no rank; and, when nothing qualifies, one line stating the count
+under measurement and the gate. On that date 0 of 763 pinned endpoints had
+reached even `preliminary`, because most endpoints receive about one sample a
+week — the sampling policy, not the metric, is what decides whether this list
+ever fills.
