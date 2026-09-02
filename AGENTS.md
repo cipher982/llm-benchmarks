@@ -40,38 +40,47 @@ The knobs are **not in this repo**. They are in the deployment compose:
 
 | Knob | Now | What it does |
 |---|---|---|
-| `FRESH_MINUTES` | `5760` (4 days) | **The spend lever** — sets the cadence, and so jobs/day |
+| Endpoint hot tier | 8+ providers, one endpoint every 3h | Frequently refreshes models with broad provider adoption |
+| Endpoint medium tier | 3–7 providers, one endpoint every 24h | Daily model-page refresh |
+| Endpoint long tier | 1–2 providers, one endpoint every 96h | Bounds long-tail spend |
+| `FRESH_MINUTES` | `5760` (4 days) | Fallback for direct providers and OpenRouter models without endpoints |
 | `BENCHMARK_MAX_COST_PER_RUN_USD` | `0.005` | Ceiling on one run, not the average |
-| `OPENROUTER_CONCURRENCY` / `BENCHMARK_CONCURRENCY_OPENROUTER` | `4` | Burst ceiling only — how fast a backlog drains |
+| `OPENROUTER_CONCURRENCY` / `BENCHMARK_CONCURRENCY_OPENROUTER` | `4` | Burst ceiling only — how fast due work drains |
+
+Provider count is the popularity proxy, but a tier opportunity benchmarks only
+the oldest endpoint for that model. Sweeping every provider at the faster tier
+would make popular-model cost grow twice: more providers times more frequent
+sweeps. Models with admitted endpoints do not also receive an unpinned
+model-level job.
+
+Measured 2026-09-01: 237 endpoint models (792 endpoints) plus 30 OpenRouter
+models without endpoints. The default tiers schedule 314.5 requests/day:
 
 ```
-jobs/day  = enabled_targets / cadence_days
-$/day     = rows/day x measured_cost_per_row
+25 hot models * 8 opportunities/day   = 200
+72 medium models * 1 opportunity/day  =  72
+140 long models / 4 days              =  35
+30 models without endpoints / 4 days =   7.5
 ```
 
-Measured 2026-09-01: 1,060 enabled targets (793 endpoint + 267 model-level);
-344 current-architecture requests cost $1.036, or **$0.00301/run**. A four-day
-cadence projects 265 runs/day, **$0.80/day, or about $24/month**. The dedicated
-key has a separate $30 monthly hard cap. The earlier rows/job multiplier mixed
-the pre-cutover metrics shape with scheduler jobs and is not a spend input for
-the current one-request-per-target architecture.
+At the measured **$0.00301/run**, that is **$0.95/day or $28.81/month**.
+The dedicated key has a separate $30 monthly hard cap.
 
 **Before changing any knob, compute the new $/day and put the number in the
 commit message.** A change whose cost was never calculated is not reversible in
 practice; it is an open-ended charge that surfaces on a bill days later.
 
-**Growing the catalogue is a spend change too.** If discovery admits another 500
-endpoints the bill rises proportionally with no config edit at all. Population
-is a spend input exactly as much as cadence is — which is how this happened:
-the endpoint cutover multiplied the fleet ~4.7x, `e8d3b14` then fixed a stuck
-pool and took throughput from 12/hour to ~340/hour, and both changes were
-correct. What was missing is that nobody recomputed the bill afterwards.
+**Growing the catalogue is a spend change too.** A newly admitted model adds
+one opportunity stream at its provider-count tier. Adding a provider to an
+existing model lengthens that provider rotation and may promote the model into
+a faster tier; it does not turn one opportunity into a full endpoint sweep.
 
-**What this costs, honestly.** At this budget the sampling policy cannot reach
-its `official` tier quickly — 30 samples at a 4-day cadence is ~120 days per
-endpoint, and `preliminary` (8 samples) is ~32 days. That is a real conflict
-between the publication design and the budget. The budget wins until the owner
-says otherwise. Do not "fix" it by speeding the scheduler back up.
+**What this costs, honestly.** A hot model page changes every three hours, but
+its individual provider rows rotate: every 1–4.25 days for the current 8–34
+provider range. Medium provider rows revisit every 3–7 days; long-tail rows
+every 4–8 days. The publication confidence tiers therefore mature at different
+rates. The budget wins until the owner says otherwise; do not replace rotation
+with full sweeps or speed up the tiers without recalculating spend.
 
 ---
 
