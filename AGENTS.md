@@ -293,3 +293,20 @@ Categories: `gotcha`, `pattern`, `deploy`, `perf`, `data`.
   default. Pass `record=False` for any exploratory or fault-injection run: the
   watchdog endpoint and the external dead man both read the newest row, so a
   deliberate failure written there pages for a fault that is already gone.
+
+## Spend controls (2026-09-02)
+
+Four knobs sit on top of the tier cadence. None of them can raise the bill;
+two are off by default.
+
+| Env | Default | What it does |
+|---|---|---|
+| `BENCHMARK_MAX_ROUTED_JOBS_PER_DAY` | `300` | Hard ceiling on jobs admitted to the OpenRouter lane in any trailing 24h, counted in an hourly ledger (`provider_state` `openrouter:admissions:*`) that every path increments: scheduled, core-set, pinned-profile, manual, probe, dead-letter requeue. At the ceiling the scheduler refuses, logs `ceiling_hit`, and `routed_jobs_under_daily_ceiling` pages. A backlog after a key-cap reset drains at this rate, oldest first. |
+| `BENCHMARK_CORE_SET` | `1` | Core-set concentration: the best-served endpoints of the twenty most widely served models plus anything new on OpenRouter, sampled every 5.5h so they reach the official Delivered TPS gate inside a week; the tail's tiers are stretched by the factor that keeps jobs/day at the flat baseline (278.7 → 278.7 on today's population, $0.81/day at $0.0029/row). Recomputed daily into `provider_state` `openrouter:core_set` with a reason per member. |
+| `BENCHMARK_REASONING_PUBLISH` | `0` | Pin targets dead-lettered `budget_exhausted` to `cloud-reasoning-v1` (2048 tokens under `BENCHMARK_REASONING_MAX_COST_PER_RUN_USD`, default `0.05`) and measure them once a day as published rows. 198 targets on 2026-09-02: $0.8/day at median completion prices, $6.1/day at p90, at most $9.9/day at the ceiling. These rows reach Delivered TPS (profile-independent) and are dropped from the legacy charts by `cleanTransformCloud`; both intended. |
+| `BENCHMARK_ENDPOINT_BLOCK_ROTATION` | `1` | Whole-day tiers (24h, 96h) carry one extra 4h block per cycle so an endpoint's samples walk all six UTC blocks the publication gate needs. Only ever lengthens an interval. |
+
+The OpenRouter key's own limit is read hourly into `provider_state`
+`openrouter:key_limit`; `openrouter_key_has_headroom` pages when the balance
+is gone or under three days at the current burn. The key capped on
+2026-08-20 and the fleet was silent for eleven days with every check green.
