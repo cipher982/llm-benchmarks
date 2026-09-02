@@ -14,6 +14,7 @@ import typer
 
 from llm_bench.models_db import load_provider_models
 from llm_bench.ops import admission
+from llm_bench.ops import core_set
 from llm_bench.ops import desired_set
 from llm_bench.ops import endpoint_discovery
 from llm_bench.ops import endpoint_retirement
@@ -22,6 +23,7 @@ from llm_bench.ops import invariants
 from llm_bench.ops import llm_error_classifier
 from llm_bench.ops import model_naming
 from llm_bench.ops import openrouter_discovery
+from llm_bench.ops import openrouter_key_limit
 from llm_bench.ops import reconciler
 from llm_bench.ops import route_renewal
 from llm_bench.ops import vertex_discovery
@@ -125,6 +127,25 @@ def _as_utc(value) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
+def _pinned_profiles(db, *, provider: str) -> dict[tuple[str, str], str]:
+    """Endpoint targets measured under a non-default profile, by (model, tag).
+
+    Empty unless `BENCHMARK_REASONING_PUBLISH` is on: with the flag off a pin
+    written earlier is inert and the target stays in the ordinary rotation,
+    which is what makes the flag a real off switch rather than a new default.
+    """
+    if not policies.reasoning_publish_enabled():
+        return {}
+    out: dict[tuple[str, str], str] = {}
+    for doc in health.health_collection(db).find(
+        {"provider": provider, "endpoint_tag": {"$ne": None}, "measurement_profile": {"$ne": None}},
+        {"model_id": 1, "endpoint_tag": 1, "measurement_profile": 1},
+    ):
+        if doc.get("model_id") and doc.get("endpoint_tag"):
+            out[(doc["model_id"], doc["endpoint_tag"])] = str(doc["measurement_profile"])
+    return out
+
+
 def _endpoint_candidates(db, *, provider: str, now: datetime | None = None) -> list[tuple[float, str, str, int]]:
     """Endpoint candidates under the provider-count rotating tier policy.
 
@@ -161,6 +182,46 @@ def _endpoint_candidates(db, *, provider: str, now: datetime | None = None) -> l
     )
     health_coll = health.health_collection(db)
     candidates: list[tuple[float, str, str, int]] = []
+
+    # Two kinds of endpoint leave the rotation and get a lane of their own:
+    # core-set members (every 5.5h, see ops/core_set.py) and targets pinned to
+    # the reasoning profile (once a day, see policies.reasoning_publish_enabled).
+    # The rest of a model's endpoints keep rotating, at the tier interval
+    # stretched by the factor that holds total jobs/day at the flat baseline.
+    core_doc = core_set.refresh_if_stale(db, provider=provider, now=now)
+    core_members = core_set.members_by_target(core_doc)
+    tail_stretch = float(core_doc.get("tail_stretch") or 1.0) if core_doc else 1.0
+    core_interval = int(core_doc["core_interval_seconds"]) if core_doc else 0
+    pinned = _pinned_profiles(db, provider=provider)
+
+    def own_lane(model_id: str, tag: str, interval: int, active: bool) -> None:
+        query = health.health_filter(provider, model_id, tag)
+        doc = health_coll.find_one(query)
+        if not doc:
+            try:
+                health.refresh_model_health_doc(
+                    db, provider=provider, model_id=model_id, endpoint_tag=tag, enabled=True, cadence_seconds=interval
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"endpoint health registration failed {model_id}:{tag}: {exc}", flush=True)
+                return
+            doc = health_coll.find_one(query)
+        if not doc:
+            return
+        if doc.get("cadence_seconds") != interval:
+            health_coll.update_one(query, {"$set": {"cadence_seconds": interval}})
+        if active:
+            return
+        attempted_at = doc.get("last_attempt_at") or doc.get("last_success_at")
+        if attempted_at is None:
+            priority = 1000.0
+        else:
+            age = max(0.0, (now - _as_utc(attempted_at)).total_seconds())
+            if age < interval:
+                return
+            priority = age / interval
+        candidates.append((priority, model_id, tag, interval))
+
     for model_id, model_rows in rows_by_model.items():
         provider_count = len(
             {
@@ -168,12 +229,23 @@ def _endpoint_candidates(db, *, provider: str, now: datetime | None = None) -> l
                 for row in model_rows
             }
         )
-        endpoint_count = len(model_rows)
-        model_interval = policies.endpoint_tier_interval_seconds(provider_count)
+        tail_rows = []
+        for row in model_rows:
+            key = (model_id, row["endpoint_tag"])
+            if key in pinned:
+                own_lane(model_id, row["endpoint_tag"], policies.REASONING_CADENCE_SECONDS, model_id in active_models)
+            elif key in core_members:
+                own_lane(model_id, row["endpoint_tag"], core_interval, model_id in active_models)
+            else:
+                tail_rows.append(row)
+        if not tail_rows:
+            continue
+        endpoint_count = len(tail_rows)
+        model_interval = int(policies.endpoint_tier_interval_seconds(provider_count) * tail_stretch)
         endpoint_cadence = model_interval * endpoint_count
         model_last_attempt: datetime | None = None
         endpoint_docs: list[tuple[str, dict]] = []
-        for row in model_rows:
+        for row in tail_rows:
             tag = row["endpoint_tag"]
             query = health.health_filter(provider, model_id, tag)
             doc = health_coll.find_one(query)
@@ -316,6 +388,7 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
                     )
                 }
                 scheduled_endpoint_models: set[str] = set()
+                pinned_profiles = _pinned_profiles(db, provider=provider)
                 for priority, model_id, tag, endpoint_cadence in _endpoint_candidates(db, provider=provider, now=now):
                     if model_id in scheduled_endpoint_models:
                         continue
@@ -338,6 +411,7 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
                         ),
                         endpoint_tag=tag,
                         cadence_seconds=endpoint_cadence,
+                        benchmark_profile_id=pinned_profiles.get((model_id, tag)),
                     ):
                         enqueued += 1
                         scheduled_endpoint_models.add(model_id)
@@ -787,6 +861,17 @@ def daemon(
         name="vertex-discovery-loop",
         daemon=True,
     )
+    key_limit_thread = threading.Thread(
+        target=openrouter_key_limit.run_key_limit_loop,
+        kwargs={
+            "stop_event": stop_event,
+            # One GET an hour, well inside the 3h the headroom invariant
+            # accepts, so one failed read is not a could-not-evaluate.
+            "interval_seconds": int(os.getenv("BENCHMARK_KEY_LIMIT_INTERVAL_SECONDS", "3600")),
+        },
+        name="openrouter-key-limit-loop",
+        daemon=True,
+    )
     openrouter_discovery_thread = threading.Thread(
         target=run_openrouter_discovery_loop,
         kwargs={
@@ -806,6 +891,7 @@ def daemon(
     route_renewal_thread.start()
     reconciler_thread.start()
     openrouter_discovery_thread.start()
+    key_limit_thread.start()
     workers = start_provider_workers(providers=selected, cadence_seconds=cadence_seconds, stop_event=stop_event)
 
     while not stop_event.is_set():

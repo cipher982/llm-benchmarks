@@ -304,3 +304,33 @@ under measurement and the gate. On that date 0 of 763 pinned endpoints had
 reached even `preliminary`, because most endpoints receive about one sample a
 week — the sampling policy, not the metric, is what decides whether this list
 ever fills.
+
+## Addendum 2026-09-02 — reasoning-profile publication (flagged)
+
+On 2026-09-02, 198 endpoint targets across 93 models (claude-opus-5,
+claude-fable-5.1, deepseek-v4-pro, kimi-k3, gpt-oss-20b among them) were
+dead-lettered `budget_exhausted`: under the per-run cost ceiling their price
+clamps the default budget to a few dozen tokens, which they spend thinking, so
+they never emit visible text and the site has no number for exactly the
+models a new visitor wants.
+
+`BENCHMARK_REASONING_PUBLISH=1` (default off) pins such a target to
+`cloud-reasoning-v1` — the same 2048-token budget under its own, higher
+per-run ceiling (`BENCHMARK_REASONING_MAX_COST_PER_RUN_USD`, default $0.05) —
+and schedules it once a day as a published sample instead of leaving it dead.
+The pin lives on the target's health doc (`measurement_profile`, with reason
+and timestamp) so it can be audited and reversed.
+
+What this means for the site, and it is intended:
+
+- **Delivered TPS reads these rows.** The 64-visible-token clock is
+  profile-independent, so a reasoning model measured under the 2048 budget
+  appears on the Delivered TPS list like any other endpoint.
+- **The legacy charts do not.** `cleanTransformCloud` drops every row whose
+  `benchmark_profile_id` is not the published default, so these models stay
+  off the legacy ridgeline, table and small multiples. The legacy series is
+  frozen and cannot mix profiles; nothing about that changes.
+
+Cost, stated for the switch: one run per pinned target per day. At the
+current 198 targets that is $0.8/day at median OpenRouter completion prices
+($2/M), $6/day at p90 ($15/M), and at most $9.9/day at the $0.05 ceiling.

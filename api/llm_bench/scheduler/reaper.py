@@ -18,6 +18,9 @@ def run_reaper_pass(*, cadence_seconds: int) -> int:
         db = client[db_name]
         expired = queue.expire_orphaned_running(db)
         requeued = queue.requeue_retryable_dead_letters(db)
+        pinned = queue.pin_budget_exhausted_to_reasoning_profile(db)
+        if pinned:
+            print(f"Reaper pinned {len(pinned)} budget-exhausted targets to the reasoning profile", flush=True)
         cancelled = queue.cancel_ineligible_jobs(db)
         retired = endpoint_retirement.retire_unmeasurable_endpoints(db)
         for job in expired:

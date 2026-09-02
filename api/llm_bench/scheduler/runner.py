@@ -260,9 +260,26 @@ OPENROUTER_ROUTING_ENABLED_ENV = "OPENROUTER_ROUTING_ENABLED"
 # headroom and the stream closes at the 64th visible token, so a second budget
 # buys nothing: every model is measured the same way, on one series, and the
 # question of whether reasoning rows belong on the same axis stops existing.
+#
+# One profile, with one exception behind a flag. `cloud-reasoning-v1` is the
+# same 2048-token budget under its own, higher per-run cost ceiling, for the
+# targets whose price clamps the default budget to a few dozen tokens and
+# which therefore never emit visible text (198 targets across 93 models were
+# dead-lettered `budget_exhausted` on 2026-09-02, claude-opus-5 and
+# deepseek-v4-pro among them). It is only ever assigned by the pin sweep in
+# queue.py, and only while BENCHMARK_REASONING_PUBLISH is on.
+REASONING_PROFILE_ID = policies.REASONING_PROFILE_ID
+REASONING_MAX_COST_PER_RUN_USD = float(os.getenv("BENCHMARK_REASONING_MAX_COST_PER_RUN_USD", "0.05"))
 BENCHMARK_PROFILES: dict[str, dict[str, Any]] = {
     DEFAULT_PROFILE_ID: {"max_tokens": MAX_TOKENS},
+    REASONING_PROFILE_ID: {"max_tokens": 2048, "max_cost_per_run_usd": REASONING_MAX_COST_PER_RUN_USD},
 }
+
+
+def profile_max_cost_per_run_usd(profile_id: str) -> float:
+    """What one run under this profile may cost; the global ceiling unless the profile says otherwise."""
+    profile = BENCHMARK_PROFILES.get(profile_id, BENCHMARK_PROFILES[DEFAULT_PROFILE_ID])
+    return float(profile.get("max_cost_per_run_usd", MAX_COST_PER_RUN_USD))
 
 
 def profile_max_tokens(profile_id: str) -> int:
@@ -292,7 +309,12 @@ UNCAPPED_LANE_MAX_TOKENS = int(os.getenv("BENCHMARK_UNCAPPED_LANE_MAX_TOKENS", "
 MAX_COST_PER_RUN_USD = float(os.getenv("BENCHMARK_MAX_COST_PER_RUN_USD", "0.01"))
 
 
-def affordable_max_tokens(completion_price_per_token: float | None, profile_budget: int) -> int:
+def affordable_max_tokens(
+    completion_price_per_token: float | None,
+    profile_budget: int,
+    *,
+    max_cost_per_run_usd: float | None = None,
+) -> int:
     """The budget this model's price allows, floored at the measurement itself.
 
     Below the 64-visible-token mark there is no measurement to buy, so the floor
@@ -316,7 +338,8 @@ def affordable_max_tokens(completion_price_per_token: float | None, profile_budg
         return floor
     if completion_price_per_token <= 0:
         return profile_budget
-    affordable = int(MAX_COST_PER_RUN_USD / completion_price_per_token)
+    ceiling = MAX_COST_PER_RUN_USD if max_cost_per_run_usd is None else max_cost_per_run_usd
+    affordable = int(ceiling / completion_price_per_token)
     return max(floor, min(profile_budget, affordable))
 
 
@@ -325,11 +348,12 @@ def lane_max_tokens(
     profile_budget: int,
     *,
     completion_price_per_token: float | None = None,
+    max_cost_per_run_usd: float | None = None,
 ) -> int:
     """Clamp the profile's budget to what this lane can stop consuming, and afford."""
     if transport_provider not in EARLY_STOP_PROVIDERS:
         return min(profile_budget, UNCAPPED_LANE_MAX_TOKENS)
-    return affordable_max_tokens(completion_price_per_token, profile_budget)
+    return affordable_max_tokens(completion_price_per_token, profile_budget, max_cost_per_run_usd=max_cost_per_run_usd)
 
 
 _PRICE_CACHE: dict[str, float | None] = {}
@@ -600,6 +624,7 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
                 if route_lane in EARLY_STOP_PROVIDERS
                 else None
             ),
+            max_cost_per_run_usd=profile_max_cost_per_run_usd(profile_id),
         )
 
     max_tokens = budget_for(decision)

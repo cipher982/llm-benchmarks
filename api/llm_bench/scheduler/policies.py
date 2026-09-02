@@ -53,6 +53,40 @@ MEASUREMENT_PROTOCOL_VERSION = 2
 # session to undo it.
 PROTOCOL_DEPENDENT_ERROR_KINDS = {"budget_exhausted"}
 
+# Reasoning-profile publication (BENCHMARK_REASONING_PUBLISH, default off).
+#
+# A target that dead-letters `budget_exhausted` under the default profile is
+# a model that answered but spent the budget it could afford on thinking —
+# under the per-run cost ceiling a $75/M model gets ~66 tokens. With the flag
+# on, such a target is pinned to `cloud-reasoning-v1` (2048 tokens under its
+# own, higher ceiling) and measured once a day instead of staying dead. The
+# rows publish; the dashboard's legacy charts drop non-default profiles and
+# Delivered TPS is profile-independent, which is intended.
+REASONING_PROFILE_ID = "cloud-reasoning-v1"
+
+# The hard ceiling on routed work. Independent of every cadence, tier and
+# core-set calculation above: however those are configured or misconfigured,
+# no more than this many jobs may enter the OpenRouter lane in any trailing
+# 24 hours. 300 is today's ~287 with a little slack. The 2026-08-17 runaway
+# (11,118 rows, $45.75 in a day) and the 2026-09-01 catch-up burst (1,258
+# rows) are both the shape this exists to make impossible.
+ROUTED_LANES = frozenset({"openrouter"})
+
+
+def max_routed_jobs_per_day() -> int:
+    try:
+        return max(1, int(os.getenv("BENCHMARK_MAX_ROUTED_JOBS_PER_DAY", "300")))
+    except ValueError:
+        return 300
+
+
+REASONING_CADENCE_SECONDS = int(os.getenv("BENCHMARK_REASONING_CADENCE_SECONDS", str(24 * 60 * 60)))
+
+
+def reasoning_publish_enabled() -> bool:
+    return os.getenv("BENCHMARK_REASONING_PUBLISH", "0").strip().lower() in {"1", "true", "yes"}
+
+
 OVERLOADED_ERROR_MARKERS = (
     "overloaded",
     "model busy",
@@ -184,4 +218,33 @@ def endpoint_tier_interval_seconds(provider_count: int) -> int:
         hours = float(os.getenv("BENCHMARK_ENDPOINT_MEDIUM_HOURS", "24"))
     else:
         hours = float(os.getenv("BENCHMARK_ENDPOINT_LONG_HOURS", "96"))
-    return max(60, int(hours * 60 * 60))
+    return max(60, int(rotate_utc_block(hours) * 60 * 60))
+
+
+UTC_BLOCK_HOURS = 4
+
+
+def endpoint_block_rotation_enabled() -> bool:
+    return os.getenv("BENCHMARK_ENDPOINT_BLOCK_ROTATION", "1").strip().lower() in {"1", "true", "yes"}
+
+
+def rotate_utc_block(hours: float) -> float:
+    """Lengthen a whole-day cadence by one 4h block so it walks the clock.
+
+    Publication (dashboard `endpointPublication.ts`) needs an endpoint's
+    samples spread across the six 4h UTC blocks: four of six for a preliminary
+    figure, all six for an official one. A cadence that is a whole number of
+    days lands in the same block every time — measured 2026-09-02, 451 of 794
+    enabled endpoints sit on the 24h and 96h tiers and 456 endpoints had seen
+    exactly three blocks in two weeks — so those endpoints could never publish
+    however long they were measured. Adding a block per cycle (24h → 28h,
+    96h → 112h) visits every block over six cycles.
+
+    Only ever lengthens an interval, so it cannot raise jobs per day; on the
+    2026-09-02 population it lowers them from ~287 to ~276.
+    """
+    if not endpoint_block_rotation_enabled():
+        return hours
+    if hours <= 0 or hours % 24 != 0:
+        return hours
+    return hours + UTC_BLOCK_HOURS
