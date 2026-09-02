@@ -252,6 +252,10 @@ def enqueue_probes(db: Database, *, now: datetime | None = None, limit: int = MA
             continue
         if not _needs_probe(db, provider=provider, model_id=model_id, now=now):
             continue
+        # A probe spends on the routed key like any other job and counts
+        # against the same daily ceiling; the candidate stays a candidate.
+        if queue.routed_ceiling_reached(db, provider=provider, now=now):
+            break
         job = queue._new_job_doc(
             job_id=_probe_job_id(provider, model_id, now),
             provider=provider,
@@ -266,6 +270,8 @@ def enqueue_probes(db: Database, *, now: datetime | None = None, limit: int = MA
             extra={"sample_role": "probe"},
         )
         db[queue.jobs_collection_name()].replace_one({"_id": job["_id"]}, job, upsert=True)
+        if provider in policies.ROUTED_LANES:
+            queue.record_admission(db, provider=provider, now=now)
         enqueued.append(f"{provider}/{model_id}")
     return enqueued
 

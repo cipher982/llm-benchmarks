@@ -34,6 +34,8 @@ from llm_bench.ops import desired_set as desired_set_module
 from llm_bench.ops import endpoint_discovery
 from llm_bench.ops import openrouter_key_limit
 from llm_bench.scheduler import policies
+from llm_bench.scheduler import policies as scheduler_policies
+from llm_bench.scheduler import queue as scheduler_queue
 from llm_bench.scheduler.mongo import collection_name
 from llm_bench.scheduler.mongo import health_collection_name
 from llm_bench.scheduler.mongo import jobs_collection_name
@@ -872,6 +874,38 @@ def openrouter_key_has_headroom(ctx: Context) -> list[Violation]:
     return []
 
 
+def routed_jobs_under_daily_ceiling(ctx: Context) -> list[Violation]:
+    """The routed lane admitted fewer jobs in the trailing day than its hard ceiling.
+
+    The ceiling (`BENCHMARK_MAX_ROUTED_JOBS_PER_DAY`) is the owner's guarantee
+    that no cadence, tier or core-set setting — configured or misconfigured —
+    can multiply the OpenRouter bill overnight. Reaching it is not a scheduler
+    error, the scheduler refuses admission correctly; it pages because a lane
+    at its ceiling is being throttled and someone should know which setting
+    asked for more than the budget allows.
+    """
+    violations: list[Violation] = []
+    ceiling = scheduler_policies.max_routed_jobs_per_day()
+    for provider in sorted(scheduler_policies.ROUTED_LANES):
+        count = scheduler_queue.routed_jobs_last_24h(ctx.db, provider=provider, now=ctx.now)
+        hit = ctx.db[scheduler_queue.PROVIDER_STATE_COLLECTION].find_one(
+            {"_id": scheduler_queue.ROUTED_CEILING_STATE_ID}
+        )
+        hit_at = _as_utc(hit.get("hit_at")) if hit else None
+        recent_hit = hit_at is not None and ctx.now - hit_at < timedelta(hours=24)
+        if count >= ceiling or recent_hit:
+            violations.append(
+                Violation(
+                    provider,
+                    f"routed admission at its daily ceiling: {count} jobs in the trailing 24h against "
+                    f"a ceiling of {ceiling}; the scheduler is refusing new routed work"
+                    + (f" (last refusal {hit_at.isoformat()})" if hit_at else ""),
+                    {"jobs_24h": count, "ceiling": ceiling, "last_hit_at": hit_at, "hits": (hit or {}).get("hits")},
+                )
+            )
+    return violations
+
+
 INVARIANTS: list[Invariant] = [
     Invariant(
         "no_work_for_disabled_models",
@@ -935,6 +969,11 @@ INVARIANTS: list[Invariant] = [
         "terminal_reasons_are_current",
         "No model is suppressed by a terminal reason that never expires",
         terminal_reasons_are_current,
+    ),
+    Invariant(
+        "routed_jobs_under_daily_ceiling",
+        "The routed lane admitted fewer jobs in the trailing 24h than BENCHMARK_MAX_ROUTED_JOBS_PER_DAY",
+        routed_jobs_under_daily_ceiling,
     ),
     Invariant(
         "openrouter_key_has_headroom",
