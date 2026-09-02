@@ -53,6 +53,40 @@ MEASUREMENT_PROTOCOL_VERSION = 2
 # session to undo it.
 PROTOCOL_DEPENDENT_ERROR_KINDS = {"budget_exhausted"}
 
+# Reasoning-profile publication (BENCHMARK_REASONING_PUBLISH, default off).
+#
+# A target that dead-letters `budget_exhausted` under the default profile is
+# a model that answered but spent the budget it could afford on thinking —
+# under the per-run cost ceiling a $75/M model gets ~66 tokens. With the flag
+# on, such a target is pinned to `cloud-reasoning-v1` (2048 tokens under its
+# own, higher ceiling) and measured once a day instead of staying dead. The
+# rows publish; the dashboard's legacy charts drop non-default profiles and
+# Delivered TPS is profile-independent, which is intended.
+REASONING_PROFILE_ID = "cloud-reasoning-v1"
+
+# The hard ceiling on routed work. Independent of every cadence, tier and
+# core-set calculation above: however those are configured or misconfigured,
+# no more than this many jobs may enter the OpenRouter lane in any trailing
+# 24 hours. 300 is today's ~287 with a little slack. The 2026-08-17 runaway
+# (11,118 rows, $45.75 in a day) and the 2026-09-01 catch-up burst (1,258
+# rows) are both the shape this exists to make impossible.
+ROUTED_LANES = frozenset({"openrouter"})
+
+
+def max_routed_jobs_per_day() -> int:
+    try:
+        return max(1, int(os.getenv("BENCHMARK_MAX_ROUTED_JOBS_PER_DAY", "300")))
+    except ValueError:
+        return 300
+
+
+REASONING_CADENCE_SECONDS = int(os.getenv("BENCHMARK_REASONING_CADENCE_SECONDS", str(24 * 60 * 60)))
+
+
+def reasoning_publish_enabled() -> bool:
+    return os.getenv("BENCHMARK_REASONING_PUBLISH", "0").strip().lower() in {"1", "true", "yes"}
+
+
 OVERLOADED_ERROR_MARKERS = (
     "overloaded",
     "model busy",

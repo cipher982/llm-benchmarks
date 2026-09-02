@@ -24,6 +24,15 @@ def db():
     return mongomock.MongoClient().db
 
 
+@pytest.fixture(autouse=True)
+def flat_rotation(monkeypatch):
+    # These fixtures are one or two models: under core-set concentration
+    # (default on) every endpoint of the top model would be a core member and
+    # the rotation being tested here would have nothing left to rotate. The
+    # core set has its own tests in test_core_set.py.
+    monkeypatch.setenv("BENCHMARK_CORE_SET", "0")
+
+
 def seed_endpoints(db, tags, model_id="openai/gpt-oss-120b"):
     db[models_collection_name()].update_one(
         {"provider": "openrouter", "model_id": model_id},
