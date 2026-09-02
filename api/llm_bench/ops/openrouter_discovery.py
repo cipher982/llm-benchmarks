@@ -107,11 +107,28 @@ def _display_name(row: dict[str, Any], model_id: str) -> str:
     return str(label or row.get("canonical_slug") or model_id)
 
 
+def _created_at(row: dict[str, Any]) -> datetime | None:
+    """OpenRouter's `created` (epoch seconds) as a datetime; None when absent or malformed."""
+    value = row.get("created")
+    if not isinstance(value, (int, float)) or isinstance(value, bool) or value <= 0:
+        return None
+    try:
+        return datetime.fromtimestamp(float(value), tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
 def _catalog_doc(row: dict[str, Any], *, now: datetime) -> dict[str, Any]:
     model_id = str(row["id"])
     architecture = row.get("architecture") or {}
+    # `created` is when OpenRouter listed the model. The retired legacy writer
+    # stored it and this one did not, so from 2026-08-14 no new catalogue row
+    # carried it and "newest model" rules had nothing to read. The public
+    # /models payload already includes it; keeping it costs nothing.
+    created = _created_at(row)
     return {
         "openrouter_id": model_id,
+        **({"created": created} if created is not None else {}),
         "base_model_id": base_model_id(model_id),
         "name": row.get("name") or model_id,
         "canonical_slug": row.get("canonical_slug"),

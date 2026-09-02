@@ -162,3 +162,32 @@ class TestRefresh:
         ed.refresh_endpoints(db, model_ids=["openrouter/auto-beta"], fetcher=lambda m: called.append(m) or [])
         assert called == []
         assert db[ed.endpoints_collection_name()].count_documents({}) == 0
+
+
+class TestUpsertShape:
+    """Mongo rejects one path under two update operators; mongomock does not, so
+    the update document itself is what is pinned here."""
+
+    def test_enabled_lives_in_exactly_one_operator(self):
+        doc = ed.endpoint_doc("m", endpoint("groq"), now=1)
+        fresh, restored = ed.endpoint_update(doc, None, now=1)
+        assert restored is False
+        assert fresh["$setOnInsert"]["enabled"] is True
+        assert "enabled" not in fresh["$set"]
+
+        retired = {"enabled": False, "disabled_by": "endpoint-discovery"}
+        restore, restored = ed.endpoint_update(doc, retired, now=1)
+        assert restored is True
+        assert restore["$set"]["enabled"] is True
+        assert "enabled" not in restore["$setOnInsert"]
+        assert restore["$unset"] == {"disabled_reason": "", "disabled_at": "", "disabled_by": ""}
+
+        for update in (fresh, restore):
+            for path in set(update["$set"]) & set(update["$setOnInsert"]):
+                raise AssertionError(f"{path} named under both $set and $setOnInsert")
+
+    def test_an_operator_retirement_is_not_restored(self):
+        doc = ed.endpoint_doc("m", endpoint("groq"), now=1)
+        update, restored = ed.endpoint_update(doc, {"enabled": False, "disabled_by": "operator"}, now=1)
+        assert restored is False
+        assert "enabled" not in update["$set"]
