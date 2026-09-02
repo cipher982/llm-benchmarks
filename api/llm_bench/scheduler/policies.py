@@ -184,4 +184,33 @@ def endpoint_tier_interval_seconds(provider_count: int) -> int:
         hours = float(os.getenv("BENCHMARK_ENDPOINT_MEDIUM_HOURS", "24"))
     else:
         hours = float(os.getenv("BENCHMARK_ENDPOINT_LONG_HOURS", "96"))
-    return max(60, int(hours * 60 * 60))
+    return max(60, int(rotate_utc_block(hours) * 60 * 60))
+
+
+UTC_BLOCK_HOURS = 4
+
+
+def endpoint_block_rotation_enabled() -> bool:
+    return os.getenv("BENCHMARK_ENDPOINT_BLOCK_ROTATION", "1").strip().lower() in {"1", "true", "yes"}
+
+
+def rotate_utc_block(hours: float) -> float:
+    """Lengthen a whole-day cadence by one 4h block so it walks the clock.
+
+    Publication (dashboard `endpointPublication.ts`) needs an endpoint's
+    samples spread across the six 4h UTC blocks: four of six for a preliminary
+    figure, all six for an official one. A cadence that is a whole number of
+    days lands in the same block every time — measured 2026-09-02, 451 of 794
+    enabled endpoints sit on the 24h and 96h tiers and 456 endpoints had seen
+    exactly three blocks in two weeks — so those endpoints could never publish
+    however long they were measured. Adding a block per cycle (24h → 28h,
+    96h → 112h) visits every block over six cycles.
+
+    Only ever lengthens an interval, so it cannot raise jobs per day; on the
+    2026-09-02 population it lowers them from ~287 to ~276.
+    """
+    if not endpoint_block_rotation_enabled():
+        return hours
+    if hours <= 0 or hours % 24 != 0:
+        return hours
+    return hours + UTC_BLOCK_HOURS

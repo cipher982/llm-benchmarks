@@ -61,9 +61,23 @@ class TestGate:
             "BENCHMARK_ENDPOINT_LONG_HOURS",
         ):
             monkeypatch.delenv(name, raising=False)
-        assert policies.endpoint_tier_interval_seconds(2) == 96 * 60 * 60
-        assert policies.endpoint_tier_interval_seconds(3) == 24 * 60 * 60
+        # Whole-day tiers carry one extra 4h block per cycle so their samples
+        # walk the six UTC blocks the publication gate needs; the 3h tier
+        # already does. See policies.rotate_utc_block.
+        assert policies.endpoint_tier_interval_seconds(2) == (96 + 4) * 60 * 60
+        assert policies.endpoint_tier_interval_seconds(3) == (24 + 4) * 60 * 60
         assert policies.endpoint_tier_interval_seconds(8) == 3 * 60 * 60
+
+    def test_block_rotation_only_ever_lengthens(self, monkeypatch):
+        # A cadence change that could shorten an interval is a spend change.
+        for hours in (1, 3, 6, 24, 48, 96, 120):
+            assert policies.rotate_utc_block(hours) >= hours
+        assert policies.rotate_utc_block(24) == 28
+        assert policies.rotate_utc_block(96) == 100
+        assert policies.rotate_utc_block(3) == 3
+        monkeypatch.setenv("BENCHMARK_ENDPOINT_BLOCK_ROTATION", "0")
+        assert policies.rotate_utc_block(24) == 24
+        assert policies.endpoint_tier_interval_seconds(3) == 24 * 60 * 60
 
 
 class TestCandidates:
@@ -75,7 +89,8 @@ class TestCandidates:
 
         assert sorted(tag for _, _, tag, _ in found) == ["deepinfra/bf16", "deepinfra/turbo", "groq"]
         docs = list(health.health_collection(db).find({"model_id": "openai/gpt-oss-120b"}))
-        assert {doc["cadence_seconds"] for doc in docs} == {3 * 96 * 60 * 60}
+        # Three endpoints of a one-provider model: three long-tier intervals apart.
+        assert {doc["cadence_seconds"] for doc in docs} == {3 * policies.endpoint_tier_interval_seconds(1)}
         assert {doc["endpoint_rotation_policy_version"] for doc in docs} == {1}
         assert all(doc["endpoint_rotation_policy_started_at"] is not None for doc in docs)
 
@@ -83,7 +98,9 @@ class TestCandidates:
         seed_endpoints(db, ["p1", "p2"], model_id="m")
         cli._endpoint_candidates(db, provider="openrouter")
         coll = health.health_collection(db)
-        assert {doc["cadence_seconds"] for doc in coll.find({"model_id": "m"})} == {2 * 96 * 60 * 60}
+        assert {doc["cadence_seconds"] for doc in coll.find({"model_id": "m"})} == {
+            2 * policies.endpoint_tier_interval_seconds(2)
+        }
 
         seed_endpoints(db, [f"p{i}" for i in range(3, 9)], model_id="m")
         cli._endpoint_candidates(db, provider="openrouter")
