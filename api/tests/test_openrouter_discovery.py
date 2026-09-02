@@ -98,3 +98,23 @@ def test_canonical_models_drops_openrouter_routers():
     result = openrouter_discovery.canonical_models(rows)
 
     assert [row["id"] for row in result] == ["meta-llama/llama-4-maverick"]
+
+
+def test_refresh_catalog_keeps_openrouter_created_date():
+    db = mongomock.MongoClient()["test"]
+    openrouter_discovery.refresh_catalog(
+        db,
+        now=NOW,
+        fetcher=lambda: (
+            [
+                {"id": "anthropic/claude-fable-5.1", "name": "Anthropic: Claude Fable 5.1", "created": 1788307200},
+                {"id": "vendor/undated", "name": "Vendor: Undated"},
+                {"id": "vendor/bad", "name": "Vendor: Bad", "created": "yesterday"},
+            ],
+            3,
+        ),
+    )
+    fable = db.openrouter_catalog.find_one({"openrouter_id": "anthropic/claude-fable-5.1"})
+    assert fable["created"].replace(tzinfo=timezone.utc) == datetime(2026, 9, 2, 0, 0, tzinfo=timezone.utc)
+    assert "created" not in db.openrouter_catalog.find_one({"openrouter_id": "vendor/undated"})
+    assert "created" not in db.openrouter_catalog.find_one({"openrouter_id": "vendor/bad"})

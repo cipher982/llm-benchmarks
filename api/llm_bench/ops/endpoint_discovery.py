@@ -182,6 +182,33 @@ def _as_float(value: Any) -> float | None:
         return None
 
 
+def endpoint_update(
+    doc: dict[str, Any], existing: dict[str, Any] | None, *, now: datetime
+) -> tuple[dict[str, Any], bool]:
+    """The upsert for one discovered endpoint, and whether it restores a retired one.
+
+    `enabled` must appear in exactly one operator. A restore put it in `$set`
+    while `$setOnInsert` still carried it for the fresh-insert case, and Mongo
+    rejects an update that names one path under two operators — even on a
+    document that exists, where `$setOnInsert` would do nothing. From
+    2026-08-31 every discovery pass threw on the first restorable endpoint,
+    so no endpoint was admitted or restored for two days, new models had
+    nothing to schedule, and the reaper re-retired the same 27 endpoints
+    each tick that discovery could no longer bring back.
+    """
+    update: dict[str, Any] = {
+        "$set": {**doc, "missing_passes": 0},
+        "$setOnInsert": {"first_seen_at": now},
+    }
+    restored = bool(existing and existing.get("disabled_by") == "endpoint-discovery")
+    if restored:
+        update["$set"]["enabled"] = True
+        update["$unset"] = {"disabled_reason": "", "disabled_at": "", "disabled_by": ""}
+    else:
+        update["$setOnInsert"]["enabled"] = True
+    return update, restored
+
+
 def refresh_endpoints(
     db: Database,
     *,
@@ -225,14 +252,7 @@ def refresh_endpoints(
             seen.add(doc["endpoint_tag"])
             query = {"model_id": model_id, "endpoint_tag": doc["endpoint_tag"]}
             existing = endpoints.find_one(query, {"enabled": 1, "disabled_by": 1})
-            update: dict[str, Any] = {
-                "$set": {**doc, "missing_passes": 0},
-                "$setOnInsert": {"first_seen_at": now, "enabled": True},
-            }
-            restored = bool(existing and existing.get("disabled_by") == "endpoint-discovery")
-            if restored:
-                update["$set"]["enabled"] = True
-                update["$unset"] = {"disabled_reason": "", "disabled_at": "", "disabled_by": ""}
+            update, restored = endpoint_update(doc, existing, now=now)
             endpoints.update_one(query, update, upsert=True)
             if restored:
                 db[health_collection_name()].update_one(
