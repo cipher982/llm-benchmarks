@@ -32,6 +32,7 @@ from pymongo.database import Database
 
 from llm_bench.ops import desired_set as desired_set_module
 from llm_bench.ops import endpoint_discovery
+from llm_bench.ops import openrouter_key_limit
 from llm_bench.scheduler import policies
 from llm_bench.scheduler.mongo import collection_name
 from llm_bench.scheduler.mongo import health_collection_name
@@ -814,6 +815,63 @@ def terminal_reasons_are_current(ctx: Context) -> list[Violation]:
     return violations
 
 
+def openrouter_key_has_headroom(ctx: Context) -> list[Violation]:
+    """The routed lane's key is neither exhausted nor about to be.
+
+    Every provider except OpenAI, Vertex and Bedrock is measured through one
+    OpenRouter key with a monthly spend limit. When that limit was reached on
+    2026-08-20 the fleet went quiet for eleven days and no check said so: the
+    process was alive, the direct lanes kept the provider-progress check
+    green, and the 403s were classified as per-model auth failures. This
+    check reads what the key reports about itself and fails while the balance
+    is gone or would be gone within `MIN_HEADROOM_DAYS` at the current burn.
+
+    It cannot evaluate without a recent reading — "I could not look" must not
+    pass as "fine" — so a container that has never recorded key status is a
+    could-not-evaluate, not an ok.
+    """
+    state = openrouter_key_limit.load_key_state(ctx.db)
+    if state is None:
+        raise CannotEvaluate("no OpenRouter key status recorded yet (provider_state openrouter:key_limit)")
+    checked_at = _as_utc(state.get("checked_at"))
+    if checked_at is None or ctx.now - checked_at > openrouter_key_limit.MAX_STATE_AGE:
+        raise CannotEvaluate(
+            f"OpenRouter key status is stale (checked_at={checked_at}); the key-limit loop is not running"
+        )
+
+    room = openrouter_key_limit.headroom(state, now=ctx.now)
+    if not room["limited"]:
+        return []
+    data = {
+        "limit_usd": room["limit"],
+        "remaining_usd": room["remaining"],
+        "burn_usd_per_day": room["burn_per_day"],
+        "days_left": room["days_left"],
+        "limit_reset": state.get("limit_reset"),
+        "checked_at": checked_at,
+    }
+    if room["exhausted"]:
+        return [
+            Violation(
+                "openrouter",
+                f"key limit exhausted: ${room['remaining']:.2f} of ${room['limit']:.2f} left; "
+                f"every routed lane is failing until the {state.get('limit_reset') or 'limit'} reset",
+                data,
+            )
+        ]
+    days = room["days_left"]
+    if days is not None and days < openrouter_key_limit.MIN_HEADROOM_DAYS:
+        return [
+            Violation(
+                "openrouter",
+                f"key limit runs out in {days:.1f} days at ${room['burn_per_day']:.2f}/day "
+                f"(${room['remaining']:.2f} of ${room['limit']:.2f} left); raise the limit or slow the fleet",
+                data,
+            )
+        ]
+    return []
+
+
 INVARIANTS: list[Invariant] = [
     Invariant(
         "no_work_for_disabled_models",
@@ -877,6 +935,11 @@ INVARIANTS: list[Invariant] = [
         "terminal_reasons_are_current",
         "No model is suppressed by a terminal reason that never expires",
         terminal_reasons_are_current,
+    ),
+    Invariant(
+        "openrouter_key_has_headroom",
+        "The OpenRouter key is not exhausted and has days of spend left at the current burn",
+        openrouter_key_has_headroom,
     ),
 ]
 

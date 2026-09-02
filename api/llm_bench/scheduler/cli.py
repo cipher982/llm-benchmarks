@@ -22,6 +22,7 @@ from llm_bench.ops import invariants
 from llm_bench.ops import llm_error_classifier
 from llm_bench.ops import model_naming
 from llm_bench.ops import openrouter_discovery
+from llm_bench.ops import openrouter_key_limit
 from llm_bench.ops import reconciler
 from llm_bench.ops import route_renewal
 from llm_bench.ops import vertex_discovery
@@ -787,6 +788,17 @@ def daemon(
         name="vertex-discovery-loop",
         daemon=True,
     )
+    key_limit_thread = threading.Thread(
+        target=openrouter_key_limit.run_key_limit_loop,
+        kwargs={
+            "stop_event": stop_event,
+            # One GET an hour, well inside the 3h the headroom invariant
+            # accepts, so one failed read is not a could-not-evaluate.
+            "interval_seconds": int(os.getenv("BENCHMARK_KEY_LIMIT_INTERVAL_SECONDS", "3600")),
+        },
+        name="openrouter-key-limit-loop",
+        daemon=True,
+    )
     openrouter_discovery_thread = threading.Thread(
         target=run_openrouter_discovery_loop,
         kwargs={
@@ -806,6 +818,7 @@ def daemon(
     route_renewal_thread.start()
     reconciler_thread.start()
     openrouter_discovery_thread.start()
+    key_limit_thread.start()
     workers = start_provider_workers(providers=selected, cadence_seconds=cadence_seconds, stop_event=stop_event)
 
     while not stop_event.is_set():
