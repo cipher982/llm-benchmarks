@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import pytest
 from llm_bench.cloud.providers import openrouter
 from llm_bench.config import CloudConfig
 
@@ -39,6 +40,24 @@ def _config(**misc):
         temperature=0.1,
         misc=misc,
     )
+
+
+@pytest.mark.parametrize("source_provider", ["openrouter", "anthropic"])
+def test_operator_transport_exclusion_refuses_new_model_before_network(monkeypatch, source_provider):
+    monkeypatch.setenv("BENCHMARK_OPENROUTER_EXCLUDED_MODEL_PREFIXES", "anthropic/")
+    client = FakeClient([])
+    config = CloudConfig(
+        provider=source_provider,
+        model_name="new-model",
+        transport_provider="openrouter",
+        transport_model_id="anthropic/new-unlisted-release",
+        run_ts="2026-09-30 00:00:00",
+        temperature=0.1,
+        misc={},
+    )
+    with pytest.raises(PermissionError):
+        openrouter.process_chat_model(client, config, {"query": "hi", "max_tokens": 64})
+    assert client.completions.calls == []
 
 
 def test_route_request_is_pinned_and_fallbacks_are_disabled(monkeypatch):

@@ -70,6 +70,17 @@ class TestCandidateSelection:
             catalogue(db, "deepinfra", f"m{i}")
         assert len(admission.find_candidates(db, limit=5)) == 5
 
+    def test_transport_exclusions_do_not_block_direct_provider_candidates(self, db, monkeypatch):
+        monkeypatch.setenv("BENCHMARK_OPENROUTER_EXCLUDED_MODEL_PREFIXES", "anthropic/")
+        catalogue(db, "openrouter", "anthropic/new-release")
+        catalogue(db, "bedrock", "anthropic/new-release")
+        catalogue(db, "openrouter", "qwen/new-release")
+        candidates = admission.find_candidates(db)
+        assert {(row["provider"], row["model_id"]) for row in candidates} == {
+            ("bedrock", "anthropic/new-release"),
+            ("openrouter", "qwen/new-release"),
+        }
+
 
 class TestRegistration:
     def test_a_candidate_is_registered_disabled(self, db):

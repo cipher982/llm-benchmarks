@@ -9,6 +9,18 @@ To add new cloud provider models, use `../manage-models.sh` from the parent dire
 Use the root compose as needed; no separate dev compose is provided.
 Results are written only to MongoDB; there are no JSON file logs in the scheduler path.
 
+## Transport Authority
+
+`BENCHMARK_OPENROUTER_EXCLUDED_MODEL_PREFIXES` is a comma-separated list of
+model-ID prefixes forbidden on OpenRouter; unset means no local exclusions.
+For example, `anthropic/` refuses every current and future Claude slug on that
+transport without changing direct-provider measurements.
+
+The policy filters new admission candidates, refuses scheduled work, cancels
+already-queued excluded routes, and checks the effective transport model before
+the adapter sends a request. Remote guardrails remain defense in depth, not the
+only protection during catalogue refresh. Published history is retained.
+
 ## Logging
 - Console: scheduler, reaper, and worker status lines.
 - Mongo: jobs go to `bench_jobs`, health goes to `bench_model_health`, successes go to `MONGODB_COLLECTION_CLOUD`, and failures go to `MONGODB_COLLECTION_ERRORS`.

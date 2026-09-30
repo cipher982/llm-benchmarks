@@ -124,7 +124,12 @@ def find_candidates(db: Database, *, limit: int = MAX_NEW_CANDIDATES_PER_RUN) ->
         known.add((doc["provider"], doc["model_id"]))
     catalogue = list(db.provider_catalog.find({}, {"provider": 1, "model_id": 1, "name": 1}))
 
-    candidates = [row for row in catalogue if (row["provider"], row["model_id"]) not in known]
+    candidates = [
+        row
+        for row in catalogue
+        if (row["provider"], row["model_id"]) not in known
+        and (row["provider"] != "openrouter" or policies.openrouter_model_allowed(row["model_id"]))
+    ]
     candidates.sort(
         key=lambda row: (
             0 if row["provider"] == "openrouter" else 1,

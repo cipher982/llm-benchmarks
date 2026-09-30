@@ -131,6 +131,16 @@ def excluded_providers() -> set[str]:
     return {provider.strip() for provider in raw.split(",") if provider.strip()}
 
 
+def openrouter_model_allowed(model_id: str) -> bool:
+    """Apply operator transport exclusions before any paid request.
+
+    Prefix policy closes the discovery/remote-guardrail race for newly listed
+    models. It does not exclude the same model from a direct-provider lane.
+    """
+    raw = os.getenv("BENCHMARK_OPENROUTER_EXCLUDED_MODEL_PREFIXES", "")
+    return not any(model_id.startswith(prefix.strip()) for prefix in raw.split(",") if prefix.strip())
+
+
 def is_retryable_failure(error_kind: str | None, error_message: str | None = None) -> bool:
     if error_kind in RETRYABLE_ERROR_KINDS:
         return True

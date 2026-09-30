@@ -206,6 +206,8 @@ def enqueue_scheduled_job(
     benchmark_profile_id: str | None = None,
 ) -> bool:
     now = now or utcnow()
+    if provider == "openrouter" and not policies.openrouter_model_allowed(model_id):
+        return False
     job_id = scheduled_job_id(provider, model_id, endpoint_tag)
     extra: dict[str, Any] = {}
     if endpoint_tag:
@@ -397,6 +399,11 @@ def is_model_eligible(db: Database, *, provider: str, model_id: Any, sample_role
 def job_ineligibility_reason(db: Database, job: dict[str, Any]) -> str | None:
     provider = str(job.get("provider") or "")
     model_id = job.get("model_id")
+    snapshot = job.get("route_snapshot") or {}
+    transport = snapshot.get("transport_provider") or provider
+    transport_model = str(snapshot.get("route_model_id") or model_id or "")
+    if transport == "openrouter" and not policies.openrouter_model_allowed(transport_model):
+        return "OpenRouter transport excluded by operator policy"
     if not is_model_eligible(
         db,
         provider=provider,

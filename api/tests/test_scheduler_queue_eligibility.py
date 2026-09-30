@@ -122,3 +122,17 @@ def test_dead_letter_endpoint_stays_parked_while_sibling_is_active(db):
 
     assert queue.requeue_retryable_dead_letters(db, now=now) == []
     assert db.bench_jobs.find_one({"_id": "openrouter:m:alpha"})["status"] == "dead_letter"
+
+
+def test_transport_exclusions_cancel_stale_work_without_excluding_direct_lanes(db, monkeypatch):
+    model_id = "anthropic/new-model"
+    _enable(db, "openrouter", model_id)
+    _enable(db, "bedrock", model_id)
+    routed = queue.enqueue_manual_job(db, provider="openrouter", model_id=model_id)
+    direct = queue.enqueue_manual_job(db, provider="bedrock", model_id=model_id)
+    monkeypatch.setenv("BENCHMARK_OPENROUTER_EXCLUDED_MODEL_PREFIXES", "anthropic/")
+
+    assert not queue.enqueue_scheduled_job(db, provider="openrouter", model_id=model_id, priority=1)
+    assert queue.cancel_ineligible_jobs(db) == 1
+    assert db.bench_jobs.find_one({"_id": routed})["status"] == "cancelled"
+    assert db.bench_jobs.find_one({"_id": direct})["status"] == "queued"

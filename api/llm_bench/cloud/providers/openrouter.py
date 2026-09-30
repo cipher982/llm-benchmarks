@@ -18,6 +18,7 @@ from llm_bench.cloud.visible_tokens import VisibleTokenClock
 from llm_bench.cloud.visible_tokens import count_tokens
 from llm_bench.cloud.visible_tokens import stream_resolution
 from llm_bench.config import CloudConfig
+from llm_bench.scheduler import policies
 from llm_bench.scheduler.routing import OR_SERVED_POLICY
 from llm_bench.utils import get_current_timestamp
 from openai import OpenAI
@@ -114,6 +115,8 @@ def _route_options(config: CloudConfig) -> dict[str, Any]:
 
 def _request_stream(client: OpenAI, config: CloudConfig, run_config: dict[str, Any]):
     model_id = config.transport_model_id or config.model_name
+    if not policies.openrouter_model_allowed(model_id):
+        raise PermissionError(f"OpenRouter transport is excluded by operator policy for {model_id}")
     kwargs: dict[str, Any] = {
         "model": model_id,
         "messages": [{"role": "user", "content": run_config["query"]}],
