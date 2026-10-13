@@ -7,8 +7,8 @@ the site has been building for months, and the loss is quiet.
 So absence is only counted across *complete* discovery runs. A run that errored,
 stopped short of pagination, or never happened proves nothing about what the
 provider offers, and the ledger exists precisely so those can be told apart —
-before it, a filter change and a provider deletion looked identical.
-
+before it, a filter change and a provider deletion looked identical. The latest
+run must also be complete and within the discovery freshness window.
 Three consecutive complete runs, not three calendar days. Polling daily with
 jitter means "three days" can be two observations, and a deprecation resting on
 two observations is a coin flip on one bad night.
@@ -24,9 +24,12 @@ from typing import Any
 
 from pymongo.database import Database
 
+from llm_bench.ops import endpoint_discovery
 from llm_bench.ops import identity
 from llm_bench.ops import invariants
 from llm_bench.ops import mutations
+from llm_bench.scheduler.mongo import health_collection_name
+from llm_bench.scheduler.mongo import jobs_collection_name
 from llm_bench.scheduler.mongo import models_collection_name
 
 # Consecutive complete runs a model must be missing from before it is retired.
@@ -69,9 +72,24 @@ def complete_run_times(db: Database, *, provider: str, limit: int = REQUIRED_ABS
     return [stamp for stamp in (_as_utc(r.get("finished_at")) for r in runs) if stamp is not None]
 
 
+def _has_recent_complete_run(db: Database, *, provider: str, now: datetime) -> bool:
+    """Whether the provider's latest discovery run is complete and recent."""
+    run = db[invariants.discovery_runs_collection_name()].find_one(
+        {"provider": provider},
+        {"finished_at": 1, "status": 1, "pagination_complete": 1},
+        sort=[("finished_at", -1)],
+    )
+    if run is None or run.get("status") != "completed" or run.get("pagination_complete") is not True:
+        return False
+    finished_at = _as_utc(run.get("finished_at"))
+    return finished_at is not None and finished_at >= now - invariants.DISCOVERY_MAX_AGE
+
+
 def find_retirements(db: Database, *, now: datetime | None = None) -> list[Retirement]:
-    """Enabled models absent from every one of the last N complete runs."""
-    now = now or utcnow()
+    """Enabled models absent from recent, complete discovery evidence."""
+    now = _as_utc(now or utcnow())
+    if now is None:
+        return []
     seen: dict[tuple[str, str], datetime] = {}
     for row in db.provider_catalog.find({}, {"provider": 1, "model_id": 1, "last_seen_at": 1}):
         stamp = _as_utc(row.get("last_seen_at"))
@@ -90,9 +108,13 @@ def find_retirements(db: Database, *, now: datetime | None = None) -> list[Retir
             continue
 
         if provider not in cutoffs:
-            runs = complete_run_times(db, provider=provider)
-            # Not enough complete history to judge absence yet.
-            cutoffs[provider] = runs[-1] if len(runs) >= REQUIRED_ABSENT_RUNS else None
+            cutoff = None
+            if _has_recent_complete_run(db, provider=provider, now=now):
+                runs = complete_run_times(db, provider=provider)
+                # Not enough complete history to judge absence yet.
+                if len(runs) >= REQUIRED_ABSENT_RUNS:
+                    cutoff = runs[-1]
+            cutoffs[provider] = cutoff
         cutoff = cutoffs[provider]
         if cutoff is None:
             continue
@@ -109,23 +131,83 @@ def find_retirements(db: Database, *, now: datetime | None = None) -> list[Retir
                     ),
                 )
             )
+    retirements.sort(
+        key=lambda item: (
+            seen.get((item.provider, item.model_id)) or datetime.min.replace(tzinfo=timezone.utc),
+            item.provider,
+            item.model_id,
+        )
+    )
     return retirements
+
+
+def _synchronize_retired_model(db: Database, item: Retirement, *, now: datetime) -> None:
+    """Disable derived health/endpoints and cancel retained active job records."""
+    db[health_collection_name()].update_many(
+        {"provider": item.provider, "model_id": item.model_id},
+        {"$set": {"enabled": False}},
+    )
+    if item.provider == "openrouter":
+        db[endpoint_discovery.endpoints_collection_name()].update_many(
+            {"model_id": item.model_id, "enabled": True},
+            {"$set": {"enabled": False, "disabled_reason": item.reason, "disabled_at": now}},
+        )
+    db[jobs_collection_name()].update_many(
+        {
+            "provider": item.provider,
+            "model_id": item.model_id,
+            "status": {"$in": ["queued", "running"]},
+        },
+        {
+            "$set": {
+                "status": "cancelled",
+                "updated_at": now,
+                "finished_at": now,
+                "lease_expires_at": None,
+                "worker_id": None,
+                "cancelled_reason": item.reason,
+            }
+        },
+    )
 
 
 def retire(db: Database, *, now: datetime | None = None, dry_run: bool = True) -> list[Retirement]:
     """Deprecate models the provider has stopped listing.
 
-    Applies as one bounded batch, so a discovery regression that empties a
-    provider's catalogue hits the cap and retires nothing. That is the failure
-    this guards against: the run looks successful, and every model vanishes.
+    Applies one bounded batch per pass. If an oversized retirement set exceeds
+    the desired-set shrink limit for any provider, nothing is applied; a
+    suspicious discovery regression must not drain a provider over successive
+    runs.
     """
-    now = now or utcnow()
+    now = _as_utc(now or utcnow())
+    if now is None:
+        return []
     retirements = find_retirements(db, now=now)
     if dry_run or not retirements:
         return retirements
 
-    batch = mutations.MutationBatch(db=db, reason="absent from provider catalogue", actor="reconciler")
+    counts_by_provider: dict[str, int] = {}
     for item in retirements:
+        counts_by_provider[item.provider] = counts_by_provider.get(item.provider, 0) + 1
+    exceeds_caps = len(retirements) > mutations.MAX_CHANGES_PER_BATCH or any(
+        count > mutations.MAX_CHANGES_PER_PROVIDER for count in counts_by_provider.values()
+    )
+    if exceeds_caps:
+        models = db[models_collection_name()]
+        population = models.count_documents({"enabled": True, "deprecated": {"$ne": True}})
+        max_safe_removals = max(1, int(population * invariants.MAX_DESIRED_SET_SHRINK))
+        if len(retirements) > max_safe_removals:
+            raise mutations.MutationRefused(
+                f"retiring {len(retirements)} of {population} enabled models exceeds the "
+                f"{invariants.MAX_DESIRED_SET_SHRINK:.0%} desired-set shrink limit "
+                f"(maximum {max_safe_removals}); nothing was applied"
+            )
+
+    batch = mutations.MutationBatch(db=db, reason="absent from provider catalogue", actor="reconciler")
+    staged: list[Retirement] = []
+    for item in retirements:
+        if not batch.has_room_for(item.provider):
+            continue
         batch.set_model_fields(
             provider=item.provider,
             model_id=item.model_id,
@@ -135,8 +217,13 @@ def retire(db: Database, *, now: datetime | None = None, dry_run: bool = True) -
             disabled_reason=item.reason,
             disabled_at=now,
         )
-    batch.apply(now=now)
-    return retirements
+        staged.append(item)
+    result = batch.apply(now=now)
+    failed = {failure["subject"] for failure in result["failed"]}
+    applied = [item for item in staged if item.subject not in failed]
+    for item in applied:
+        _synchronize_retired_model(db, item, now=now)
+    return applied
 
 
 def summarize(db: Database, *, now: datetime | None = None) -> dict[str, Any]:

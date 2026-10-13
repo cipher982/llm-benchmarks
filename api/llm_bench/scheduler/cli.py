@@ -599,7 +599,7 @@ def run_classifier_loop(*, stop_event: threading.Event, interval_seconds: int) -
 
 
 def run_reconciler_loop(*, stop_event: threading.Event, interval_seconds: int) -> None:
-    """Keep chart lines from splitting as the catalogue changes.
+    """Reconcile measurement lifecycle, then keep chart identities consistent.
 
     Two providers share a chart line only when their display names match
     character for character. `claude-haiku-4.5` and `claude-haiku-4-5` were the
@@ -622,6 +622,21 @@ def run_reconciler_loop(*, stop_event: threading.Event, interval_seconds: int) -
             client = mongo_client()
             try:
                 db = client[db_name]
+                # Lifecycle decisions cannot depend on successful naming/LLM
+                # work, and a refused retirement must not block recovery.
+                try:
+                    retired = reconciler.retire(db, dry_run=False)
+                    for item in retired:
+                        print(f"Retired {item.subject}: {item.reason}", flush=True)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"Retirement pass error: {type(exc).__name__}: {exc}", flush=True)
+                try:
+                    recovered = queue.recheck_stale_terminal_jobs(db)
+                    if recovered:
+                        print(f"Terminal recovery: {len(recovered)} job transitions", flush=True)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"Terminal recovery error: {type(exc).__name__}: {exc}", flush=True)
+
                 resolved = reconciler.resolve_missing_identities(db, call_llm=identity.call_openrouter)
                 if resolved:
                     print(f"Identity resolved {len(resolved)} new endpoints", flush=True)

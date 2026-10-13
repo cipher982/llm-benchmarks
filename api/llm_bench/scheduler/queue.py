@@ -10,6 +10,7 @@ from pymongo.collection import Collection
 from pymongo.database import Database
 
 from llm_bench.ops import endpoint_discovery
+from llm_bench.ops import mutations
 from llm_bench.scheduler import policies
 from llm_bench.scheduler.mongo import health_collection_name
 from llm_bench.scheduler.mongo import jobs_collection_name
@@ -27,6 +28,16 @@ ACTIVE_STATUSES = {"queued", "running"}
 # The same shape as the four coverage outages this scheduler has already had:
 # any terminal state needs a way back, or it is a ratchet.
 TERMINAL_RETRYABLE_STATUSES = {"success", "failed", "timeout", "cancelled"}
+
+# Terminal failures are reconsidered slowly, and only while discovery still
+# confirms that the measured source model is present.
+TERMINAL_RECHECK_MIN_AGE = timedelta(days=7)
+TERMINAL_CATALOG_FRESHNESS = timedelta(days=7)
+
+# Only model-wide refusals quarantine the model; auth is account-level and
+# endpoint-tag failures belong to endpoint retirement.
+TERMINAL_RECOVERY_QUARANTINE_ERROR_KINDS = frozenset({"hard_model", "hard_capability"})
+TERMINAL_RECOVERY_RECHECK_AFTER = timedelta(days=30)
 
 
 # Sample roles whose work is deliberately not published. Kept here rather than
@@ -396,6 +407,19 @@ def is_model_eligible(db: Database, *, provider: str, model_id: Any, sample_role
     return bool(doc.get("enabled"))
 
 
+def _is_scheduled_job(job: dict[str, Any]) -> bool:
+    """Recognize legacy rows by their stable scheduled ID, not a job-kind guess."""
+    if job.get("job_kind") == "scheduled":
+        return True
+    if "job_kind" in job:
+        return False
+    return job.get("_id") == scheduled_job_id(
+        str(job.get("provider") or ""),
+        str(job.get("model_id") or ""),
+        job.get("endpoint_tag") or None,
+    )
+
+
 def job_ineligibility_reason(db: Database, job: dict[str, Any]) -> str | None:
     provider = str(job.get("provider") or "")
     model_id = job.get("model_id")
@@ -421,7 +445,7 @@ def job_ineligibility_reason(db: Database, job: dict[str, Any]) -> str | None:
         )
         if target is None:
             return "endpoint no longer enabled"
-    elif provider == "openrouter" and job.get("job_kind") == "scheduled":
+    elif provider == "openrouter" and _is_scheduled_job(job):
         if endpoints.find_one({"model_id": model_id, "enabled": True}, {"_id": 1}) is not None:
             return "superseded by endpoint rotation"
     return None
@@ -472,7 +496,8 @@ def mark_success(db: Database, *, job_id: Any, worker_id: str | None = None, now
                 "worker_id": None,
                 "last_attempt_error_kind": None,
                 "last_attempt_error_message": None,
-            }
+            },
+            "$unset": {"terminal_recovery_active": ""},
         },
     )
     return result.modified_count > 0
@@ -481,7 +506,11 @@ def mark_success(db: Database, *, job_id: Any, worker_id: str | None = None, now
 def _failure_update(job: dict[str, Any], *, error_kind: str, error_message: str, now: datetime) -> dict[str, Any]:
     attempt = int(job.get("attempt") or 0)
     max_attempts = int(job.get("max_attempts") or policies.DEFAULT_MAX_ATTEMPTS)
-    retry = policies.should_retry(error_kind, attempt, max_attempts, error_message)
+    # Recovery cycles and published-model revalidation probes get one attempt,
+    # even when the ordinary retry policy would keep transient failures alive.
+    retry = not job.get("terminal_recovery_active") and policies.should_retry(
+        error_kind, attempt, max_attempts, error_message
+    )
     status = "queued" if retry else "dead_letter"
     not_before = now + policies.retry_backoff(error_kind, attempt=attempt) if retry else now
     return {
@@ -600,6 +629,7 @@ def requeue_retryable_dead_letters(
     coll = jobs_collection(db)
     retryable_kinds = sorted(policies.RETRYABLE_ERROR_KINDS)
     query: dict[str, Any] = {
+        "terminal_recovery_active": {"$ne": True},
         "status": "dead_letter",
         "$or": [
             {
@@ -675,6 +705,344 @@ def requeue_retryable_dead_letters(
                 record_admission(db, provider=str(job.get("provider")), now=now)
             transitioned.append({**job, "transitioned_status": "queued"})
     return transitioned
+
+
+def _terminal_catalog_identity(job: dict[str, Any]) -> tuple[str, str]:
+    provider = str(job.get("provider") or "")
+    model_id = str(job.get("model_id") or "")
+    snapshot = job.get("route_snapshot") or {}
+    if provider == "openrouter" or snapshot.get("transport_provider") == "openrouter":
+        return (
+            str(snapshot.get("source_provider") or provider),
+            str(snapshot.get("source_model_id") or model_id),
+        )
+    return provider, model_id
+
+
+def _log_terminal_quarantine_side_effect_failure(
+    action: str,
+    provider: str,
+    model_id: str,
+    error: Exception,
+) -> None:
+    print(
+        f"terminal_recovery_quarantine_side_effect_failed action={action} provider={provider} "
+        f"model_id={model_id} error={type(error).__name__}: {error}",
+        flush=True,
+    )
+
+
+def _quarantine_failed_terminal_recoveries(
+    db: Database,
+    jobs: list[dict[str, Any]],
+    *,
+    now: datetime,
+) -> None:
+    """Quarantine published models after fresh model-wide recovery refusals."""
+    batch = mutations.MutationBatch(
+        db=db,
+        reason="terminal recovery definitive failure",
+        actor="scheduler",
+    )
+    staged: list[tuple[dict[str, Any], str, str, str]] = []
+    staged_models: set[tuple[str, str]] = set()
+    catalog_cutoff = now - TERMINAL_CATALOG_FRESHNESS
+
+    for job in jobs:
+        error_kind = job.get("last_attempt_error_kind")
+        if (
+            job.get("terminal_recovery_active") is not True
+            or error_kind not in TERMINAL_RECOVERY_QUARANTINE_ERROR_KINDS
+            or job.get("endpoint_tag")
+        ):
+            continue
+        updated_at = _as_utc_timestamp(job.get("updated_at"))
+        rechecked_at = _as_utc_timestamp(job.get("last_terminal_recheck_at"))
+        if (
+            updated_at is None
+            or rechecked_at is None
+            or updated_at < rechecked_at
+            or updated_at < now - TERMINAL_CATALOG_FRESHNESS
+        ):
+            continue
+
+        provider = str(job.get("provider") or "")
+        model_id = str(job.get("model_id") or "")
+        subject_key = (provider, model_id)
+        if not model_id or subject_key in staged_models:
+            continue
+        if not db[models_collection_name()].find_one(
+            {"provider": provider, "model_id": model_id, "enabled": True, "deprecated": {"$ne": True}},
+            {"_id": 1},
+        ):
+            continue
+        if job_ineligibility_reason(db, job):
+            continue
+
+        health = db[health_collection_name()].find_one(
+            {
+                "provider": provider,
+                "model_id": model_id,
+                "endpoint_tag": {"$in": [None, ""]},
+            },
+            {"last_success_at": 1},
+        )
+        last_success_at = _as_utc_timestamp((health or {}).get("last_success_at"))
+        if last_success_at is not None and last_success_at > updated_at:
+            continue
+
+        source_provider, source_model_id = _terminal_catalog_identity(job)
+        if not db.provider_catalog.find_one(
+            {
+                "provider": source_provider,
+                "model_id": source_model_id,
+                "last_seen_at": {"$gte": catalog_cutoff},
+            },
+            {"_id": 1},
+        ):
+            continue
+        if not batch.has_room_for(provider):
+            continue
+
+        error_message = str(job.get("last_attempt_error_message") or "")[:1000]
+        reason = f"terminal recovery refused the request ({error_kind}): {error_message}".rstrip()
+        batch.set_model_fields(
+            provider=provider,
+            model_id=model_id,
+            enabled=False,
+            status="rejected",
+            disabled_class=error_kind,
+            disabled_reason=reason,
+            disabled_at=now,
+            recheck_after=now + TERMINAL_RECOVERY_RECHECK_AFTER,
+            recovery_of_published_model=True,
+        )
+        staged.append((job, provider, model_id, reason))
+        staged_models.add(subject_key)
+
+    if not batch.changes:
+        return
+    result = batch.apply(now=now)
+    failed_subjects = {item.get("subject") for item in result.get("failed", [])}
+    endpoint_collection = db[endpoint_discovery.endpoints_collection_name()]
+    health_collection = db[health_collection_name()]
+    coll = jobs_collection(db)
+    for job, provider, model_id, reason in staged:
+        if f"{provider}/{model_id}" in failed_subjects:
+            continue
+        cancel_reason = "model quarantined after terminal recovery refusal"
+        try:
+            health_collection.update_many(
+                {"provider": provider, "model_id": model_id},
+                {"$set": {"enabled": False}},
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log_terminal_quarantine_side_effect_failure("health", provider, model_id, exc)
+        if provider == "openrouter":
+            try:
+                endpoint_collection.update_many(
+                    {"model_id": model_id, "enabled": True},
+                    {"$set": {"enabled": False, "disabled_reason": reason, "disabled_at": now}},
+                )
+            except Exception as exc:  # noqa: BLE001
+                _log_terminal_quarantine_side_effect_failure("endpoints", provider, model_id, exc)
+        try:
+            coll.update_many(
+                {
+                    "provider": provider,
+                    "model_id": model_id,
+                    "status": {"$in": sorted(ACTIVE_STATUSES)},
+                },
+                {
+                    "$set": {
+                        "status": "cancelled",
+                        "updated_at": now,
+                        "finished_at": now,
+                        "lease_expires_at": None,
+                        "worker_id": None,
+                        "cancelled_reason": cancel_reason,
+                    }
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log_terminal_quarantine_side_effect_failure("active_jobs", provider, model_id, exc)
+        try:
+            coll.update_one(
+                {
+                    "_id": job["_id"],
+                    "status": "dead_letter",
+                    "terminal_recovery_active": True,
+                },
+                {
+                    "$set": {
+                        "status": "cancelled",
+                        "updated_at": now,
+                        "finished_at": now,
+                        "cancelled_reason": cancel_reason,
+                    }
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log_terminal_quarantine_side_effect_failure("failed_job", provider, model_id, exc)
+
+
+def recheck_stale_terminal_jobs(db: Database, *, now: datetime | None = None) -> list[dict[str, Any]]:
+    """Start one slow recovery cycle for old scheduled dead letters.
+
+    A cycle is admitted only while the job is eligible and recent provider
+    catalogue evidence still names its source model. Recovery gets one attempt;
+    if it fails, ``terminal_recovery_active`` keeps the ordinary fast sweep
+    from bypassing this function's slower recheck interval. Fresh model-level
+    ``hard_model``/``hard_capability`` failures quarantine the published model;
+    endpoint-specific and auth failures remain paced.
+
+    Returns only jobs admitted into the queue, with
+    ``transitioned_status="queued"``, matching ``requeue_retryable_dead_letters``.
+    """
+    now = now or utcnow()
+    coll = jobs_collection(db)
+    candidates = [
+        job
+        for job in coll.find(
+            {
+                "status": "dead_letter",
+                "last_attempt_error_kind": {"$ne": "budget_exhausted"},
+                "$or": [
+                    {"job_kind": "scheduled"},
+                    {"job_kind": {"$exists": False}},
+                ],
+            }
+        )
+        if _is_scheduled_job(job)
+    ]
+
+    def terminal_at(job: dict[str, Any]) -> datetime | None:
+        stamps = [
+            _as_utc_timestamp(job.get("updated_at")),
+            _as_utc_timestamp(job.get("last_terminal_recheck_at")),
+        ]
+        present = [stamp for stamp in stamps if stamp is not None]
+        return max(present) if present else None
+
+    candidates.sort(
+        key=lambda job: (
+            terminal_at(job) or datetime.max.replace(tzinfo=timezone.utc),
+            str(job.get("provider") or ""),
+            str(job.get("model_id") or ""),
+            str(job.get("_id") or ""),
+        )
+    )
+    _quarantine_failed_terminal_recoveries(db, candidates, now=now)
+    transitioned: list[dict[str, Any]] = []
+    catalog_cutoff = now - TERMINAL_CATALOG_FRESHNESS
+    for job in candidates:
+        terminal_stamp = terminal_at(job)
+        if terminal_stamp is None:
+            continue
+
+        provider = str(job.get("provider") or "")
+        model_id = str(job.get("model_id") or "")
+        endpoint_tag = job.get("endpoint_tag") or None
+        health_endpoint = endpoint_tag if endpoint_tag else {"$in": [None, ""]}
+        health = db[health_collection_name()].find_one(
+            {
+                "provider": provider,
+                "model_id": model_id,
+                "endpoint_tag": health_endpoint,
+            },
+            {"last_success_at": 1},
+        )
+        updated_at = _as_utc_timestamp(job.get("updated_at"))
+        last_success_at = _as_utc_timestamp((health or {}).get("last_success_at"))
+        if updated_at is not None and last_success_at is not None and last_success_at > updated_at:
+            cancel_job(
+                db,
+                job_id=job["_id"],
+                reason="superseded by newer successful measurement",
+                now=now,
+            )
+            continue
+        if job_ineligibility_reason(db, job):
+            continue
+
+        try:
+            cadence_seconds = int(job.get("cadence_seconds") or policies.cadence_seconds())
+        except (TypeError, ValueError):
+            cadence_seconds = policies.cadence_seconds()
+        min_age = max(TERMINAL_RECHECK_MIN_AGE, timedelta(seconds=1.5 * max(0, cadence_seconds)))
+        if now - terminal_stamp < min_age:
+            continue
+
+        source_provider, source_model_id = _terminal_catalog_identity(job)
+        if not db.provider_catalog.find_one(
+            {
+                "provider": source_provider,
+                "model_id": source_model_id,
+                "last_seen_at": {"$gte": catalog_cutoff},
+            },
+            {"_id": 1},
+        ):
+            continue
+
+        if job.get("endpoint_tag") and coll.find_one(
+            {
+                "provider": provider,
+                "model_id": model_id,
+                "status": {"$in": sorted(ACTIVE_STATUSES)},
+                "_id": {"$ne": job["_id"]},
+            },
+            {"_id": 1},
+        ):
+            continue
+        if routed_ceiling_reached(db, provider=provider, now=now):
+            continue
+
+        original_at = job.get("terminal_original_at", job.get("updated_at"))
+        original_protocol = job.get("terminal_original_protocol_version", job.get("last_attempt_protocol_version"))
+        result = coll.update_one(
+            {
+                "_id": job["_id"],
+                "status": "dead_letter",
+                "updated_at": job.get("updated_at"),
+                "last_terminal_recheck_at": job.get("last_terminal_recheck_at"),
+            },
+            {
+                "$set": {
+                    "job_kind": "scheduled",
+                    "status": "queued",
+                    "updated_at": now,
+                    "finished_at": None,
+                    "not_before": now,
+                    "lease_expires_at": None,
+                    "worker_id": None,
+                    "attempt": 0,
+                    "max_attempts": 1,
+                    "dead_letter_requeues": 0,
+                    "terminal_recovery_active": True,
+                    "terminal_original_error_kind": job.get(
+                        "terminal_original_error_kind", job.get("last_attempt_error_kind")
+                    ),
+                    "terminal_original_error_message": job.get(
+                        "terminal_original_error_message", job.get("last_attempt_error_message")
+                    ),
+                    "terminal_original_at": original_at,
+                    "terminal_original_protocol_version": original_protocol,
+                    "last_terminal_recheck_at": now,
+                    "last_terminal_recheck_count": int(job.get("last_terminal_recheck_count") or 0) + 1,
+                }
+            },
+        )
+        if result.modified_count:
+            if provider in policies.ROUTED_LANES:
+                record_admission(db, provider=provider, now=now)
+            transitioned.append({**job, "transitioned_status": "queued"})
+    return transitioned
+
+
+def _as_utc_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, datetime):
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
 def expire_orphaned_running(db: Database, *, now: datetime | None = None) -> list[dict[str, Any]]:

@@ -114,6 +114,26 @@ There is no HTTP API required for scheduled direct-provider runs. The Mongo-back
      --model gpt-4o-mini
    ```
 
+The daemon reconciles catalogue and queue lifecycle before its naming pass:
+
+- Models absent from three complete provider discoveries are retired only when
+  the latest discovery is complete and recent. Safe backlogs drain in bounded,
+  oldest-first batches; suspicious bulk disappearance is refused.
+- Still-listed scheduled targets with old terminal failures get a single recovery
+  attempt after at least seven days or 1.5 sampling cadences, whichever is longer.
+  Recovery obeys the existing routed admission ceiling and cannot fall back into
+  rapid retries. A newer successful measurement clears obsolete queue blockers.
+- A fresh model-wide availability refusal after recovery temporarily quarantines
+  the published model. Individual endpoint failures and credential errors do not
+  disable otherwise healthy models.
+
+Quarantines marked `recovery_of_published_model=True` carry a `recheck_after`
+deadline. Once due, fresh catalogue evidence starts a new admission epoch with
+one probe: success restores publication; failure schedules another check in
+30 days. Old probe evidence cannot decide the new epoch, and historical rejected
+models without this marker are not admitted as a side effect. Published samples
+and job history are retained; catalogue mutations record reversible before-images.
+
 ## Viewing Results
 
 Results can be viewed in two ways:

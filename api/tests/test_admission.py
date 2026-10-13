@@ -15,8 +15,11 @@ def db(request):
     return mongomock.MongoClient()[f"adm-{request.node.name}"]
 
 
-def catalogue(db, provider, model_id, name=None):
-    db.provider_catalog.insert_one({"provider": provider, "model_id": model_id, "name": name})
+def catalogue(db, provider, model_id, name=None, *, last_seen_at=None):
+    row = {"provider": provider, "model_id": model_id, "name": name}
+    if last_seen_at is not None:
+        row["last_seen_at"] = last_seen_at
+    db.provider_catalog.insert_one(row)
 
 
 def probe_success(db, provider, model_id, *, ago):
@@ -25,7 +28,7 @@ def probe_success(db, provider, model_id, *, ago):
     )
 
 
-def candidate(db, provider, model_id, *, started=timedelta(hours=1)):
+def candidate(db, provider, model_id, *, started=timedelta(days=7)):
     db.models.insert_one(
         {
             "provider": provider,
@@ -108,6 +111,8 @@ class TestProbeEnqueue:
         job = db.bench_jobs.find_one({"model_id": "cand"})
         assert job["sample_role"] == "probe"
         assert job["job_kind"] == "probe"
+        assert job["max_attempts"] == 2
+        assert "terminal_recovery_active" not in job
 
     def test_a_candidate_with_pending_work_is_not_queued_again(self, db):
         candidate(db, "groq", "cand")
@@ -312,6 +317,8 @@ class TestDefinitiveFailures:
                     "job_kind": "probe",
                     "status": "dead_letter",
                     "last_attempt_error_kind": kind,
+                    "started_at": NOW - timedelta(minutes=30),
+                    "updated_at": NOW - timedelta(minutes=30),
                 }
             )
 
@@ -395,3 +402,200 @@ class TestCaseDuplicates:
         admission.enqueue_probes(db, now=NOW)
         assert db.bench_jobs.count_documents({"provider": "bedrock"}) == 0
         assert db.bench_jobs.count_documents({"provider": "groq"}) == 1
+
+
+class TestRejectedAdmissionRenewal:
+    def _rejected(
+        self,
+        db,
+        provider,
+        model_id,
+        *,
+        recheck_after=NOW - timedelta(hours=1),
+        disabled_class="hard_model",
+        recovery_of_published_model=True,
+    ):
+        model = {
+            "provider": provider,
+            "model_id": model_id,
+            "enabled": False,
+            "status": admission.REJECTED_STATUS,
+            "disabled_class": disabled_class,
+            "disabled_reason": "old rejection",
+            "disabled_at": NOW - timedelta(days=31),
+            "recheck_after": recheck_after,
+            "admission_started_at": NOW - timedelta(days=40),
+        }
+        if recovery_of_published_model is not None:
+            model["recovery_of_published_model"] = recovery_of_published_model
+        db.models.insert_one(model)
+
+    def _dead_probe(self, db, provider, model_id, n):
+        for index in range(n):
+            db.bench_jobs.insert_one(
+                {
+                    "_id": f"old-probe:{provider}:{model_id}:{index}",
+                    "provider": provider,
+                    "model_id": model_id,
+                    "job_kind": "probe",
+                    "status": "dead_letter",
+                    "last_attempt_error_kind": "hard_model",
+                    "started_at": NOW - timedelta(minutes=30),
+                    "updated_at": NOW - timedelta(minutes=30),
+                }
+            )
+
+    def test_due_rejection_with_recent_catalogue_starts_a_new_probe_epoch(self, db):
+        self._rejected(db, "groq", "returned")
+        catalogue(db, "groq", "returned", last_seen_at=NOW - timedelta(days=1))
+
+        renewed = admission.renew_expired_rejections(db, now=NOW)
+
+        assert renewed == ["groq/returned"]
+        doc = db.models.find_one({"model_id": "returned"})
+        assert doc["status"] == admission.CANDIDATE_STATUS
+        assert admission._as_utc(doc["admission_started_at"]) == NOW
+        assert doc["admission_recheck_count"] == 1
+        assert doc["recheck_after"] is None
+        assert admission.enqueue_probes(db, now=NOW) == ["groq/returned"]
+        job = db.bench_jobs.find_one({"model_id": "returned"})
+        assert job["max_attempts"] == 1
+        assert job["terminal_recovery_active"] is True
+
+    def test_one_fresh_success_restores_a_published_model_without_another_probe(self, db):
+        self._rejected(db, "groq", "returned")
+        catalogue(db, "groq", "returned", last_seen_at=NOW)
+        admission.renew_expired_rejections(db, now=NOW)
+        assert admission.enqueue_probes(db, now=NOW) == ["groq/returned"]
+        job = db.bench_jobs.find_one({"model_id": "returned"})
+        assert job["max_attempts"] == 1
+        assert job["terminal_recovery_active"] is True
+        success_at = NOW + timedelta(minutes=1)
+        db.bench_jobs.update_one({"_id": job["_id"]}, {"$set": {"status": "running"}})
+        assert queue.mark_success(db, job_id=job["_id"], now=success_at)
+
+        assert admission.enqueue_probes(db, now=success_at + timedelta(minutes=1)) == []
+        promoted, rejected = admission.evaluate_candidates(
+            db,
+            now=success_at + timedelta(minutes=1),
+        )
+
+        assert promoted == ["groq/returned"]
+        assert rejected == []
+        assert db.models.find_one({"model_id": "returned"})["enabled"] is True
+
+    def test_one_failed_published_recovery_probe_rejects_for_another_30_days(self, db):
+        self._rejected(db, "groq", "returned")
+        catalogue(db, "groq", "returned", last_seen_at=NOW)
+        admission.renew_expired_rejections(db, now=NOW)
+        admission.enqueue_probes(db, now=NOW)
+        job = db.bench_jobs.find_one({"model_id": "returned"})
+        failure_at = NOW + timedelta(minutes=30)
+        db.bench_jobs.update_one(
+            {"_id": job["_id"]},
+            {"$set": {"status": "running", "attempt": 1}},
+        )
+        job = db.bench_jobs.find_one({"_id": job["_id"]})
+        assert (
+            queue.mark_failure(
+                db,
+                job=job,
+                error_kind="timeout",
+                error_message="recovery probe timed out",
+                now=failure_at,
+            )
+            == "dead_letter"
+        )
+        assert admission.enqueue_probes(db, now=failure_at) == []
+        decision_at = failure_at + timedelta(minutes=1)
+
+        promoted, rejected = admission.evaluate_candidates(db, now=decision_at)
+
+        assert promoted == []
+        assert [subject for subject, _ in rejected] == ["groq/returned"]
+        model = db.models.find_one({"model_id": "returned"})
+        assert model["disabled_class"] == "timeout"
+        assert model["recovery_of_published_model"] is True
+        assert admission._as_utc(model["recheck_after"]) == decision_at + timedelta(days=30)
+
+    def test_old_successes_and_definitive_failures_do_not_decide_the_new_epoch(self, db):
+        self._rejected(db, "groq", "returned")
+        catalogue(db, "groq", "returned", last_seen_at=NOW - timedelta(days=1))
+        probe_success(db, "groq", "returned", ago=timedelta(hours=6))
+        probe_success(db, "groq", "returned", ago=timedelta(hours=3))
+        self._dead_probe(db, "groq", "returned", n=2)
+
+        admission.renew_expired_rejections(db, now=NOW)
+        enqueued = admission.enqueue_probes(db, now=NOW)
+        promoted, rejected = admission.evaluate_candidates(db, now=NOW)
+
+        assert enqueued == ["groq/returned"]
+        assert (promoted, rejected) == ([], [])
+
+    def test_only_due_recent_nonduplicate_nonexcluded_rows_are_renewed(self, db):
+        self._rejected(db, "groq", "stale")
+        catalogue(db, "groq", "stale", last_seen_at=NOW - timedelta(days=8))
+        self._rejected(db, "groq", "duplicate", disabled_class="duplicate_spelling")
+        catalogue(db, "groq", "duplicate", last_seen_at=NOW)
+        self._rejected(db, "bedrock", "excluded")
+        catalogue(db, "bedrock", "excluded", last_seen_at=NOW)
+        self._rejected(db, "groq", "not-due", recheck_after=NOW + timedelta(seconds=1))
+        catalogue(db, "groq", "not-due", last_seen_at=NOW)
+        self._rejected(db, "groq", "unmarked", recovery_of_published_model=None)
+        catalogue(db, "groq", "unmarked", last_seen_at=NOW)
+        self._rejected(db, "groq", "not-published", recovery_of_published_model=False)
+        catalogue(db, "groq", "not-published", last_seen_at=NOW)
+
+        assert admission.renew_expired_rejections(db, now=NOW) == []
+
+    def test_hard_capability_and_auth_rejections_can_be_renewed(self, db):
+        self._rejected(db, "groq", "capability", disabled_class="hard_capability")
+        self._rejected(db, "groq", "auth", disabled_class="auth")
+        catalogue(db, "groq", "capability", last_seen_at=NOW)
+        catalogue(db, "groq", "auth", last_seen_at=NOW)
+
+        assert set(admission.renew_expired_rejections(db, now=NOW)) == {
+            "groq/capability",
+            "groq/auth",
+        }
+
+    def test_renewals_are_oldest_first_and_mutation_batched(self, db):
+        for index in range(4):
+            model_id = f"model-{index}"
+            self._rejected(
+                db,
+                "groq",
+                model_id,
+                recheck_after=NOW - timedelta(days=40 - index),
+            )
+            catalogue(db, "groq", model_id, last_seen_at=NOW)
+
+        renewed = admission.renew_expired_rejections(db, now=NOW, limit=2)
+
+        assert renewed == ["groq/model-0", "groq/model-1"]
+        batch = db.bench_mutation_batches.find_one()
+        assert batch["reason"] == "admission rejection recheck"
+        assert len(batch["changes"]) == 2
+
+    def test_catalogue_recheck_freshness_is_limited_to_48_hours(self, db):
+        self._rejected(db, "groq", "fresh")
+        catalogue(db, "groq", "fresh", last_seen_at=NOW - timedelta(hours=47))
+        self._rejected(db, "groq", "stale")
+        catalogue(db, "groq", "stale", last_seen_at=NOW - timedelta(hours=49))
+
+        assert admission.renew_expired_rejections(db, now=NOW) == ["groq/fresh"]
+
+    def test_admission_pass_shares_registration_cap_with_rejections(self, db, monkeypatch):
+        monkeypatch.setattr(admission, "MAX_NEW_CANDIDATES_PER_RUN", 1)
+        self._rejected(db, "groq", "renewed")
+        catalogue(db, "groq", "renewed", last_seen_at=NOW)
+        catalogue(db, "groq", "new")
+
+        report = admission.run_admission_pass(db, now=NOW)
+
+        assert report.registered == []
+        assert report.renewed == ["groq/renewed"]
+        assert db.models.count_documents({"status": admission.CANDIDATE_STATUS}) == 1
+        assert db.bench_jobs.count_documents({"job_kind": "probe"}) == 1
+        assert db.models.find_one({"model_id": "renewed"})["status"] == admission.CANDIDATE_STATUS
+        assert db.models.find_one({"model_id": "new"}) is None

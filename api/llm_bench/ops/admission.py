@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from dataclasses import field
 from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
@@ -46,7 +47,9 @@ __all__ = [
     "run_admission_pass",
     "find_candidates",
     "evaluate_candidates",
+    "renew_expired_rejections",
 ]
+
 
 # Successes required before publishing, and how far apart they must be. Two
 # back-to-back calls are highly correlated — they mostly prove the endpoint was
@@ -57,10 +60,11 @@ WINDOW = timedelta(hours=2)
 # A candidate that cannot produce them within this long is not merely slow.
 ADMISSION_DEADLINE = timedelta(days=3)
 
-# A rejection is evidence about today. Providers add capacity, fix routing and
-# grant entitlements, so a no gets revisited rather than becoming permanent —
-# the ratchet that decayed coverage to 11.7% was exactly a no with no way back.
 RECHECK_AFTER_REJECTION = timedelta(days=30)
+
+# Discovery runs daily. Rechecks require a fresh listing, not a row left behind
+# by an old or disabled discovery job.
+CATALOGUE_FRESHNESS = timedelta(hours=48)
 
 # Error kinds that answer the question rather than fail to answer it. A 404 or
 # an outright rejection says this endpoint is not servable to this account
@@ -94,11 +98,13 @@ class AdmissionReport:
     probes_enqueued: list[str]
     promoted: list[str]
     rejected: list[tuple[str, str]]
+    renewed: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
         return (
-            f"registered={len(self.registered)} probes={len(self.probes_enqueued)} "
-            f"promoted={len(self.promoted)} rejected={len(self.rejected)}"
+            f"registered={len(self.registered)} renewed={len(self.renewed)} "
+            f"probes={len(self.probes_enqueued)} promoted={len(self.promoted)} "
+            f"rejected={len(self.rejected)}"
         )
 
 
@@ -248,19 +254,36 @@ def enqueue_probes(db: Database, *, now: datetime | None = None, limit: int = MA
     enqueued = []
     for doc in db[models_collection_name()].find(
         {"status": CANDIDATE_STATUS},
-        {"provider": 1, "model_id": 1},
+        {
+            "provider": 1,
+            "model_id": 1,
+            "admission_started_at": 1,
+            "recovery_of_published_model": 1,
+        },
     ):
         if len(enqueued) >= limit:
             break
         provider, model_id = doc["provider"], doc["model_id"]
+        recovery = doc.get("recovery_of_published_model") is True
         if provider in excluded:
             continue
-        if not _needs_probe(db, provider=provider, model_id=model_id, now=now):
+        if not _needs_probe(
+            db,
+            provider=provider,
+            model_id=model_id,
+            now=now,
+            admission_started_at=_as_utc(doc.get("admission_started_at")) or now,
+            single_probe_recovery=recovery,
+        ):
             continue
+
         # A probe spends on the routed key like any other job and counts
         # against the same daily ceiling; the candidate stays a candidate.
         if queue.routed_ceiling_reached(db, provider=provider, now=now):
             break
+        extra = {"sample_role": "probe"}
+        if recovery:
+            extra["terminal_recovery_active"] = True
         job = queue._new_job_doc(
             job_id=_probe_job_id(provider, model_id, now),
             provider=provider,
@@ -268,11 +291,9 @@ def enqueue_probes(db: Database, *, now: datetime | None = None, limit: int = MA
             priority=1.0,
             job_kind="probe",
             now=now,
-            # A candidate that hangs must not hold a worker slot as long as a
-            # published model is allowed to.
             deadline_seconds=90,
-            max_attempts=2,
-            extra={"sample_role": "probe"},
+            max_attempts=1 if recovery else 2,
+            extra=extra,
         )
         db[queue.jobs_collection_name()].replace_one({"_id": job["_id"]}, job, upsert=True)
         if provider in policies.ROUTED_LANES:
@@ -281,14 +302,47 @@ def enqueue_probes(db: Database, *, now: datetime | None = None, limit: int = MA
     return enqueued
 
 
-def _needs_probe(db: Database, *, provider: str, model_id: str, now: datetime) -> bool:
-    """True when this candidate has neither enough evidence nor pending work."""
+def _needs_probe(
+    db: Database,
+    *,
+    provider: str,
+    model_id: str,
+    now: datetime,
+    admission_started_at: datetime | None = None,
+    single_probe_recovery: bool = False,
+) -> bool:
+    """True when this epoch has neither enough evidence nor pending work."""
     pending = db[queue.jobs_collection_name()].count_documents(
         {"provider": provider, "model_id": model_id, "status": {"$in": ["queued", "running"]}}
     )
     if pending:
         return False
-    successes = _probe_successes(db, provider=provider, model_id=model_id)
+    successes = _probe_successes(
+        db,
+        provider=provider,
+        model_id=model_id,
+        admission_started_at=admission_started_at,
+    )
+    if single_probe_recovery:
+        # A published model gets one new verdict per renewal epoch, not a
+        # new-candidate sampling campaign.
+        return (
+            not successes
+            and _recovery_probe_success(
+                db,
+                provider=provider,
+                model_id=model_id,
+                admission_started_at=admission_started_at,
+            )
+            is None
+            and _recovery_probe_failure(
+                db,
+                provider=provider,
+                model_id=model_id,
+                admission_started_at=admission_started_at,
+            )
+            is None
+        )
     if len(successes) >= REQUIRED_SUCCESSES:
         return False
     # Space samples out. Back-to-back successes mostly prove the endpoint was
@@ -298,35 +352,98 @@ def _needs_probe(db: Database, *, provider: str, model_id: str, now: datetime) -
     return True
 
 
-def _probe_successes(db: Database, *, provider: str, model_id: str) -> list[datetime]:
-    stamps = [
-        _as_utc(row.get("run_ts"))
-        for row in db[probe_metrics_collection_name()].find(
-            {
-                "provider": provider,
-                "model_name": model_id,
-                # Shadow measurements answer a different question at a larger
-                # token budget. They are evidence for diagnosis, never for
-                # admission into the published 64-token series.
-                "$and": [published_profile_filter()],
-            },
-            {"run_ts": 1},
-        )
-    ]
+def _probe_successes(
+    db: Database,
+    *,
+    provider: str,
+    model_id: str,
+    admission_started_at: datetime | None = None,
+) -> list[datetime]:
+    query: dict[str, Any] = {
+        "provider": provider,
+        "model_name": model_id,
+        # Shadow measurements answer a different question at a larger token
+        # budget. They are evidence for diagnosis, never for admission into the
+        # published 64-token series.
+        "$and": [published_profile_filter()],
+    }
+    started = _as_utc(admission_started_at)
+    if started is not None:
+        query["run_ts"] = {"$gte": started}
+    stamps = [_as_utc(row.get("run_ts")) for row in db[probe_metrics_collection_name()].find(query, {"run_ts": 1})]
     return sorted(s for s in stamps if s is not None)
 
 
-def _definitive_failures(db: Database, *, provider: str, model_id: str) -> int:
-    """Probe attempts the provider answered with a refusal rather than silence."""
-    return db[queue.jobs_collection_name()].count_documents(
+def _recovery_probe_success(
+    db: Database,
+    *,
+    provider: str,
+    model_id: str,
+    admission_started_at: datetime | None,
+) -> datetime | None:
+    started = _as_utc(admission_started_at)
+    if started is None:
+        return None
+    job = db[queue.jobs_collection_name()].find_one(
         {
             "provider": provider,
             "model_id": model_id,
             "job_kind": "probe",
-            "status": "dead_letter",
-            "last_attempt_error_kind": {"$in": sorted(DEFINITIVE_ERROR_KINDS)},
-        }
+            "sample_role": "probe",
+            "status": "success",
+            "created_at": {"$gte": started},
+        },
+        {"updated_at": 1, "finished_at": 1},
+        sort=[("updated_at", -1)],
     )
+    if job is None:
+        return None
+    return _as_utc(job.get("updated_at") or job.get("finished_at"))
+
+
+def _recovery_probe_failure(
+    db: Database,
+    *,
+    provider: str,
+    model_id: str,
+    admission_started_at: datetime | None,
+) -> dict[str, Any] | None:
+    started = _as_utc(admission_started_at)
+    if started is None:
+        return None
+    return db[queue.jobs_collection_name()].find_one(
+        {
+            "provider": provider,
+            "model_id": model_id,
+            "job_kind": "probe",
+            "sample_role": "probe",
+            "status": "dead_letter",
+            "terminal_recovery_active": True,
+            "created_at": {"$gte": started},
+            "updated_at": {"$gte": started},
+        },
+        sort=[("updated_at", -1)],
+    )
+
+
+def _definitive_failures(
+    db: Database,
+    *,
+    provider: str,
+    model_id: str,
+    admission_started_at: datetime | None = None,
+) -> int:
+    query: dict[str, Any] = {
+        "provider": provider,
+        "model_id": model_id,
+        "job_kind": "probe",
+        "status": "dead_letter",
+        "last_attempt_error_kind": {"$in": sorted(DEFINITIVE_ERROR_KINDS)},
+    }
+    started = _as_utc(admission_started_at)
+    if started is not None:
+        query["started_at"] = {"$gte": started}
+    return db[queue.jobs_collection_name()].count_documents(query)
 
 
 def _windows_covered(stamps: list[datetime]) -> int:
@@ -362,22 +479,66 @@ def evaluate_candidates(db: Database, *, now: datetime | None = None) -> tuple[l
     candidates = list(
         db[models_collection_name()].find(
             {"status": CANDIDATE_STATUS},
-            {"provider": 1, "model_id": 1, "admission_started_at": 1},
+            {
+                "provider": 1,
+                "model_id": 1,
+                "admission_started_at": 1,
+                "recovery_of_published_model": 1,
+            },
         )
     )
     # Two passes over the same candidates so a large batch of rejections can
     # never crowd out a promotion that is already due.
-    decisions: list[tuple[dict, list[datetime], int, bool]] = []
+    decisions: list[tuple[dict, list[datetime], int, bool, dict[str, Any] | None, datetime | None]] = []
     for doc in candidates:
-        successes = _probe_successes(db, provider=doc["provider"], model_id=doc["model_id"])
-        eligible = _windows_covered(successes) >= REQUIRED_SUCCESSES
-        definitive = 0 if eligible else _definitive_failures(db, provider=doc["provider"], model_id=doc["model_id"])
-        decisions.append((doc, successes, definitive, eligible))
+        started = _as_utc(doc.get("admission_started_at")) or now
+        recovery = doc.get("recovery_of_published_model") is True
+        successes = _probe_successes(
+            db,
+            provider=doc["provider"],
+            model_id=doc["model_id"],
+            admission_started_at=started,
+        )
+        recovery_success_at = (
+            _recovery_probe_success(
+                db,
+                provider=doc["provider"],
+                model_id=doc["model_id"],
+                admission_started_at=started,
+            )
+            if recovery and not successes
+            else None
+        )
+        recovery_failure = (
+            _recovery_probe_failure(
+                db,
+                provider=doc["provider"],
+                model_id=doc["model_id"],
+                admission_started_at=started,
+            )
+            if recovery and not successes and recovery_success_at is None
+            else None
+        )
+        eligible = (
+            bool(successes or recovery_success_at) if recovery else _windows_covered(successes) >= REQUIRED_SUCCESSES
+        )
+        definitive = (
+            0
+            if eligible or recovery_failure
+            else _definitive_failures(
+                db,
+                provider=doc["provider"],
+                model_id=doc["model_id"],
+                admission_started_at=started,
+            )
+        )
+        decisions.append((doc, successes, definitive, eligible, recovery_failure, recovery_success_at))
+
     decisions.sort(key=lambda item: not item[3])
 
     already_enabled = enabled_spellings(db)
 
-    for doc, successes, definitive, eligible in decisions:
+    for doc, successes, definitive, eligible, recovery_failure, recovery_success_at in decisions:
         provider, model_id = doc["provider"], doc["model_id"]
         subject = f"{provider}/{model_id}"
         if not batch.has_room_for(provider):
@@ -404,6 +565,7 @@ def evaluate_candidates(db: Database, *, now: datetime | None = None) -> tuple[l
             continue
 
         if eligible:
+            evidence_successes = successes or ([recovery_success_at] if recovery_success_at is not None else [])
             batch.set_model_fields(
                 provider=provider,
                 model_id=model_id,
@@ -411,17 +573,35 @@ def evaluate_candidates(db: Database, *, now: datetime | None = None) -> tuple[l
                 status=PROMOTED_STATUS,
                 promoted_at=now,
                 admission_evidence={
-                    "successes": len(successes),
-                    "windows": _windows_covered(successes),
-                    "first_success": successes[0],
-                    "last_success": successes[-1],
+                    "successes": len(evidence_successes),
+                    "windows": _windows_covered(evidence_successes),
+                    "first_success": evidence_successes[0],
+                    "last_success": evidence_successes[-1],
                 },
             )
             promoted.append(subject)
             continue
 
+        if recovery_failure is not None:
+            error_kind = str(recovery_failure.get("last_attempt_error_kind") or "unknown")
+            error_message = str(recovery_failure.get("last_attempt_error_message") or "")[:1000]
+            reason = f"published-model recovery probe failed ({error_kind}): {error_message}".rstrip()
+            batch.set_model_fields(
+                provider=provider,
+                model_id=model_id,
+                enabled=False,
+                status=REJECTED_STATUS,
+                disabled_class=error_kind,
+                disabled_reason=reason,
+                disabled_at=now,
+                recheck_after=now + RECHECK_AFTER_REJECTION,
+                recovery_of_published_model=True,
+            )
+            rejected.append((subject, reason))
+            continue
+
         started = _as_utc(doc.get("admission_started_at")) or now
-        timed_out = now - started > ADMISSION_DEADLINE
+        timed_out = doc.get("recovery_of_published_model") is not True and now - started > ADMISSION_DEADLINE
 
         if definitive >= DEFINITIVE_FAILURES_TO_REJECT or timed_out:
             # A 404 is an answer, not a missing one. Waiting out the full
@@ -454,10 +634,106 @@ def evaluate_candidates(db: Database, *, now: datetime | None = None) -> tuple[l
     return promoted, rejected
 
 
+def renew_expired_rejections(
+    db: Database,
+    *,
+    now: datetime | None = None,
+    limit: int = MAX_NEW_CANDIDATES_PER_RUN,
+) -> list[str]:
+    """Restart due rejections explicitly marked as published-model recovery.
+
+    The marker ``recovery_of_published_model=True`` prevents periodic discovery
+    from widening the site's published population into all historical rejected
+    candidates. A renewed model gets one fresh probe verdict: success restores
+    publication, and a failed completed probe starts another 30-day recheck.
+    Returned subjects flow through the normal enqueue pipeline under existing
+    admission caps.
+    """
+    now = now or utcnow()
+    cutoff = now - CATALOGUE_FRESHNESS
+    candidates = list(
+        db[models_collection_name()].find(
+            {
+                "status": REJECTED_STATUS,
+                "enabled": {"$ne": True},
+                "deprecated": {"$ne": True},
+                "disabled_class": {"$ne": "duplicate_spelling"},
+                "recovery_of_published_model": True,
+                "recheck_after": {"$lte": now},
+            },
+            {
+                "provider": 1,
+                "model_id": 1,
+                "recheck_after": 1,
+                "admission_recheck_count": 1,
+            },
+        )
+    )
+    candidates.sort(
+        key=lambda doc: (
+            _as_utc(doc.get("recheck_after")) or datetime.max.replace(tzinfo=timezone.utc),
+            str(doc.get("provider") or ""),
+            str(doc.get("model_id") or ""),
+        )
+    )
+    excluded = policies.excluded_providers()
+    already_enabled = enabled_spellings(db)
+    batch = mutations.MutationBatch(db=db, reason="admission rejection recheck", actor="admission")
+    renewed: list[str] = []
+    for doc in candidates:
+        if len(renewed) >= limit:
+            break
+        provider, model_id = str(doc["provider"]), str(doc["model_id"])
+        if provider in excluded or (provider == "openrouter" and not policies.openrouter_model_allowed(model_id)):
+            continue
+        existing = already_enabled.get((provider.lower(), model_id.lower()))
+        if existing is not None and existing != model_id:
+            continue
+        if not db.provider_catalog.find_one(
+            {
+                "provider": provider,
+                "model_id": model_id,
+                "last_seen_at": {"$gte": cutoff},
+            },
+            {"_id": 1},
+        ):
+            continue
+        if not batch.has_room_for(provider):
+            continue
+        batch.set_model_fields(
+            provider=provider,
+            model_id=model_id,
+            enabled=False,
+            status=CANDIDATE_STATUS,
+            admission_started_at=now,
+            admission_recheck_count=int(doc.get("admission_recheck_count") or 0) + 1,
+            last_admission_reactivated_at=now,
+            disabled_class=None,
+            disabled_reason=None,
+            disabled_at=None,
+            recheck_after=None,
+            admission_evidence=None,
+            source="provider_catalog",
+        )
+        renewed.append(f"{provider}/{model_id}")
+    if batch.changes:
+        batch.apply(now=now)
+    return renewed
+
+
 def run_admission_pass(db: Database, *, now: datetime | None = None) -> AdmissionReport:
     """One full cycle. Safe to run repeatedly; every step is bounded."""
     now = now or utcnow()
-    registered = register_candidates(db, now=now)
+    renewed = renew_expired_rejections(
+        db,
+        now=now,
+        limit=MAX_NEW_CANDIDATES_PER_RUN,
+    )
+    registered = register_candidates(
+        db,
+        now=now,
+        limit=max(0, MAX_NEW_CANDIDATES_PER_RUN - len(renewed)),
+    )
     probes = enqueue_probes(db, now=now)
     promoted, rejected = evaluate_candidates(db, now=now)
     return AdmissionReport(
@@ -465,4 +741,5 @@ def run_admission_pass(db: Database, *, now: datetime | None = None) -> Admissio
         probes_enqueued=probes,
         promoted=promoted,
         rejected=rejected,
+        renewed=renewed,
     )

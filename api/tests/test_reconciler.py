@@ -80,6 +80,21 @@ class TestAbsenceRequiresEvidence:
 
         assert reconciler.find_retirements(db, now=NOW) == []
 
+    def test_stale_complete_runs_are_not_recent_retirement_evidence(self, db):
+        enabled(db, "together", "gone")
+        catalogue(db, "together", "gone", ago=timedelta(days=20))
+        runs(db, "together", start_days=10)
+
+        assert reconciler.find_retirements(db, now=NOW) == []
+
+    def test_a_recent_incomplete_run_invalidates_older_complete_evidence(self, db):
+        enabled(db, "together", "maybe-gone")
+        catalogue(db, "together", "maybe-gone", ago=timedelta(days=10))
+        runs(db, "together")
+        runs(db, "together", count=1, complete=False, start_days=0)
+
+        assert reconciler.find_retirements(db, now=NOW) == []
+
     def test_a_provider_with_no_discovery_authority_is_never_retired(self, db):
         """Bedrock and Vertex are not read at all. Silence there is not absence."""
         enabled(db, "bedrock", "us.meta.llama3-3-70b-instruct-v1:0")
@@ -113,6 +128,103 @@ class TestApplication:
         batch = db.bench_mutation_batches.find_one()
         mutations.revert(db, batch_id=batch["_id"], now=NOW)
         assert db.models.find_one({"model_id": "gone"})["enabled"] is True
+
+    def test_retirement_disables_derived_state_and_cancels_active_work(self, db):
+        enabled(db, "openrouter", "gone")
+        catalogue(db, "openrouter", "gone", ago=timedelta(days=10))
+        runs(db, "openrouter")
+        db.bench_model_health.insert_many(
+            [
+                {"provider": "openrouter", "model_id": "gone", "enabled": True},
+                {"provider": "openrouter", "model_id": "gone", "endpoint_tag": "groq", "enabled": True},
+            ]
+        )
+        db.bench_endpoints.insert_one(
+            {"model_id": "gone", "endpoint_tag": "groq", "enabled": True, "provider_name": "Groq"}
+        )
+        db.bench_jobs.insert_many(
+            [
+                {"_id": "queued", "provider": "openrouter", "model_id": "gone", "status": "queued"},
+                {"_id": "running", "provider": "openrouter", "model_id": "gone", "status": "running"},
+                {"_id": "history", "provider": "openrouter", "model_id": "gone", "status": "dead_letter"},
+            ]
+        )
+
+        retired = reconciler.retire(db, now=NOW, dry_run=False)
+
+        assert [item.subject for item in retired] == ["openrouter/gone"]
+        model = db.models.find_one({"provider": "openrouter", "model_id": "gone"})
+        assert model["enabled"] is False
+        assert model["deprecated"] is True
+        assert model["disabled_class"] == "provider_retired"
+        assert model["disabled_at"].replace(tzinfo=timezone.utc) == NOW
+        assert all(doc["enabled"] is False for doc in db.bench_model_health.find({"model_id": "gone"}))
+        assert db.bench_model_health.count_documents({"model_id": "gone"}) == 2
+        endpoint = db.bench_endpoints.find_one({"model_id": "gone"})
+        assert endpoint["enabled"] is False
+        assert endpoint["disabled_at"].replace(tzinfo=timezone.utc) == NOW
+        jobs = {job["_id"]: job for job in db.bench_jobs.find({"model_id": "gone"})}
+        assert jobs["queued"]["status"] == "cancelled"
+        assert jobs["running"]["status"] == "cancelled"
+        assert jobs["queued"]["cancelled_reason"] == model["disabled_reason"]
+        assert jobs["history"]["status"] == "dead_letter"
+        assert len(jobs) == 3
+
+    def test_apply_returns_only_models_successfully_changed_by_the_batch(self, db, monkeypatch):
+        for model_id in ("fails", "applied"):
+            enabled(db, "together", model_id)
+            catalogue(db, "together", model_id, ago=timedelta(days=10))
+        runs(db, "together")
+        db.bench_jobs.insert_many(
+            [
+                {"_id": "fails", "provider": "together", "model_id": "fails", "status": "queued"},
+                {"_id": "applied", "provider": "together", "model_id": "applied", "status": "queued"},
+            ]
+        )
+        original_update_one = db.models.update_one
+
+        def fail_one_model(query, update, *args, **kwargs):
+            if query.get("model_id") == "fails":
+                raise RuntimeError("injected model update failure")
+            return original_update_one(query, update, *args, **kwargs)
+
+        monkeypatch.setattr(db.models, "update_one", fail_one_model)
+
+        retired = reconciler.retire(db, now=NOW, dry_run=False)
+
+        assert [item.subject for item in retired] == ["together/applied"]
+        assert db.models.find_one({"model_id": "fails"})["enabled"] is True
+        assert db.models.find_one({"model_id": "applied"})["enabled"] is False
+        assert db.bench_jobs.find_one({"_id": "fails"})["status"] == "queued"
+        assert db.bench_jobs.find_one({"_id": "applied"})["status"] == "cancelled"
+        batch = db.bench_mutation_batches.find_one()
+        assert batch["failed"][0]["subject"] == "together/fails"
+
+    def test_safe_over_cap_backlog_drains_oldest_evidence_first(self, db):
+        for i in range(35):
+            model_id = f"gone-{i:02}"
+            enabled(db, "openrouter", model_id)
+            catalogue(db, "openrouter", model_id, ago=timedelta(days=10 + i))
+        for i in range(280):
+            model_id = f"live-or-{i:03}"
+            enabled(db, "openrouter", model_id)
+            catalogue(db, "openrouter", model_id, ago=timedelta(hours=2))
+        for i in range(56):
+            model_id = f"live-direct-{i:03}"
+            enabled(db, "together", model_id)
+            catalogue(db, "together", model_id, ago=timedelta(hours=2))
+        runs(db, "openrouter")
+        runs(db, "together")
+
+        first = reconciler.retire(db, now=NOW, dry_run=False)
+
+        assert [item.model_id for item in first] == [f"gone-{i:02}" for i in range(34, 9, -1)]
+        assert db.models.count_documents({"enabled": True, "deprecated": {"$ne": True}}) == 346
+        assert db.models.count_documents({"provider": "openrouter", "enabled": True}) == 290
+        second = reconciler.retire(db, now=NOW, dry_run=False)
+        assert [item.model_id for item in second] == [f"gone-{i:02}" for i in range(9, -1, -1)]
+        assert db.models.count_documents({"enabled": True, "deprecated": {"$ne": True}}) == 336
+        assert db.models.count_documents({"provider": "openrouter", "enabled": True}) == 280
 
     def test_a_discovery_regression_cannot_empty_a_provider(self, db):
         """The run reports success and every model vanishes — retire nothing."""
