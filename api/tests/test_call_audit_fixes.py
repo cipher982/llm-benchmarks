@@ -72,26 +72,6 @@ class TestPlan:
         assert reasoning.is_rejection(message) is rejected
 
 
-class TestBudget:
-    plan = reasoning.ReasoningPlan(supported=True, rungs=("none", None))
-
-    def test_none_gets_the_short_budget(self):
-        assert reasoning.budget_for(2048, "none", self.plan) == reasoning.SHORT_BUDGET
-
-    def test_short_budget_never_raises_a_price_clamp(self):
-        assert reasoning.budget_for(64, "none", self.plan) == 64
-
-    def test_a_reasoning_rung_keeps_headroom_but_is_capped(self):
-        assert reasoning.budget_for(2048, "low", self.plan) == reasoning.REASONING_BUDGET_CAP
-
-    def test_the_provider_default_keeps_the_old_budget(self):
-        assert reasoning.budget_for(2048, None, self.plan) == 2048
-
-    def test_headroom_flag_overrides_the_short_budget(self):
-        plan = reasoning.ReasoningPlan(supported=True, rungs=("none",), needs_headroom=True)
-        assert reasoning.budget_for(2048, "none", plan) == 2048
-
-
 def _decision():
     return RouteDecision.direct("openrouter", "z/m", reason="test")
 
@@ -137,7 +117,7 @@ class TestLadder:
         _, metrics, max_tokens, effort = runner._attempt_with_reasoning_ladder(
             _decision(), run_ts="t", run_config={"query": "q"}, base_budget=2048
         )
-        assert effort == "minimal" and max_tokens == reasoning.REASONING_BUDGET_CAP
+        assert effort == "minimal" and max_tokens == 2048
         assert [c[0] for c in calls] == ["none", "minimal"]
         assert metrics["reasoning_effort"] == "minimal" and metrics["reasoning_rungs_rejected"] == ["none"]
         assert reasoning.plan_for(db, "z/m", None).first == "minimal"
@@ -168,24 +148,18 @@ class TestLadder:
             runner._attempt_with_reasoning_ladder(_decision(), run_ts="t", run_config={"query": "q"}, base_budget=2048)
         assert len(calls) == 1
 
-    def test_short_budget_exhausted_flags_headroom_for_next_time(self, wired, monkeypatch):
-        db, calls, _ = wired
-        monkeypatch.setattr(
-            runner,
-            "_generate_and_validate",
-            self._fake(
-                calls,
-                lambda effort: runner.AttemptFailure(
-                    "validate",
-                    "visible output empty after token budget was exhausted; retry with a larger output budget",
-                ),
-            ),
-        )
-        with pytest.raises(runner.AttemptFailure):
-            runner._attempt_with_reasoning_ladder(_decision(), run_ts="t", run_config={"query": "q"}, base_budget=2048)
-        assert calls == [("none", reasoning.SHORT_BUDGET)]
-        assert reasoning.plan_for(db, "z/m", None).needs_headroom is True
-        assert reasoning.budget_for(2048, "none", reasoning.plan_for(db, "z/m", None)) == 2048
+    def test_every_rung_gets_the_full_budget(self, wired, monkeypatch):
+        """The stream closes at the 64th visible token; the cap is only a fuse."""
+        _, calls, _ = wired
+
+        def behaviour(effort):
+            if effort == "none":
+                return runner.AttemptFailure("generate", "BadRequestError: Error code: 400 - Reasoning is mandatory")
+            return None
+
+        monkeypatch.setattr(runner, "_generate_and_validate", self._fake(calls, behaviour))
+        runner._attempt_with_reasoning_ladder(_decision(), run_ts="t", run_config={"query": "q"}, base_budget=2048)
+        assert calls == [("none", 2048), ("minimal", 2048)]
 
     def test_an_unrelated_400_is_raised_without_climbing(self, wired, monkeypatch):
         _, calls, _ = wired
@@ -244,13 +218,6 @@ class TestExpiry:
         later = datetime.now(timezone.utc) + timedelta(days=reasoning.FLOOR_TTL_DAYS + 1)
         assert reasoning.plan_for(db, "z/m", "prov").rungs == (None,)
         assert reasoning.plan_for(db, "z/m", "prov", now=later).first == "none"
-
-    def test_a_stale_headroom_flag_expires(self, db):
-        _endpoint(db)
-        reasoning.record_needs_headroom(db, "z/m", "prov", effort="none")
-        later = datetime.now(timezone.utc) + timedelta(days=reasoning.FLOOR_TTL_DAYS + 1)
-        assert reasoning.plan_for(db, "z/m", "prov").needs_headroom is True
-        assert reasoning.plan_for(db, "z/m", "prov", now=later).needs_headroom is False
 
 
 class TestRequestOptions:

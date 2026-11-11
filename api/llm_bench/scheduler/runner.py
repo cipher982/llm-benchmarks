@@ -537,11 +537,8 @@ def _generate_and_validate(
     return config, metrics
 
 
-BUDGET_EXHAUSTED_MARKER = "budget was exhausted"
-
-
 def _safe_db_write(what: str, write: Any) -> None:
-    """A floor or headroom flag is an optimisation, never a reason to drop a billed row."""
+    """A stored reasoning floor is an optimisation, never a reason to drop a billed row."""
     try:
         write()
     except Exception as exc:  # noqa: BLE001
@@ -592,7 +589,7 @@ def _attempt_with_reasoning_ladder(
         plan = reasoning.plan_for(db, model_id, endpoint_tag, skip=skip)
     except Exception as exc:  # noqa: BLE001
         # Without the stored plan, measure the way every run did before:
-        # provider default reasoning, full budget, stop at the mark.
+        # provider default reasoning, stop at the mark.
         print(f"reasoning plan unavailable for {model_id}: {type(exc).__name__}: {exc}", flush=True)
         db = None
         plan = reasoning.LEGACY_PLAN
@@ -600,9 +597,13 @@ def _attempt_with_reasoning_ladder(
     try:
         rejected: list[str] = list(skip)
         last_failure: AttemptFailure | None = None
+        # Every rung gets the full price-clamped budget. The stream closes at the
+        # 64th visible token and providers stop billing at the disconnect
+        # (billed vs read on 453 runs across 76 providers, 2026-11-11), so a
+        # smaller cap saves nothing and only turns slow starters into paid,
+        # empty failures. The budget is a runaway fuse, not a lever.
+        max_tokens = base_budget
         for effort in plan.rungs:
-            max_tokens = reasoning.budget_for(base_budget, effort, plan)
-            short = max_tokens < base_budget
             extra: dict[str, Any] = {"reasoning_effort": effort} if effort is not None else {}
             try:
                 config, metrics = _generate_and_validate(
@@ -618,25 +619,12 @@ def _attempt_with_reasoning_ladder(
                 if effort is not None and failure.stage == "generate" and reasoning.is_rejection(failure.message):
                     rejected.append(effort)
                     continue
-                if db is not None and short and BUDGET_EXHAUSTED_MARKER in failure.message:
-                    _safe_db_write(
-                        "headroom",
-                        lambda: reasoning.record_needs_headroom(db, model_id, endpoint_tag, effort=effort),
-                    )
                 failure.rejected_rungs = tuple(rejected)  # type: ignore[attr-defined]
                 raise
             if db is not None and plan.supported:
                 _safe_db_write(
                     "floor",
                     lambda: reasoning.record_floor(db, model_id, endpoint_tag, effort, rejected=rejected),
-                )
-            if db is not None and short and metrics.get("time_to_64_visible_tokens_seconds") is None:
-                # The short budget ended before the 64th visible token, so the
-                # headline number is missing from this row. Give the endpoint
-                # room from the next run on.
-                _safe_db_write(
-                    "headroom",
-                    lambda: reasoning.record_needs_headroom(db, model_id, endpoint_tag, effort=effort),
                 )
             metrics["reasoning_effort"] = effort or reasoning.OMITTED
             metrics["reasoning_rungs_rejected"] = rejected
