@@ -25,15 +25,12 @@ from llm_bench.ops import model_naming
 from llm_bench.ops import openrouter_discovery
 from llm_bench.ops import openrouter_key_limit
 from llm_bench.ops import reconciler
-from llm_bench.ops import route_renewal
-from llm_bench.ops import vertex_discovery
 from llm_bench.scheduler import health
 from llm_bench.scheduler import policies
 from llm_bench.scheduler import queue
 from llm_bench.scheduler.mongo import models_collection_name
 from llm_bench.scheduler.mongo import mongo_client
 from llm_bench.scheduler.mongo import mongo_env
-from llm_bench.scheduler.mongo import route_snapshot
 from llm_bench.scheduler.reaper import run_reaper_loop
 from llm_bench.scheduler.reaper import run_reaper_pass
 from llm_bench.scheduler.routing import endpoint_route_snapshot
@@ -369,7 +366,6 @@ def scheduler_pass(*, providers: str | None, limit: int, cadence_seconds: int) -
                     model_id=model_id,
                     priority=priority,
                     now=now,
-                    route_snapshot=route_snapshot(db, provider=provider, model_id=model_id),
                 ):
                     enqueued += 1
                     created_for_provider += 1
@@ -671,27 +667,6 @@ def run_reconciler_loop(*, stop_event: threading.Event, interval_seconds: int) -
             print(f"Reconciler loop error: {type(exc).__name__}: {exc}", flush=True)
 
 
-def run_vertex_discovery_loop(*, stop_event: threading.Event, interval_seconds: int) -> None:
-    """Keep Vertex's catalogue current from inside the process that has its keys.
-
-    Every other provider is discovered by a Sauron job. Sauron holds no GCP
-    credentials, so Vertex had no discovery at all and
-    `discovery_completed_recently` was permanently red for it. This daemon
-    already authenticates to Vertex in order to benchmark it.
-    """
-    while not stop_event.wait(interval_seconds):
-        try:
-            _, db_name = mongo_env()
-            client = mongo_client()
-            try:
-                result = vertex_discovery.refresh_catalog(client[db_name])
-                print(f"Vertex discovery: {result}", flush=True)
-            finally:
-                client.close()
-        except Exception as exc:  # noqa: BLE001
-            print(f"Vertex discovery loop error: {type(exc).__name__}: {exc}", flush=True)
-
-
 def run_openrouter_discovery_loop(*, stop_event: threading.Event, interval_seconds: int) -> None:
     """Keep the OpenRouter-native catalogue flowing into admission."""
 
@@ -854,28 +829,6 @@ def daemon(
         name="reconciler-loop",
         daemon=True,
     )
-    route_renewal_thread = threading.Thread(
-        target=route_renewal.run_renewal_loop,
-        kwargs={
-            "stop_event": stop_event,
-            # Well inside the renewal window, so a route is renewed at most an
-            # hour after it becomes due rather than a window later.
-            "interval_seconds": int(os.getenv("BENCHMARK_ROUTE_RENEW_INTERVAL_SECONDS", "3600")),
-        },
-        name="route-renewal-loop",
-        daemon=True,
-    )
-    vertex_discovery_thread = threading.Thread(
-        target=run_vertex_discovery_loop,
-        kwargs={
-            "stop_event": stop_event,
-            # Well inside the 48h the discovery invariant allows, so one failed
-            # pass is not a violation.
-            "interval_seconds": int(os.getenv("BENCHMARK_VERTEX_DISCOVERY_INTERVAL_SECONDS", "43200")),
-        },
-        name="vertex-discovery-loop",
-        daemon=True,
-    )
     key_limit_thread = threading.Thread(
         target=openrouter_key_limit.run_key_limit_loop,
         kwargs={
@@ -902,8 +855,6 @@ def daemon(
     invariants_thread.start()
     admission_thread.start()
     classifier_thread.start()
-    vertex_discovery_thread.start()
-    route_renewal_thread.start()
     reconciler_thread.start()
     openrouter_discovery_thread.start()
     key_limit_thread.start()

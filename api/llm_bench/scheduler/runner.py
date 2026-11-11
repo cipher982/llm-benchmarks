@@ -32,7 +32,6 @@ from llm_bench.scheduler.mongo import mongo_env
 from llm_bench.scheduler.mongo import probe_metrics_collection_name
 from llm_bench.scheduler.routing import DIRECT_TRANSPORT
 from llm_bench.scheduler.routing import OPENROUTER_TRANSPORT
-from llm_bench.scheduler.routing import OR_SERVED_POLICY
 from llm_bench.scheduler.routing import RouteDecision
 from llm_bench.scheduler.routing import resolve_job_route
 from llm_bench.utils import get_current_timestamp
@@ -189,18 +188,6 @@ def log_error_mongo(
                 "observed_provider_slug",
                 "route_policy",
                 "route_snapshot_at",
-                "route_probe_id",
-                "route_decision_version",
-                "route_canary_id",
-                "route_canary_state",
-                "route_canary_successes",
-                "route_canary_required_successes",
-                "route_canary_cost_status",
-                "route_canary_evidence_uri",
-                "route_canary_evidence_sha256",
-                "route_canary_promotion_gate",
-                "route_expires_at",
-                "route_revocation_generation",
                 "profile_id",
                 "profile_hash",
                 "effective_request_hash",
@@ -476,7 +463,6 @@ def _config_for_decision(
         misc["route_endpoint_tag"] = decision.route_endpoint_tag
         misc["route_provider_display"] = decision.route_provider_display
         misc["route_model_id"] = decision.route_model_id
-        misc["route_probe_id"] = decision.route_probe_id
         misc["route_snapshot_at"] = decision.route_snapshot_at
         misc["route_policy"] = decision.route_policy
         if decision.route_reasoning_exclude:
@@ -526,10 +512,8 @@ def _generate_and_validate(
         observed_slug = metrics.get("observed_provider_slug")
         if metrics.get("provider_metadata_verified") is not True:
             raise AttemptFailure("validate", "OpenRouter provider metadata was not verified")
-        # Marketplace lanes measure OpenRouter's default routing, which may
-        # rotate upstreams between runs; the observed provider is a fact about
-        # this run, not a match to enforce. Pinned lanes still must match.
-        if decision.route_policy != OR_SERVED_POLICY and observed_slug != decision.route_provider_slug:
+        # Pinned lanes must be served by the endpoint they name.
+        if observed_slug != decision.route_provider_slug:
             raise AttemptFailure(
                 "validate",
                 f"observed provider {observed_slug!r} does not match route {decision.route_provider_slug!r}",
@@ -851,7 +835,6 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
         }
     )
     metrics["requested_max_tokens"] = max_tokens
-    metrics["protocol_version"] = PROTOCOL_VERSION
     # Endpoint identity travels with the measurement. The tag names which
     # deployment served it; quantization says what artifact that deployment is
     # running, and an fp4 endpoint is faster than a bf16 one because it is a

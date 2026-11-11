@@ -2,7 +2,7 @@
 
 - reasoning ladder: ask each endpoint for the least reasoning it accepts
 - budget: short and read to the end when there is nothing to think about
-- route renewal: never pay to probe a pinned-endpoint cooldown copy
+- route cooldowns: a pinned-endpoint failure is frozen on the job, never mirrored to a collection
 - classifier: never re-ask a verdict nothing new has happened to
 - decode window fields on every OpenRouter row
 """
@@ -15,7 +15,6 @@ from types import SimpleNamespace
 import mongomock
 import pytest
 from llm_bench.cloud.providers import openrouter
-from llm_bench.ops.route_renewal import renew_pass
 from llm_bench.scheduler import reasoning
 from llm_bench.scheduler import runner
 from llm_bench.scheduler.routing import RouteDecision
@@ -238,34 +237,6 @@ class TestRequestOptions:
         assert openrouter._route_options(self._config()) == {}
 
 
-def _cooldown(_id, policy):
-    return {
-        "_id": _id,
-        "state": "cooldown",
-        "route_policy": policy,
-        "source_provider": "openrouter",
-        "source_model_id": "z/m",
-        "transport_provider": "openrouter",
-        "cooldown_until": 0,
-        "route_health_failure_count": 1,
-    }
-
-
-class TestRouteRenewal:
-    def test_pinned_endpoint_cooldowns_retire_without_a_call(self, db):
-        db.bench_route_decisions.insert_many([_cooldown(f"r{i}", "pinned-endpoint") for i in range(20)])
-        probes = []
-        report = renew_pass(db, now=datetime.now(timezone.utc), probe=lambda d, now: probes.append(d))
-        assert probes == []
-        assert report["retired_without_probe"] == 20
-        assert db.bench_route_decisions.count_documents({"state": "retired"}) == 20
-
-    def test_other_cooldowns_are_still_recovered(self, db):
-        db.bench_route_decisions.insert_one(_cooldown("or", "or-served"))
-        report = renew_pass(db, now=datetime.now(timezone.utc), probe=lambda d, now: None)
-        assert report["considered"] == 1 and report["retired_without_probe"] == 0
-
-
 class TestWorkerMirror:
     def test_pinned_endpoint_failure_is_not_mirrored(self, db):
         from llm_bench.scheduler import worker
@@ -278,7 +249,7 @@ class TestWorkerMirror:
         }
         result = runner.RunnerResult(status="error", route_attempted=True, error_message="boom")
         worker.persist_route_cooldown(db, job=job, result=result, now=datetime.now(timezone.utc))
-        assert db.bench_route_decisions.count_documents({}) == 0
+        assert db.bench_route_decisions.count_documents({}) == 0  # the collection is gone; nothing may recreate it
 
 
 class TestClassifierSkip:

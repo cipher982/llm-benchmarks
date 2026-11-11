@@ -177,7 +177,6 @@ class TestRotatingSchedulerPass:
         monkeypatch.setattr(cli, "load_provider_models", lambda: {"openrouter": ["m1", "m2", "fallback"]})
         monkeypatch.setattr(cli.health, "refresh_all_model_docs", lambda *args, **kwargs: None)
         monkeypatch.setattr(cli.health, "heartbeat", lambda *args, **kwargs: None)
-        monkeypatch.setattr(cli, "route_snapshot", lambda *args, **kwargs: None)
 
         class Client:
             def __getitem__(self, name):

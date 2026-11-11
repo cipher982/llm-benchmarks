@@ -47,7 +47,7 @@ def test_shared_openrouter_gate_bounds_concurrency(monkeypatch):
     gate.release()
 
 
-def test_route_failure_persists_cooldown_without_deleting_source_lane():
+def test_route_failure_freezes_cooldown_on_the_job():
     db = mongomock.MongoClient()["llm-bench"]
     job = {
         "_id": "job-1",
@@ -71,9 +71,7 @@ def test_route_failure_persists_cooldown_without_deleting_source_lane():
         now=datetime(2026, 8, 10, tzinfo=timezone.utc),
     )
 
-    saved = db["bench_route_decisions"].find_one({"source_provider": "deepinfra"})
-    assert saved["state"] == "cooldown"
-    assert saved["route_health_failure_reason"] == "route 429"
-    assert saved["source_model_id"] == "Qwen/Qwen3-32B"
     saved_job = db[queue.jobs_collection_name()].find_one({"_id": "job-1"})
     assert saved_job["route_snapshot"]["state"] == "cooldown"
+    assert saved_job["route_snapshot"]["route_health_failure_reason"] == "route 429"
+    assert saved_job["route_snapshot"]["source_model_id"] == "Qwen/Qwen3-32B"

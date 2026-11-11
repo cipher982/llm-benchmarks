@@ -4,55 +4,34 @@ from datetime import timezone
 import mongomock
 from llm_bench import logging as benchmark_logging
 from llm_bench.scheduler import queue
-from llm_bench.scheduler.mongo import route_snapshot
 from llm_bench.scheduler.routing import DIRECT_TRANSPORT
 from llm_bench.scheduler.routing import OPENROUTER_TRANSPORT
-from llm_bench.scheduler.routing import ROUTE_DECISION_VERSION
 from llm_bench.scheduler.routing import RouteDecision
 from llm_bench.scheduler.routing import cooldown_route_snapshot
+from llm_bench.scheduler.routing import endpoint_route_snapshot
 from llm_bench.scheduler.routing import freeze_route_snapshot
-from llm_bench.scheduler.routing import recover_route_snapshot
 from llm_bench.scheduler.routing import resolve_job_route
+
+NOW = datetime(2026, 8, 10, tzinfo=timezone.utc)
 
 
 def active_snapshot(**overrides):
-    value = {
-        "source_provider": "deepinfra",
-        "source_model_id": "Qwen/Qwen3-32B",
-        "route_decision_version": ROUTE_DECISION_VERSION,
-        "state": "active",
-        "transport_provider": OPENROUTER_TRANSPORT,
-        "route_policy": "pinned-provider",
-        "route_model_id": "qwen/qwen3-32b",
-        "route_provider_slug": "deepinfra",
-        "observed_provider": "DeepInfra",
-        "observed_provider_slug": "deepinfra",
-        "route_snapshot_at": "2026-08-09T00:00:00+00:00",
-        "route_probe_id": "probe-1",
-        "provider_metadata_verified": True,
-        "canary_id": "canary-1",
-        "canary_state": "passed",
-        "canary_successes": 2,
-        "canary_required_successes": 2,
-        "canary_cost_status": "verified",
-        "canary_evidence_uri": "s3://artifacts/canary.json",
-        "canary_evidence_sha256": "a" * 64,
-        "canary_promotion_gate": "passed",
-        "canary_tps_ci95_lower": 0.9,
-        "canary_ttft_ci95_upper": 1.2,
-        "canary_cost_ci95_upper": 1.05,
-        "expires_at": "2099-08-10T00:00:00+00:00",
-        "profile_hash": "b" * 64,
-        "direct_effective_request_hash": "c" * 64,
-        "routed_effective_request_hash": "d" * 64,
-    }
+    value = endpoint_route_snapshot(
+        "openrouter",
+        "qwen/qwen3-32b",
+        endpoint_tag="deepinfra/fp8",
+        provider_canonical="deepinfra",
+        quantization="fp8",
+        provider_display="DeepInfra",
+        now=NOW,
+    )
     value.update(overrides)
     return value
 
 
 def test_missing_or_non_active_evidence_is_direct():
-    missing = RouteDecision.from_snapshot("deepinfra", "m", None)
-    pending = RouteDecision.from_snapshot("deepinfra", "m", {"state": "canary_pending"})
+    missing = RouteDecision.from_snapshot("openrouter", "m", None)
+    pending = RouteDecision.from_snapshot("openrouter", "m", {"state": "canary_pending"})
 
     assert missing.transport_provider == DIRECT_TRANSPORT
     assert missing.reason == "missing-route-snapshot"
@@ -60,150 +39,51 @@ def test_missing_or_non_active_evidence_is_direct():
     assert pending.reason == "route-decision-version-mismatch"
 
 
-def test_active_route_preserves_source_identity():
-    decision = RouteDecision.from_snapshot("deepinfra", "Qwen/Qwen3-32B", active_snapshot())
+def test_active_endpoint_route_pins_the_named_endpoint():
+    decision = RouteDecision.from_snapshot("openrouter", "qwen/qwen3-32b", active_snapshot())
 
     assert decision.transport_provider == OPENROUTER_TRANSPORT
-    assert decision.transport_model_id == "qwen/qwen3-32b"
-    assert decision.source_provider == "deepinfra"
-    assert decision.source_model_id == "Qwen/Qwen3-32B"
-    assert decision.metric_fields()["route_policy"] == "pinned-provider"
+    assert decision.route_endpoint_tag == "deepinfra/fp8"
+    assert decision.route_provider_slug == "deepinfra"
+    assert decision.route_endpoint_quantization == "fp8"
+    assert decision.source_model_id == "qwen/qwen3-32b"
+    assert decision.metric_fields()["route_policy"] == "pinned-endpoint"
 
 
-def test_provider_mismatch_and_expiry_fail_closed():
-    mismatch = RouteDecision.from_snapshot(
-        "deepinfra", "Qwen/Qwen3-32B", active_snapshot(observed_provider_slug="together")
+def test_source_mismatch_fails_closed():
+    decision = RouteDecision.from_snapshot("openrouter", "other/model", active_snapshot())
+
+    assert decision.transport_provider == DIRECT_TRANSPORT
+    assert decision.reason == "route-source-mismatch"
+
+
+def test_rollback_state_and_unknown_policy_fail_closed():
+    rolled_back = RouteDecision.from_snapshot("openrouter", "qwen/qwen3-32b", active_snapshot(state="rollback"))
+    retired_policy = RouteDecision.from_snapshot(
+        "openrouter", "qwen/qwen3-32b", active_snapshot(route_policy="or-served")
     )
-    expired = RouteDecision.from_snapshot(
-        "deepinfra",
-        "Qwen/Qwen3-32B",
-        active_snapshot(expires_at="2026-08-08T00:00:00+00:00"),
-        now=datetime(2026, 8, 9, tzinfo=timezone.utc),
-    )
+    no_tag = RouteDecision.from_snapshot("openrouter", "qwen/qwen3-32b", active_snapshot(route_endpoint_tag=None))
 
-    assert mismatch.transport_provider == DIRECT_TRANSPORT
-    assert mismatch.reason == "observed-provider-mismatch"
-    assert expired.transport_provider == DIRECT_TRANSPORT
-    assert expired.reason == "route-evidence-expired"
-
-
-def test_rollback_state_fails_closed():
-    rolled_back = RouteDecision.from_snapshot("deepinfra", "Qwen/Qwen3-32B", active_snapshot(state="rollback"))
-
-    assert rolled_back.transport_provider == DIRECT_TRANSPORT
     assert rolled_back.reason == "route-state-not-active"
+    assert retired_policy.reason == "invalid-route-policy"
+    assert no_tag.reason == "endpoint-route-has-no-tag"
+    assert all(d.transport_provider == DIRECT_TRANSPORT for d in (rolled_back, retired_policy, no_tag))
 
 
-def test_missing_promotion_evidence_or_expiry_fails_closed():
-    missing_evidence = RouteDecision.from_snapshot(
-        "deepinfra", "Qwen/Qwen3-32B", active_snapshot(canary_cost_status="unverified")
-    )
-    missing_expiry = RouteDecision.from_snapshot("deepinfra", "Qwen/Qwen3-32B", active_snapshot(expires_at=None))
+def test_route_cooldown_resolves_direct():
+    cooled = cooldown_route_snapshot(active_snapshot(), failure_reason="route 429", now=NOW, cooldown_seconds=60)
+    during = RouteDecision.from_snapshot(cooled["source_provider"], cooled["source_model_id"], cooled, now=NOW)
 
-    assert missing_evidence.transport_provider == DIRECT_TRANSPORT
-    assert missing_evidence.reason == "canary-cost-unverified"
-    assert missing_expiry.transport_provider == DIRECT_TRANSPORT
-    assert missing_expiry.reason == "route-expiry-missing"
-
-
-def test_nonfinite_promotion_bounds_fail_closed():
-    decision = RouteDecision.from_snapshot(
-        "deepinfra", "Qwen/Qwen3-32B", active_snapshot(canary_tps_ci95_lower=float("nan"))
-    )
-
-    assert decision.transport_provider == DIRECT_TRANSPORT
-    assert decision.reason == "canary-statistical-evidence-nonfinite"
-
-
-def test_malformed_evidence_uri_fails_closed():
-    decision = RouteDecision.from_snapshot("deepinfra", "Qwen/Qwen3-32B", active_snapshot(canary_evidence_uri="s3://"))
-
-    assert decision.transport_provider == DIRECT_TRANSPORT
-    assert decision.reason == "canary-evidence-not-immutable"
-
-
-def test_newer_revocation_generation_forces_direct():
-    decision = RouteDecision.from_snapshot(
-        "deepinfra",
-        "Qwen/Qwen3-32B",
-        active_snapshot(route_revocation_generation=3),
-        current_revocation_generation=4,
-    )
-
-    assert decision.transport_provider == DIRECT_TRANSPORT
-    assert decision.reason == "route-revoked"
-
-
-def test_route_cooldown_resolves_direct_and_recovery_requires_probe():
-    original = active_snapshot()
-    cooled = cooldown_route_snapshot(
-        original,
-        failure_reason="route 429",
-        now=datetime(2026, 8, 10, tzinfo=timezone.utc),
-        cooldown_seconds=60,
-    )
-    during = RouteDecision.from_snapshot(
-        cooled["source_provider"], cooled["source_model_id"], cooled, now=datetime(2026, 8, 10, tzinfo=timezone.utc)
-    )
     assert cooled["route_health_state"] == "cooldown"
     assert during.transport_provider == DIRECT_TRANSPORT
     assert during.reason == "route-state-not-active"
 
-    recovered = recover_route_snapshot(
-        cooled,
-        recovery_probe_id="recovery-1",
-        recovery_probe_passed=True,
-        now=datetime(2026, 8, 10, 0, 2, tzinfo=timezone.utc),
-    )
-    decision = RouteDecision.from_snapshot(
-        recovered["source_provider"],
-        recovered["source_model_id"],
-        recovered,
-        now=datetime(2026, 8, 10, 0, 2, tzinfo=timezone.utc),
-    )
-    assert recovered["route_health_state"] == "recovered"
-    assert decision.transport_provider == OPENROUTER_TRANSPORT
-
-
-def test_incomplete_or_unverified_evidence_stays_direct():
-    incomplete = RouteDecision.from_snapshot("deepinfra", "Qwen/Qwen3-32B", active_snapshot(route_probe_id=None))
-    unverified = RouteDecision.from_snapshot(
-        "deepinfra", "Qwen/Qwen3-32B", active_snapshot(provider_metadata_verified=False)
-    )
-
-    assert incomplete.reason == "incomplete-route-evidence"
-    assert unverified.reason == "unverified-provider-metadata"
-    assert incomplete.transport_provider == DIRECT_TRANSPORT
-    assert unverified.transport_provider == DIRECT_TRANSPORT
-
-
-def test_availability_probe_without_passed_canary_stays_direct():
-    pending = RouteDecision.from_snapshot(
-        "deepinfra",
-        "Qwen/Qwen3-32B",
-        active_snapshot(canary_state="availability_passed", canary_successes=2),
-    )
-
-    assert pending.transport_provider == DIRECT_TRANSPORT
-    assert pending.reason == "canary-not-passed"
-
-
-def test_bedrock_route_is_always_direct():
-    decision = RouteDecision.from_snapshot(
-        "bedrock",
-        "us.anthropic.claude-opus-4-7",
-        active_snapshot(source_provider="bedrock", source_model_id="us.anthropic.claude-opus-4-7"),
-    )
-
-    assert decision.transport_provider == DIRECT_TRANSPORT
-    assert decision.reason == "bedrock-kept-direct"
-
 
 def test_snapshot_is_copied_when_frozen_and_job_resolution_is_fail_closed():
     original = active_snapshot()
-    frozen = freeze_route_snapshot("deepinfra", "Qwen/Qwen3-32B", original)
+    frozen = freeze_route_snapshot("openrouter", "qwen/qwen3-32b", original)
     original["state"] = "direct"
-    decision = resolve_job_route({"provider": "deepinfra", "model_id": "Qwen/Qwen3-32B", "route_snapshot": frozen})
+    decision = resolve_job_route({"provider": "openrouter", "model_id": "qwen/qwen3-32b", "route_snapshot": frozen})
 
     assert frozen["state"] == "active"
     assert decision.transport_provider == OPENROUTER_TRANSPORT
@@ -214,30 +94,16 @@ def test_queue_persists_a_frozen_route_snapshot():
     original = active_snapshot()
     queue.enqueue_manual_job(
         db,
-        provider="deepinfra",
-        model_id="Qwen/Qwen3-32B",
+        provider="openrouter",
+        model_id="qwen/qwen3-32b",
         now=datetime(2026, 8, 9, tzinfo=timezone.utc),
         route_snapshot=original,
     )
     original["state"] = "direct"
 
-    saved = db.bench_jobs.find_one({"provider": "deepinfra"})
+    saved = db.bench_jobs.find_one({"provider": "openrouter"})
     assert saved["route_snapshot"]["state"] == "active"
     assert saved["route_snapshot"]["queued_at"] == "2026-08-09T00:00:00+00:00"
-
-
-def test_route_snapshot_only_returns_active_route():
-    db = mongomock.MongoClient()["llm-bench-test"]
-    db.bench_route_decisions.insert_many(
-        [
-            {"source_provider": "deepinfra", "source_model_id": "m", "state": "active", "route_snapshot_at": "1"},
-            {"source_provider": "deepinfra", "source_model_id": "m", "state": "superseded", "route_snapshot_at": "2"},
-        ]
-    )
-
-    snapshot = route_snapshot(db, provider="deepinfra", model_id="m")
-
-    assert snapshot["state"] == "active"
 
 
 def test_metric_writer_keeps_source_identity_for_routed_config(monkeypatch):
@@ -275,68 +141,31 @@ def test_metric_writer_keeps_source_identity_for_routed_config(monkeypatch):
     assert inserted["transport_provider"] == "openrouter"
 
 
-def _promotion_snapshot(**overrides):
-    snapshot = {
-        "source_provider": "deepinfra",
-        "source_model_id": "meta-llama/Meta-Llama-3.1-8B-Instruct",
-        "route_decision_version": "or-route-v1",
-        "state": "active",
-        "transport_provider": "openrouter",
-        "route_policy": "pinned-provider",
-        "canary_id": "canary-1",
-        "canary_state": "passed",
-        "canary_successes": 30,
-        "canary_required_successes": 29,
-        "canary_promotion_gate": "passed",
-        "canary_cost_status": "verified",
-        "canary_evidence_uri": "s3://artifacts/evidence/canary.json",
-        "canary_evidence_sha256": "a" * 64,
-        "canary_tps_ci95_lower": 0.95,
-        "canary_cost_ci95_upper": 1.0,
-        "expires_at": "2099-01-01T00:00:00+00:00",
-        "route_model_id": "meta-llama/llama-3.1-8b-instruct",
-        "route_provider_slug": "deepinfra",
-        "observed_provider_slug": "deepinfra",
-        "route_snapshot_at": "2026-08-10T00:00:00+00:00",
-        "route_probe_id": "probe-1",
-        "provider_metadata_verified": True,
-        "profile_hash": "b" * 64,
-        "direct_effective_request_hash": "c" * 64,
-        "routed_effective_request_hash": "d" * 64,
-    }
-    snapshot.update(overrides)
-    return snapshot
-
-
-def test_ttft_waiver_allows_promotion_without_ttft_ci():
-    snapshot = _promotion_snapshot(canary_ttft_waived_direct_unmeasured=True)
-    decision = RouteDecision.from_snapshot("deepinfra", "meta-llama/Meta-Llama-3.1-8B-Instruct", snapshot)
-    assert decision.transport_provider == "openrouter"
-    assert decision.state == "active"
-
-
-def test_missing_ttft_ci_without_waiver_stays_direct():
-    snapshot = _promotion_snapshot()
-    decision = RouteDecision.from_snapshot("deepinfra", "meta-llama/Meta-Llama-3.1-8B-Instruct", snapshot)
-    assert decision.transport_provider == "direct"
-    assert decision.reason == "canary-statistical-evidence-missing"
-
-
-def test_ttft_bound_still_enforced_when_measured():
-    snapshot = _promotion_snapshot(canary_ttft_ci95_upper=2.0)
-    decision = RouteDecision.from_snapshot("deepinfra", "meta-llama/Meta-Llama-3.1-8B-Instruct", snapshot)
-    assert decision.transport_provider == "direct"
-    assert decision.reason == "canary-ttft-bound-failed"
-
-
 def test_route_reasoning_exclude_flows_from_snapshot():
-    snapshot = _promotion_snapshot(canary_ttft_waived_direct_unmeasured=True, route_reasoning_exclude=True)
-    decision = RouteDecision.from_snapshot("deepinfra", "meta-llama/Meta-Llama-3.1-8B-Instruct", snapshot)
-    assert decision.transport_provider == "openrouter"
-    assert decision.route_reasoning_exclude is True
-    plain = RouteDecision.from_snapshot(
-        "deepinfra",
-        "meta-llama/Meta-Llama-3.1-8B-Instruct",
-        _promotion_snapshot(canary_ttft_waived_direct_unmeasured=True),
+    decision = RouteDecision.from_snapshot(
+        "openrouter", "qwen/qwen3-32b", active_snapshot(route_reasoning_exclude=True)
     )
-    assert plain.route_reasoning_exclude is False
+    assert decision.route_reasoning_exclude is True
+    assert (
+        RouteDecision.from_snapshot("openrouter", "qwen/qwen3-32b", active_snapshot()).route_reasoning_exclude is False
+    )
+
+
+def test_retired_route_fields_are_not_written_to_metric_rows(monkeypatch):
+    from llm_bench.logging import _optional_metric_fields
+
+    retired = {
+        "route_canary_id": "c",
+        "route_canary_state": "passed",
+        "route_expires_at": "t",
+        "route_probe_id": "p",
+        "route_revocation_generation": 0,
+        "route_decision_version": "or-route-v1",
+        "direct_effective_request_hash": "h",
+        "routed_effective_request_hash": "h",
+        "protocol_version": 2,
+        "cached_input_tokens": 0,
+    }
+    assert _optional_metric_fields({**retired, "route_policy": "pinned-endpoint"}) == {
+        "route_policy": "pinned-endpoint"
+    }

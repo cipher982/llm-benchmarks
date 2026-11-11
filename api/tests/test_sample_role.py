@@ -52,7 +52,6 @@ class TestProvenance:
         assert result.status == "success"
         assert result.sample_role == runner.SAMPLE_ROLE_PUBLISHED
         assert written["sample_role"] == runner.SAMPLE_ROLE_PUBLISHED
-        assert written["protocol_version"] == runner.PROTOCOL_VERSION
         assert written["benchmark_profile_id"] == runner.DEFAULT_PROFILE_ID
         # The spike found 975 of 1,182 Together rows came from multi-attempt
         # retries with nothing on the row to say so.
@@ -140,7 +139,6 @@ class TestProvenanceSurvivesTheWriteLayer:
         for field in (
             "sample_role",
             "benchmark_profile_id",
-            "protocol_version",
             "attempt_group",
             "attempt",
         ):
@@ -148,9 +146,6 @@ class TestProvenanceSurvivesTheWriteLayer:
         for field in (
             "profile_hash",
             "effective_request_hash",
-            "direct_effective_request_hash",
-            "routed_effective_request_hash",
-            "route_revocation_generation",
         ):
             if field in written:
                 assert field in persisted, f"{field} is set by the runner but dropped before Mongo"

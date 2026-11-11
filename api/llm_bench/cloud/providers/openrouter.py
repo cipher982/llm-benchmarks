@@ -19,7 +19,6 @@ from llm_bench.cloud.visible_tokens import count_tokens
 from llm_bench.cloud.visible_tokens import stream_resolution
 from llm_bench.config import CloudConfig
 from llm_bench.scheduler import policies
-from llm_bench.scheduler.routing import OR_SERVED_POLICY
 from llm_bench.utils import get_current_timestamp
 from openai import OpenAI
 from tiktoken import get_encoding
@@ -105,11 +104,6 @@ def _route_options(config: CloudConfig) -> dict[str, Any]:
     reasoning = _reasoning_options(config)
     if reasoning:
         options["reasoning"] = reasoning
-    # or-served (marketplace) lanes measure OpenRouter's default routing: the
-    # user does not pin, so neither do we. The observed provider is recorded
-    # from the response, not forced in the request.
-    if config.misc.get("route_policy") == OR_SERVED_POLICY:
-        return options
     # Pin the exact endpoint when one is known, and fall back to the provider
     # family only for routes predating endpoint identity. A family slug matches
     # every variant OpenRouter publishes — `only: ["deepinfra"]` still
@@ -242,7 +236,6 @@ def _observed_provider(
     *,
     expected_slug: str | None = None,
     expected_display: str | None = None,
-    verify_catalog: bool = True,
 ) -> tuple[str | None, str | None]:
     if not metadata:
         return None, None
@@ -267,12 +260,6 @@ def _observed_provider(
             slug = expected_slug
         elif len(candidates) == 1:
             slug = candidates[0]
-        elif not verify_catalog:
-            # or-served (marketplace) lanes: the provider name comes from
-            # OpenRouter's own response metadata, which is the authority these
-            # lanes measure. Derive the label from it rather than failing
-            # closed against an allowlist written for pinned providers.
-            slug = _provider_key(provider)
     return (str(provider) if provider else None, str(slug) if slug else None)
 
 
@@ -412,7 +399,6 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         route_metadata,
         expected_slug=config.misc.get("route_provider_slug"),
         expected_display=config.misc.get("route_provider_display"),
-        verify_catalog=config.misc.get("route_policy") != OR_SERVED_POLICY,
     )
     if observed_provider is not None:
         metrics["observed_provider"] = observed_provider

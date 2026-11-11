@@ -14,9 +14,6 @@ from llm_bench.scheduler import queue
 from llm_bench.scheduler import runner
 from llm_bench.scheduler.mongo import mongo_client
 from llm_bench.scheduler.mongo import mongo_env
-from llm_bench.scheduler.mongo import route_decisions_collection_name
-from llm_bench.scheduler.mongo import route_revocation_generation
-from llm_bench.scheduler.routing import PINNED_ENDPOINT_POLICY
 from llm_bench.scheduler.routing import cooldown_route_snapshot
 from llm_bench.scheduler.runner import run_job_in_child
 
@@ -44,7 +41,7 @@ def acquire_openrouter_slot(timeout_seconds: float) -> bool:
 
 
 def persist_route_cooldown(db, *, job: dict, result: runner.RunnerResult, now: datetime) -> None:
-    """Persist a route failure as cooldown while preserving the source lane."""
+    """Freeze a route failure onto the job as a cooldown while preserving the source lane."""
 
     snapshot = job.get("route_snapshot")
     failure_reason = result.fallback_reason or result.error_message
@@ -52,15 +49,10 @@ def persist_route_cooldown(db, *, job: dict, result: runner.RunnerResult, now: d
     if (not result.route_attempted and not quota_fallback) or not failure_reason or not isinstance(snapshot, dict):
         return
     cooled = cooldown_route_snapshot(snapshot, failure_reason=failure_reason, now=now)
-    key = {
-        "source_provider": cooled.get("source_provider", job.get("provider")),
-        "source_model_id": cooled.get("source_model_id", job.get("model_id")),
-        "route_snapshot_at": cooled.get("route_snapshot_at"),
-    }
     if job.get("_id") is not None:
-        # A retry uses the job's frozen snapshot, not the route-decision
-        # collection. Freeze the cooldown onto that job before it is queued
-        # again so a transient route failure cannot immediately re-enter OR.
+        # A retry uses the job's frozen snapshot. Freeze the cooldown onto that
+        # job before it is queued again so a transient route failure cannot
+        # immediately re-enter OR.
         queue.jobs_collection(db).update_one(
             {
                 "_id": job["_id"],
@@ -69,45 +61,6 @@ def persist_route_cooldown(db, *, job: dict, result: runner.RunnerResult, now: d
             },
             {"$set": {"route_snapshot": cooled}},
         )
-    # The job snapshot is the retry safety boundary. Update it first, then
-    # mirror the same state into the operator-facing route collection, except
-    # for pinned-endpoint routes: those are rebuilt from the catalogue on every
-    # job, and mirroring wrote one new document per failure (12,650 by
-    # 2026-11-11) that the renewal loop then paid to probe.
-    if cooled.get("route_policy") == PINNED_ENDPOINT_POLICY:
-        return
-    db[route_decisions_collection_name()].update_one(key, {"$set": cooled}, upsert=True)
-
-
-def apply_route_revocation_guard(db, job: dict) -> dict:
-    """Re-check the monotonic revocation generation immediately before dispatch."""
-
-    snapshot = job.get("route_snapshot")
-    if not isinstance(snapshot, dict):
-        return job
-    provider = str(job.get("provider") or "")
-    model_id = str(job.get("model_id") or "")
-    current = route_revocation_generation(db, provider=provider, model_id=model_id)
-    try:
-        queued = int(snapshot.get("route_revocation_generation", 0))
-    except (TypeError, ValueError):
-        queued = -1
-    if current <= queued:
-        return job
-    updated = dict(job)
-    revoked = deepcopy(snapshot)
-    revoked.update(
-        {
-            "state": "revoked",
-            "transport_provider": "direct",
-            "route_policy": "direct",
-            "route_revocation_generation": current,
-            "route_revocation_reason": "route-revoked-before-dispatch",
-        }
-    )
-    updated["route_snapshot"] = revoked
-    updated["route_fallback_reason"] = "route-revoked-before-dispatch"
-    return updated
 
 
 def direct_fallback_job(job: dict, *, reason: str) -> dict:
@@ -162,8 +115,6 @@ def run_worker_loop(
                 )
                 stop_event.wait(idle_sleep_seconds)
                 continue
-
-            job = apply_route_revocation_guard(db, job)
 
             deadline = float(job.get("deadline_seconds") or policies.DEFAULT_DEADLINE_SECONDS)
             attempt_started = time.monotonic()

@@ -32,7 +32,6 @@ def test_every_model_can_be_scheduled_even_past_the_cap():
         patch.object(cli.health, "refresh_all_model_docs"),
         patch.object(cli.health, "heartbeat"),
         patch.object(cli.health, "health_collection", return_value=FakeHealthCollection()),
-        patch.object(cli, "route_snapshot", return_value=None),
         patch.object(
             cli.queue,
             "enqueue_scheduled_job",
@@ -63,7 +62,6 @@ def test_the_cap_takes_the_stalest_first():
         patch.object(cli.health, "refresh_all_model_docs"),
         patch.object(cli.health, "heartbeat"),
         patch.object(cli.health, "health_collection", return_value=FakeHealthCollection()),
-        patch.object(cli, "route_snapshot", return_value=None),
         patch.object(
             cli.queue,
             "enqueue_scheduled_job",
@@ -74,35 +72,6 @@ def test_the_cap_takes_the_stalest_first():
         cli.scheduler_pass(providers="groq", limit=2, cadence_seconds=900)
 
     assert enqueued == ["very-stale", "middling"]
-
-
-def test_scheduled_jobs_freeze_the_reviewed_route_snapshot():
-    models = ["Qwen/Qwen3-32B"]
-    enqueued = []
-    reviewed = {"source_provider": "deepinfra", "source_model_id": models[0], "state": "active"}
-
-    class FakeHealthCollection:
-        def find_one(self, query):
-            return _health_doc(100)
-
-    with (
-        patch.object(cli, "mongo_env", return_value=("uri", "db")),
-        patch.object(cli, "mongo_client") as client,
-        patch.object(cli, "load_provider_models", return_value={"deepinfra": models}),
-        patch.object(cli.health, "refresh_all_model_docs"),
-        patch.object(cli.health, "heartbeat"),
-        patch.object(cli.health, "health_collection", return_value=FakeHealthCollection()),
-        patch.object(cli, "route_snapshot", return_value=reviewed),
-        patch.object(
-            cli.queue,
-            "enqueue_scheduled_job",
-            side_effect=lambda *a, **k: (enqueued.append(k) or True),
-        ),
-    ):
-        client.return_value.__getitem__.return_value = object()
-        cli.scheduler_pass(providers="deepinfra", limit=1, cadence_seconds=900)
-
-    assert enqueued[0]["route_snapshot"] is reviewed
 
 
 def test_dead_lettered_rows_do_not_consume_the_per_pass_cap():
@@ -125,7 +94,6 @@ def test_dead_lettered_rows_do_not_consume_the_per_pass_cap():
         patch.object(cli.health, "refresh_all_model_docs"),
         patch.object(cli.health, "heartbeat"),
         patch.object(cli.health, "health_collection", return_value=FakeHealthCollection()),
-        patch.object(cli, "route_snapshot", return_value=None),
         patch.object(cli.queue, "enqueue_scheduled_job", side_effect=enqueue),
     ):
         client.return_value.__getitem__.return_value = object()

@@ -21,7 +21,6 @@ class TestDisplayNameConfirmsAPin:
             _metadata("Novita"),
             expected_slug="novita",
             expected_display="Novita",
-            verify_catalog=True,
         )
         assert (provider, slug) == ("Novita", "novita")
 
@@ -33,7 +32,6 @@ class TestDisplayNameConfirmsAPin:
             _metadata("AionLabs"),
             expected_slug="aion-labs",
             expected_display="Aion Labs",
-            verify_catalog=True,
         )
         assert slug == "aion-labs"
 
@@ -44,10 +42,9 @@ class TestDisplayNameConfirmsAPin:
             _metadata("Parasail"),
             expected_slug="novita",
             expected_display="Novita",
-            verify_catalog=True,
         )
         assert slug is None
 
     def test_allowlisted_providers_still_resolve_without_a_display_name(self):
-        provider, slug = _observed_provider(_metadata("Groq"), expected_slug="groq", verify_catalog=True)
+        provider, slug = _observed_provider(_metadata("Groq"), expected_slug="groq")
         assert (provider, slug) == ("Groq", "groq")
