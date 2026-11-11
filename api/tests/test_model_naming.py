@@ -17,6 +17,12 @@ from llm_bench.ops import model_naming
 NOW = datetime(2026, 8, 17, 14, 0, tzinfo=timezone.utc)
 
 
+@pytest.fixture(autouse=True)
+def _pinned_clock(monkeypatch):
+    """The fixtures are dated NOW; the publication window must be measured from it, not the wall clock."""
+    monkeypatch.setattr(model_naming, "utcnow", lambda: NOW)
+
+
 @pytest.fixture
 def db():
     database = mongomock.MongoClient()["llm-bench"]
