@@ -1,7 +1,7 @@
 # LLM Benchmarks API Service
 
 Benchmark runner that calls LLM APIs and measures performance. Deployed as two instances:
-- **clifford** (VPS): All providers except Bedrock
+- **clifford** (VPS): OpenRouter (every non-Bedrock provider is measured as an OpenRouter endpoint)
 - **EC2**: Bedrock only (uses IAM role)
 
 ---
@@ -98,9 +98,8 @@ Always `cd` into the specific subdirectory before git operations.
 **Key files:**
 - `api/llm_bench/scheduler/` - Mongo-backed scheduler, queue, worker, health, and process-isolated runner
 - `api/bench_simple_runner.py` - Bedrock/remote HTTP-ingest runner
-- `api/llm_bench/cloud/providers/` - Provider implementations
+- `api/llm_bench/cloud/providers/` - `openrouter` (clifford) and `bedrock` (EC2). The direct-provider modules were deleted 2026-11-11; all other providers reach the site through OpenRouter endpoints
 - `api/llm_bench/models_db.py` - Loads enabled models from MongoDB
-- `REASONING_MODELS.md` - OpenAI o1/o3/o4 documentation
 - `TROUBLESHOOTING.md` - Error patterns and solutions
 
 ---
@@ -111,7 +110,7 @@ Always `cd` into the specific subdirectory before git operations.
 
 | Instance | Providers | Why Separate |
 |----------|-----------|--------------|
-| **clifford** | anthropic, cerebras, deepinfra, fireworks, groq, openai, together, vertex | Mongo-backed scheduler with isolated provider worker lanes |
+| **clifford** | openrouter | Mongo-backed scheduler with isolated provider worker lanes; every non-Bedrock provider is an OpenRouter endpoint |
 | **EC2** | bedrock | Needs AWS IAM role + MongoDB via HTTP bridge |
 
 **HTTP Ingest Bridge:** EC2 POSTs results to `https://bench-ingest.drose.io` (on clifford), which writes to MongoDB. `bench-ingest` is a manual app, not a Coolify app: tracked deploy state is in `~/git/me/domains/mytech/infrastructure/manual-apps/bench-ingest/`, runtime secrets are on clifford at `/home/drose/manual-apps/bench-ingest/.env.secrets`, and deploys use `~/git/me/domains/mytech/bin/manual-app deploy bench-ingest --repo-dir ~/git/llmbench/bench-ingest`.
@@ -151,9 +150,7 @@ mongosh "$MONGODB_URI" --eval "db.models.updateOne({provider: 'X', model_id: 'Y'
 | Symptom | Quick Fix |
 |---------|-----------|
 | Bedrock `ProfileNotFound: zh-ml-mlengineer` | Remove stale `AWS_PROFILE` from clifford env vars; Bedrock runs on the RND EC2 instance only |
-| Groq `output_tokens not within 10%` | Expected for variable-output providers; validation uses `visible_nonzero`, not a +-10% band |
-| OpenAI o3-mini `unsupported parameter: max_tokens` | Update code - needs Responses API (see REASONING_MODELS.md) |
-| Vertex `429 quota exceeded` | Increase GCP quota or reduce frequency |
+| `output_tokens not within 10%` on a Bedrock row | Bedrock uses `strict_pm10`; OpenRouter rows use `visible_nonzero` |
 
 **Full troubleshooting:** See `TROUBLESHOOTING.md`
 
@@ -187,8 +184,7 @@ ssh clifford 'docker logs -f llm-bench-api-service'   # fixed name, no hash suff
 - **Bedrock:** Use `us.anthropic.*` / `us.meta.*` prefixes (not `anthropic.*` / `meta.*`)
 - **Bedrock display/canonical names:** never include date/timestamp checkpoint suffixes; keep one enabled alias per display model (no duplicate `claude-opus-4.6` rows from regional/global/date variants).
 - **Bedrock runner config:** enable/disable models in MongoDB `models`; production does not use `BENCHMARK_MODELS` except with the explicit emergency `BENCHMARK_MODELS_OVERRIDE=1`.
-- **OpenAI:** o1/o3/o4 models auto-detected as reasoning models
-- **OpenAI-compatible hosted providers:** use provider-reported usage tokens; streamed text chunks can omit hidden/reasoning tokens
+- **OpenRouter:** use provider-reported usage tokens; streamed text chunks can omit hidden/reasoning tokens
 - **Bedrock ingest bridge:** `bench-ingest.drose.io` must preserve additive metric fields; schema-v2 runner fields are lost if the bridge rejects or ignores extras.
 - **The benchmark surface is any endpoint that takes a query and returns text.**
   That includes guard, moderation, router and compound models — a user asking
@@ -244,7 +240,6 @@ ssh clifford 'mongosh "$MONGODB_URI" --quiet --eval "db.provider_catalog.aggrega
 - **Roadmap and open questions:** `docs/platform-plan.md`
 - **Dashboard:** `~/git/llmbench/llm-benchmarks-dashboard/backend/`
 - **Sauron:** `~/git/sauron/AGENTS.md`
-- **OpenAI Reasoning:** `REASONING_MODELS.md` (this repo)
 
 ---
 

@@ -51,23 +51,10 @@ TEMPERATURE = 0.1
 
 # Map provider name -> module import path
 PROVIDER_MODULES: Dict[str, str] = {
-    "openai": "llm_bench.cloud.providers.openai",
-    "anthropic": "llm_bench.cloud.providers.anthropic",
     "bedrock": "llm_bench.cloud.providers.bedrock",
-    "vertex": "llm_bench.cloud.providers.vertex",
-    "anyscale": "llm_bench.cloud.providers.anyscale",
-    "together": "llm_bench.cloud.providers.together",
     "openrouter": "llm_bench.cloud.providers.openrouter",
-    "azure": "llm_bench.cloud.providers.azure",
-    "runpod": "llm_bench.cloud.providers.runpod",
-    "fireworks": "llm_bench.cloud.providers.fireworks",
-    "deepinfra": "llm_bench.cloud.providers.deepinfra",
-    "groq": "llm_bench.cloud.providers.groq",
-    "databricks": "llm_bench.cloud.providers.databricks",
-    "lambda": "llm_bench.cloud.providers.lambda",
-    "cerebras": "llm_bench.cloud.providers.cerebras",
 }
-VARIABLE_OUTPUT_PROVIDERS = ("openai", "openrouter", "deepinfra", "fireworks", "together", "groq", "vertex")
+VARIABLE_OUTPUT_PROVIDERS = ("openrouter",)
 DEFAULT_CONFIG_CACHE_PATH = "/var/lib/bedrock-bench/last_config.json"
 DEFAULT_CONFIG_GRACE_SECONDS = 6 * 60 * 60
 DEFAULT_CONFIG_TIMEOUT_SECONDS = 10.0

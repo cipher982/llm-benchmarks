@@ -159,7 +159,6 @@ This model is only supported in v1/responses and not in v1/chat/completions
 - Auto-detects reasoning models by prefix
 - Routes to `/v1/responses` endpoint
 - Uses `max_output_tokens` parameter
-- See `REASONING_MODELS.md` for implementation details
 
 **Affected models:** o1, o1-pro, o3, o3-mini, o3-pro, o4, o4-mini
 
@@ -453,11 +452,6 @@ uv sync
 # Enqueue a manual scheduler job
 uv run env PYTHONPATH=api python -m llm_bench.scheduler.cli enqueue --provider openai --model gpt-4o-mini
 
-# Test reasoning models
-uv run python test_reasoning_models_e2e.py
-
-# Test specific provider
-uv run python test_openai_provider.py
 ```
 
 ### Adding New Providers
@@ -465,7 +459,7 @@ uv run python test_openai_provider.py
 1. Create `api/llm_bench/cloud/providers/{name}.py`
 2. Implement `generate(config: CloudConfig, run_config: dict) -> dict`
 3. Add to `PROVIDER_MODULES` in `api/llm_bench/scheduler/runner.py`
-4. Add API key to Coolify env vars
+4. Add API key to the manual-app service env
 5. Add to `BENCHMARK_PROVIDERS`
 6. Test locally before production
 
