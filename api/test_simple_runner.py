@@ -94,14 +94,14 @@ def test_load_provider_func_caching():
         mock_module.generate = MagicMock(name="mock_generate")
         mock_import.return_value = mock_module
 
-        func1 = bench_simple_runner._load_provider_func("openai")
+        func1 = bench_simple_runner._load_provider_func("bedrock")
         assert mock_import.called, "First call should import"
 
         # Clear the mock call count
         mock_import.reset_mock()
 
         # Second load should use cache
-        func2 = bench_simple_runner._load_provider_func("openai")
+        func2 = bench_simple_runner._load_provider_func("bedrock")
         assert not mock_import.called, "Second call should use cache"
         assert func1 is func2
 
