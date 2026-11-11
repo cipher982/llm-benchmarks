@@ -349,6 +349,23 @@ def _needs_probe(
     # warm, which is the least durable thing about it.
     if successes and (now - max(successes)) < WINDOW:
         return False
+    # Failures are spaced the same way. A probe that fails without a definitive
+    # verdict (budget_exhausted, timeout) was re-queued on every admission pass,
+    # 48 paid calls a day for up to ADMISSION_DEADLINE: claude-fable-5.2 did
+    # exactly that from 2026-11-10.
+    last_failed = db[queue.jobs_collection_name()].find_one(
+        {
+            "provider": provider,
+            "model_id": model_id,
+            "job_kind": "probe",
+            "status": "dead_letter",
+        },
+        {"created_at": 1},
+        sort=[("created_at", -1)],
+    )
+    failed_at = _as_utc(last_failed.get("created_at")) if last_failed else None
+    if failed_at is not None and (now - failed_at) < WINDOW:
+        return False
     return True
 
 

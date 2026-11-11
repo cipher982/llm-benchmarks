@@ -126,6 +126,22 @@ class TestProbeEnqueue:
         probe_success(db, "groq", "cand", ago=timedelta(minutes=10))
         assert admission.enqueue_probes(db, now=NOW) == []
 
+    def test_failed_probes_are_spaced_out_too(self, db):
+        """A probe that keeps failing without a verdict is not re-bought every pass."""
+        candidate(db, "openrouter", "cand")
+        db.bench_jobs.insert_one(
+            {
+                "_id": "probe:openrouter:cand:old",
+                "provider": "openrouter",
+                "model_id": "cand",
+                "job_kind": "probe",
+                "status": "dead_letter",
+                "created_at": NOW - timedelta(minutes=30),
+            }
+        )
+        assert admission.enqueue_probes(db, now=NOW) == []
+        assert admission.enqueue_probes(db, now=NOW + admission.WINDOW) == ["openrouter/cand"]
+
     def test_a_candidate_with_enough_evidence_stops_costing_money(self, db):
         candidate(db, "groq", "cand")
         probe_success(db, "groq", "cand", ago=timedelta(hours=6))
