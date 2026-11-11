@@ -33,6 +33,7 @@ import json
 import os
 from dataclasses import dataclass
 from datetime import datetime
+from datetime import timedelta
 from datetime import timezone
 from typing import Any
 from typing import Optional
@@ -282,24 +283,37 @@ async def classify_unclassified_rollups(
     try:
         collection = client[db_name][rollups_collection]
 
-        # Find unclassified rollups (error_kind is null or "unknown")
-        query = {"$or": [{"error_kind": {"$exists": False}}, {"error_kind": None}, {"error_kind": "unknown"}]}
+        # Find unclassified rollups (error_kind is null or "unknown") the model
+        # has not already judged recently. A fingerprint judged `unknown` gets
+        # the same answer again unless something changed, and without this the
+        # same 29 fingerprints went to the classifier model every hour (about
+        # 107 of 135 helper calls in the week to 2026-11-10). A fingerprint
+        # that keeps recurring is re-asked at most once per
+        # BENCHMARK_CLASSIFIER_REASK_DAYS; one never judged is asked now. The
+        # predicate is in the query, so the max_rollups bound counts only
+        # eligible fingerprints and cannot be filled by skipped ones.
+        reask_before = datetime.now(timezone.utc) - timedelta(
+            days=float(os.getenv("BENCHMARK_CLASSIFIER_REASK_DAYS", "7"))
+        )
+        query = {
+            "$and": [
+                {"$or": [{"error_kind": {"$exists": False}}, {"error_kind": None}, {"error_kind": "unknown"}]},
+                {
+                    "$or": [
+                        {"classified_at": {"$exists": False}},
+                        {"classified_at": None},
+                        {"classified_at": {"$lt": reask_before}},
+                    ]
+                },
+            ]
+        }
 
         # Limit if requested
         cursor = collection.find(query).sort("count", -1)  # Process most frequent first
         if max_rollups:
             cursor = cursor.limit(max_rollups)
 
-        # A fingerprint the model already judged `unknown` gets the same answer
-        # again unless something new happened to it. Without this check the
-        # same 29 fingerprints went to the classifier model every hour (about
-        # 107 of 135 helper calls in the week to 2026-11-10). Re-ask only when
-        # the fingerprint was seen again after its last verdict.
-        unclassified = [
-            doc
-            for doc in cursor
-            if not doc.get("classified_at") or (doc.get("last_seen") and doc["last_seen"] > doc["classified_at"])
-        ]
+        unclassified = list(cursor)
 
         if not unclassified:
             return {

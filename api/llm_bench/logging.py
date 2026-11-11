@@ -46,6 +46,12 @@ OPTIONAL_METRIC_FIELDS = (
     "max_output_tokens_attempted",
     "attempts_count",
     "reasoning_effort",
+    # Model call audit fixes, 2026-11-11. The decode window lets a batched
+    # stream yield a decode rate; the dashboard reads it. The rungs refused on
+    # the way to `reasoning_effort` are the row's provenance.
+    "reasoning_rungs_rejected",
+    "decode_window_tokens",
+    "decode_window_seconds",
     "validation_policy",
     "visible_text_empty",
     # Sample provenance. Without these on the allowlist the runner sets them and

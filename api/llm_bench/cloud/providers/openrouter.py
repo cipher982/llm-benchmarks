@@ -312,7 +312,6 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     first_chunk_text = ""
     first_chunk_time: float | None = None
     last_chunk_time: float | None = None
-    read_to_end = bool(config.misc.get("read_to_end"))
     usage = None
     finish_reason = None
     response_id = None
@@ -351,7 +350,7 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         last_chunk_time = current_time
         response_text += str(content)
         visible_clock.add(str(content), now=current_time)
-        if visible_clock.crossed and not read_to_end:
+        if visible_clock.crossed:
             # Delivered TPS is settled at the 64th visible token. Reading on
             # only buys tokens nothing consumes: R1 runs to ~1,467 completion
             # tokens when the answer here needed 64.
@@ -361,6 +360,16 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
             break
 
     generate_time = time.time() - time_0
+    window_tokens: int | None = None
+    window_seconds: float | None = None
+    if first_chunk_time is not None and last_chunk_time is not None and last_chunk_time > first_chunk_time:
+        # The suffix is encoded on its own rather than as a difference of two
+        # encodings, which would shift by a token where BPE merges across the
+        # first chunk's boundary.
+        window_tokens = count_tokens(response_text[len(first_chunk_text) :])
+        window_seconds = last_chunk_time - first_chunk_time
+        if window_tokens <= 0:
+            window_tokens = window_seconds = None
     usage_values = _usage_metrics(usage, response_text, reasoning_text, config.model_name)
     metrics = build_cloud_metrics(
         requested_tokens=run_config["max_tokens"],
@@ -391,16 +400,11 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
             "max_tokens_per_chunk": max_tokens_per_chunk,
             "stream_resolution": stream_resolution(visible_chunks, max_tokens_per_chunk),
             # Decode window: visible tokens after the first chunk, over the time
-            # from the first to the last visible chunk. Exact token counts per
-            # window, so a stream that arrives a few tokens per chunk still
-            # yields a rate without assuming every chunk is the same size.
-            "decode_window_tokens": (
-                max(count_tokens(response_text) - count_tokens(first_chunk_text), 0) if first_chunk_time else None
-            ),
-            "decode_window_seconds": (
-                (last_chunk_time - first_chunk_time) if first_chunk_time and last_chunk_time else None
-            ),
-            "read_to_end": read_to_end,
+            # from the first to the last visible chunk, so a stream that arrives
+            # a few tokens per chunk still yields a rate without assuming every
+            # chunk is the same size. Absent when there is no window to time.
+            "decode_window_tokens": window_tokens,
+            "decode_window_seconds": window_seconds,
         }
     )
 

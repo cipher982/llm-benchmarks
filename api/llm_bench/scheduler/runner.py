@@ -540,6 +540,14 @@ def _generate_and_validate(
 BUDGET_EXHAUSTED_MARKER = "budget was exhausted"
 
 
+def _safe_db_write(what: str, write: Any) -> None:
+    """A floor or headroom flag is an optimisation, never a reason to drop a billed row."""
+    try:
+        write()
+    except Exception as exc:  # noqa: BLE001
+        print(f"reasoning {what} write failed: {type(exc).__name__}: {exc}", flush=True)
+
+
 def _attempt_with_reasoning_ladder(
     decision: RouteDecision,
     *,
@@ -547,16 +555,23 @@ def _attempt_with_reasoning_ladder(
     run_config: dict[str, Any],
     base_budget: int,
     timeout_seconds: float | None = None,
+    profile_id: str = DEFAULT_PROFILE_ID,
+    skip: tuple[str, ...] = (),
 ) -> tuple[CloudConfig, dict[str, Any], int, str | None]:
     """One measurement at the least reasoning the endpoint accepts.
 
     Returns (config, metrics, max_tokens, effort). Rungs the endpoint refuses
-    (an unbilled HTTP 400) are skipped within the same job and remembered, so
-    the next run starts at the rung that worked. See `scheduler/reasoning.py`.
+    (an HTTP 400 naming reasoning) are skipped within the same job and
+    remembered, so the next run starts at the rung that worked; `skip` carries
+    rungs refused by an earlier attempt of the same job. A failure raised from
+    here carries `rejected_rungs` for that purpose. See `scheduler/reasoning.py`.
+
+    Only the default profile is laddered: another profile exists to measure a
+    model under its own budget and reasoning, and must not be rewritten here.
     Lanes other than OpenRouter keep the old single attempt.
     """
     lane = _transport_provider(decision)
-    if lane not in EARLY_STOP_PROVIDERS:
+    if lane not in EARLY_STOP_PROVIDERS or profile_id != DEFAULT_PROFILE_ID:
         config, metrics = _generate_and_validate(
             decision,
             run_ts=run_ts,
@@ -569,26 +584,26 @@ def _attempt_with_reasoning_ladder(
     model_id = decision.transport_model_id or decision.source_model_id
     endpoint_tag = decision.route_endpoint_tag
     client = None
+    db = None
     try:
         _, db_name = mongo_env()
         client = mongo_client()
         db = client[db_name]
-        plan = reasoning.plan_for(db, model_id, endpoint_tag)
+        plan = reasoning.plan_for(db, model_id, endpoint_tag, skip=skip)
     except Exception as exc:  # noqa: BLE001
         # Without the stored plan, measure the way every run did before:
         # provider default reasoning, full budget, stop at the mark.
         print(f"reasoning plan unavailable for {model_id}: {type(exc).__name__}: {exc}", flush=True)
         db = None
-        plan = reasoning.ReasoningPlan(supported=False, rungs=(None,), needs_headroom=True)
+        plan = reasoning.LEGACY_PLAN
 
     try:
-        rejected: list[str] = []
+        rejected: list[str] = list(skip)
         last_failure: AttemptFailure | None = None
         for effort in plan.rungs:
-            max_tokens, read_to_end = reasoning.budget_for(base_budget, effort, plan)
-            extra: dict[str, Any] = {"read_to_end": read_to_end}
-            if effort is not None:
-                extra["reasoning_effort"] = effort
+            max_tokens = reasoning.budget_for(base_budget, effort, plan)
+            short = max_tokens < base_budget
+            extra: dict[str, Any] = {"reasoning_effort": effort} if effort is not None else {}
             try:
                 config, metrics = _generate_and_validate(
                     decision,
@@ -603,25 +618,31 @@ def _attempt_with_reasoning_ladder(
                 if effort is not None and failure.stage == "generate" and reasoning.is_rejection(failure.message):
                     rejected.append(effort)
                     continue
-                if db is not None and read_to_end and BUDGET_EXHAUSTED_MARKER in failure.message:
-                    reasoning.record_needs_headroom(db, model_id, endpoint_tag, effort=effort)
+                if db is not None and short and BUDGET_EXHAUSTED_MARKER in failure.message:
+                    _safe_db_write(
+                        "headroom",
+                        lambda: reasoning.record_needs_headroom(db, model_id, endpoint_tag, effort=effort),
+                    )
+                failure.rejected_rungs = tuple(rejected)  # type: ignore[attr-defined]
                 raise
             if db is not None and plan.supported:
-                reasoning.record_floor(db, model_id, endpoint_tag, effort, rejected=rejected)
-            if (
-                db is not None
-                and read_to_end
-                and metrics.get("time_to_64_visible_tokens_seconds") is None
-                and metrics.get("finish_reason") in ("length", "max_tokens")
-            ):
+                _safe_db_write(
+                    "floor",
+                    lambda: reasoning.record_floor(db, model_id, endpoint_tag, effort, rejected=rejected),
+                )
+            if db is not None and short and metrics.get("time_to_64_visible_tokens_seconds") is None:
                 # The short budget ended before the 64th visible token, so the
                 # headline number is missing from this row. Give the endpoint
                 # room from the next run on.
-                reasoning.record_needs_headroom(db, model_id, endpoint_tag, effort=effort)
+                _safe_db_write(
+                    "headroom",
+                    lambda: reasoning.record_needs_headroom(db, model_id, endpoint_tag, effort=effort),
+                )
             metrics["reasoning_effort"] = effort or reasoning.OMITTED
             metrics["reasoning_rungs_rejected"] = rejected
             return config, metrics, max_tokens, effort
         assert last_failure is not None
+        last_failure.rejected_rungs = tuple(rejected)  # type: ignore[attr-defined]
         raise last_failure
     finally:
         if client is not None:
@@ -747,6 +768,7 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
             run_config=run_config,
             base_budget=max_tokens,
             timeout_seconds=route_timeout_seconds,
+            profile_id=profile_id,
         )
     except AttemptFailure as failure:
         if not route_attempted:
@@ -777,11 +799,17 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
         max_tokens = budget_for(decision)
         run_config = {**run_config, "max_tokens": max_tokens}
         try:
+            # Same model, same job: never re-ask for a rung the routed attempt
+            # was already refused, and keep the routed attempt's timeout so a
+            # second ladder cannot outlive the job deadline.
             model_config, metrics, max_tokens, effort = _attempt_with_reasoning_ladder(
                 decision,
                 run_ts=run_ts,
                 run_config=run_config,
                 base_budget=max_tokens,
+                timeout_seconds=route_timeout_seconds,
+                profile_id=profile_id,
+                skip=tuple(getattr(failure, "rejected_rungs", ())),
             )
         except AttemptFailure as direct_failure:
             error_kind = _record_attempt_failure(

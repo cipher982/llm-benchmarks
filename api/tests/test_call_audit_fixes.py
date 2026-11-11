@@ -57,33 +57,39 @@ class TestPlan:
                 "BadRequestError: Error code: 400 - {'error': {'message': 'Reasoning is mandatory for this endpoint'}}",
                 True,
             ),
-            ("BadRequestError: Error code: 400 - {'error': {'message': 'Provider returned error'}}", True),
+            (
+                "BadRequestError: Error code: 400 - {'error': {'message': 'Provider returned error', 'metadata': "
+                "{'raw': 'Unsupported value: minimal is not supported', 'param': 'reasoning.effort'}}}",
+                True,
+            ),
+            ("BadRequestError: Error code: 400 - {'error': {'message': 'Provider returned error'}}", False),
+            ("BadRequestError: Error code: 400 - max_tokens must be at least 256", False),
             ("RateLimitError: Error code: 429", False),
             ("NotFoundError: Error code: 404 - No endpoints found", False),
         ],
     )
-    def test_only_a_400_counts_as_a_refused_rung(self, message, rejected):
+    def test_only_a_400_naming_reasoning_counts_as_a_refused_rung(self, message, rejected):
         assert reasoning.is_rejection(message) is rejected
 
 
 class TestBudget:
     plan = reasoning.ReasoningPlan(supported=True, rungs=("none", None))
 
-    def test_none_is_short_and_read_to_the_end(self):
-        assert reasoning.budget_for(2048, "none", self.plan) == (reasoning.SHORT_BUDGET, True)
+    def test_none_gets_the_short_budget(self):
+        assert reasoning.budget_for(2048, "none", self.plan) == reasoning.SHORT_BUDGET
 
     def test_short_budget_never_raises_a_price_clamp(self):
-        assert reasoning.budget_for(64, "none", self.plan) == (64, True)
+        assert reasoning.budget_for(64, "none", self.plan) == 64
 
     def test_a_reasoning_rung_keeps_headroom_but_is_capped(self):
-        assert reasoning.budget_for(2048, "low", self.plan) == (reasoning.REASONING_BUDGET_CAP, False)
+        assert reasoning.budget_for(2048, "low", self.plan) == reasoning.REASONING_BUDGET_CAP
 
     def test_the_provider_default_keeps_the_old_budget(self):
-        assert reasoning.budget_for(2048, None, self.plan) == (2048, False)
+        assert reasoning.budget_for(2048, None, self.plan) == 2048
 
     def test_headroom_flag_overrides_the_short_budget(self):
         plan = reasoning.ReasoningPlan(supported=True, rungs=("none",), needs_headroom=True)
-        assert reasoning.budget_for(2048, "none", plan) == (2048, False)
+        assert reasoning.budget_for(2048, "none", plan) == 2048
 
 
 def _decision():
@@ -111,7 +117,7 @@ class TestLadder:
     def _fake(self, calls, behaviour):
         def fake(decision, *, run_ts, run_config, max_tokens, timeout_seconds=None, extra_misc=None):
             effort = (extra_misc or {}).get("reasoning_effort")
-            calls.append((effort, max_tokens, (extra_misc or {}).get("read_to_end")))
+            calls.append((effort, max_tokens))
             outcome = behaviour(effort)
             if isinstance(outcome, runner.AttemptFailure):
                 raise outcome
@@ -141,7 +147,7 @@ class TestLadder:
 
         def behaviour(effort):
             if effort is not None:
-                return runner.AttemptFailure("generate", "BadRequestError: Error code: 400")
+                return runner.AttemptFailure("generate", "BadRequestError: Error code: 400 - Reasoning is mandatory")
             return None
 
         monkeypatch.setattr(runner, "_generate_and_validate", self._fake(calls, behaviour))
@@ -177,9 +183,74 @@ class TestLadder:
         )
         with pytest.raises(runner.AttemptFailure):
             runner._attempt_with_reasoning_ladder(_decision(), run_ts="t", run_config={"query": "q"}, base_budget=2048)
-        assert calls == [("none", reasoning.SHORT_BUDGET, True)]
+        assert calls == [("none", reasoning.SHORT_BUDGET)]
         assert reasoning.plan_for(db, "z/m", None).needs_headroom is True
-        assert reasoning.budget_for(2048, "none", reasoning.plan_for(db, "z/m", None)) == (2048, False)
+        assert reasoning.budget_for(2048, "none", reasoning.plan_for(db, "z/m", None)) == 2048
+
+    def test_an_unrelated_400_is_raised_without_climbing(self, wired, monkeypatch):
+        _, calls, _ = wired
+        monkeypatch.setattr(
+            runner,
+            "_generate_and_validate",
+            self._fake(
+                calls, lambda e: runner.AttemptFailure("generate", "BadRequestError: Error code: 400 - context")
+            ),
+        )
+        with pytest.raises(runner.AttemptFailure):
+            runner._attempt_with_reasoning_ladder(_decision(), run_ts="t", run_config={"query": "q"}, base_budget=2048)
+        assert len(calls) == 1
+
+    def test_the_fallback_attempt_skips_rungs_already_refused(self, wired, monkeypatch):
+        _, calls, _ = wired
+
+        def behaviour(effort):
+            if effort == "none":
+                return runner.AttemptFailure("generate", "BadRequestError: Error code: 400 - Reasoning is mandatory")
+            return runner.AttemptFailure("generate", "InternalServerError: Error code: 503")
+
+        monkeypatch.setattr(runner, "_generate_and_validate", self._fake(calls, behaviour))
+        with pytest.raises(runner.AttemptFailure) as first:
+            runner._attempt_with_reasoning_ladder(_decision(), run_ts="t", run_config={"query": "q"}, base_budget=2048)
+        assert first.value.rejected_rungs == ("none",)
+        calls.clear()
+        with pytest.raises(runner.AttemptFailure):
+            runner._attempt_with_reasoning_ladder(
+                _decision(), run_ts="t", run_config={"query": "q"}, base_budget=2048, skip=first.value.rejected_rungs
+            )
+        assert [c[0] for c in calls] == ["minimal"]
+
+    def test_a_failed_floor_write_does_not_drop_the_billed_row(self, wired, monkeypatch):
+        _, calls, _ = wired
+        monkeypatch.setattr(runner, "_generate_and_validate", self._fake(calls, lambda e: None))
+        monkeypatch.setattr(reasoning, "record_floor", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("mongo")))
+        _, metrics, _, effort = runner._attempt_with_reasoning_ladder(
+            _decision(), run_ts="t", run_config={"query": "q"}, base_budget=2048
+        )
+        assert effort == "none" and metrics["reasoning_effort"] == "none"
+
+    def test_other_profiles_are_not_laddered(self, wired, monkeypatch):
+        _, calls, _ = wired
+        monkeypatch.setattr(runner, "_generate_and_validate", self._fake(calls, lambda e: None))
+        *_, effort = runner._attempt_with_reasoning_ladder(
+            _decision(), run_ts="t", run_config={"query": "q"}, base_budget=2048, profile_id="cloud-reasoning-v1"
+        )
+        assert effort is None and calls == [(None, 2048)]
+
+
+class TestExpiry:
+    def test_a_stale_floor_is_relearned_from_none(self, db):
+        _endpoint(db)
+        reasoning.record_floor(db, "z/m", "prov", None, rejected=["none", "minimal", "low"])
+        later = datetime.now(timezone.utc) + timedelta(days=reasoning.FLOOR_TTL_DAYS + 1)
+        assert reasoning.plan_for(db, "z/m", "prov").rungs == (None,)
+        assert reasoning.plan_for(db, "z/m", "prov", now=later).first == "none"
+
+    def test_a_stale_headroom_flag_expires(self, db):
+        _endpoint(db)
+        reasoning.record_needs_headroom(db, "z/m", "prov", effort="none")
+        later = datetime.now(timezone.utc) + timedelta(days=reasoning.FLOOR_TTL_DAYS + 1)
+        assert reasoning.plan_for(db, "z/m", "prov").needs_headroom is True
+        assert reasoning.plan_for(db, "z/m", "prov", now=later).needs_headroom is False
 
 
 class TestRequestOptions:
@@ -244,22 +315,22 @@ class TestWorkerMirror:
 
 
 class TestClassifierSkip:
-    def test_unchanged_unknown_is_not_re_asked(self, monkeypatch):
+    def test_recent_unknown_is_not_re_asked_and_does_not_eat_the_bound(self, monkeypatch):
         import asyncio
         import os
 
         from llm_bench.ops import llm_error_classifier as clf
 
         mdb = mongomock.MongoClient()
-        now = datetime(2026, 11, 11)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         coll = mdb[os.getenv("MONGODB_DB", "llm-bench")]["error_rollups"]
         coll.insert_one(
-            {"fingerprint": "a", "error_kind": "unknown", "classified_at": now, "last_seen": now - timedelta(hours=1)}
+            {"fingerprint": "a", "error_kind": "unknown", "classified_at": now, "last_seen": now, "count": 9}
         )
         coll.insert_one(
-            {"fingerprint": "b", "error_kind": "unknown", "classified_at": now, "last_seen": now + timedelta(hours=1)}
+            {"fingerprint": "b", "error_kind": "unknown", "classified_at": now - timedelta(days=8), "count": 5}
         )
-        coll.insert_one({"fingerprint": "c", "error_kind": None})
+        coll.insert_one({"fingerprint": "c", "error_kind": None, "count": 1})
         monkeypatch.setenv("MONGODB_URI", "mongodb://x")
         monkeypatch.setattr(clf, "MongoClient", lambda uri: mdb)
         mdb.close = lambda: None
@@ -273,5 +344,21 @@ class TestClassifierSkip:
         monkeypatch.setattr(
             clf, "update_rollups_with_classifications", lambda *a, **k: {"updated": 0, "skipped": 0, "errors": 0}
         )
+        asyncio.run(clf.classify_unclassified_rollups(max_rollups=1))
+        assert sent == ["b"], "the bound must count eligible fingerprints only"
+        sent.clear()
         asyncio.run(clf.classify_unclassified_rollups())
         assert sorted(sent) == ["b", "c"]
+
+
+def test_new_row_fields_survive_the_logging_allowlist():
+    """The allowlist silently dropped new fields twice before; the decode window was the third time."""
+    from llm_bench.logging import _optional_metric_fields
+
+    fields = {
+        "decode_window_tokens": 120,
+        "decode_window_seconds": 1.9,
+        "reasoning_effort": "none",
+        "reasoning_rungs_rejected": ["none"],
+    }
+    assert _optional_metric_fields(fields) == fields
