@@ -32,6 +32,7 @@ from pymongo.database import Database
 
 from llm_bench.ops import desired_set as desired_set_module
 from llm_bench.ops import endpoint_discovery
+from llm_bench.ops import lane_duplicates
 from llm_bench.ops import openrouter_key_limit
 from llm_bench.scheduler import policies
 from llm_bench.scheduler import policies as scheduler_policies
@@ -256,6 +257,29 @@ def no_case_duplicate_models(ctx: Context) -> list[Violation]:
         )
         for (provider, lowered), ids in sorted(seen.items())
         if len(ids) > 1
+    ]
+
+
+def no_model_measured_twice_on_one_host(ctx: Context) -> list[Violation]:
+    """One model on one host is one measurement.
+
+    A direct lane and an OpenRouter row reaching the same host, or an OpenRouter
+    ~*-latest alias beside the model it points at, publish one measurement
+    twice. On 2026-11-11 that was 24 direct OpenAI rows, 3 Vertex rows, 8
+    Bedrock rows and 18 aliases; a one-shot cleanup in August had not stopped
+    discovery from re-admitting the other side. `lane_duplicates --apply` fixes it.
+    """
+    return [
+        Violation(
+            subject=f"{d['provider']}/{d['model_id']}",
+            detail=(
+                "OpenRouter alias of a model measured under its own id"
+                if d["kind"] == "alias"
+                else f"also measured as openrouter/{d['openrouter_id']} on {d['host']}"
+            ),
+            data=d,
+        )
+        for d in lane_duplicates.duplicates(ctx.db)
     ]
 
 
@@ -918,6 +942,11 @@ INVARIANTS: list[Invariant] = [
         "No model is enabled under more than one spelling",
         no_case_duplicate_models,
         remediable=True,
+    ),
+    Invariant(
+        "no_model_measured_twice_on_one_host",
+        "No model is measured both on a direct lane and on OpenRouter for the same host, or under an alias",
+        no_model_measured_twice_on_one_host,
     ),
     Invariant(
         "no_job_is_stuck_in_queue",

@@ -137,6 +137,10 @@ def openrouter_model_allowed(model_id: str) -> bool:
     Prefix policy closes the discovery/remote-guardrail race for newly listed
     models. It does not exclude the same model from a direct-provider lane.
     """
+    # ~vendor/*-latest is OpenRouter's moving alias for a model it also lists
+    # under its own id. Measuring both counts that model twice.
+    if model_id.startswith("~"):
+        return False
     raw = os.getenv("BENCHMARK_OPENROUTER_EXCLUDED_MODEL_PREFIXES", "")
     return not any(model_id.startswith(prefix.strip()) for prefix in raw.split(",") if prefix.strip())
 
