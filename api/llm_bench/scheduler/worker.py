@@ -16,6 +16,7 @@ from llm_bench.scheduler.mongo import mongo_client
 from llm_bench.scheduler.mongo import mongo_env
 from llm_bench.scheduler.mongo import route_decisions_collection_name
 from llm_bench.scheduler.mongo import route_revocation_generation
+from llm_bench.scheduler.routing import PINNED_ENDPOINT_POLICY
 from llm_bench.scheduler.routing import cooldown_route_snapshot
 from llm_bench.scheduler.runner import run_job_in_child
 
@@ -69,7 +70,12 @@ def persist_route_cooldown(db, *, job: dict, result: runner.RunnerResult, now: d
             {"$set": {"route_snapshot": cooled}},
         )
     # The job snapshot is the retry safety boundary. Update it first, then
-    # mirror the same state into the operator-facing route collection.
+    # mirror the same state into the operator-facing route collection, except
+    # for pinned-endpoint routes: those are rebuilt from the catalogue on every
+    # job, and mirroring wrote one new document per failure (12,650 by
+    # 2026-11-11) that the renewal loop then paid to probe.
+    if cooled.get("route_policy") == PINNED_ENDPOINT_POLICY:
+        return
     db[route_decisions_collection_name()].update_one(key, {"$set": cooled}, upsert=True)
 
 

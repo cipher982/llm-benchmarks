@@ -290,7 +290,16 @@ async def classify_unclassified_rollups(
         if max_rollups:
             cursor = cursor.limit(max_rollups)
 
-        unclassified = list(cursor)
+        # A fingerprint the model already judged `unknown` gets the same answer
+        # again unless something new happened to it. Without this check the
+        # same 29 fingerprints went to the classifier model every hour (about
+        # 107 of 135 helper calls in the week to 2026-11-10). Re-ask only when
+        # the fingerprint was seen again after its last verdict.
+        unclassified = [
+            doc
+            for doc in cursor
+            if not doc.get("classified_at") or (doc.get("last_seen") and doc["last_seen"] > doc["classified_at"])
+        ]
 
         if not unclassified:
             return {

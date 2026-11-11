@@ -22,6 +22,7 @@ from llm_bench.logging import log_mongo
 from llm_bench.ops.error_rollups import upsert_error_rollup
 from llm_bench.ops.error_taxonomy import classify_error
 from llm_bench.scheduler import policies
+from llm_bench.scheduler import reasoning
 from llm_bench.scheduler.mongo import PUBLISHED_PROFILE_ID
 from llm_bench.scheduler.mongo import error_rollups_collection_name
 from llm_bench.scheduler.mongo import errors_collection_name
@@ -465,10 +466,11 @@ def _config_for_decision(
     *,
     run_ts: str,
     timeout_seconds: float | None = None,
+    extra_misc: dict[str, Any] | None = None,
 ) -> CloudConfig:
     provider = _transport_provider(decision)
     model_id = decision.transport_model_id or decision.source_model_id
-    misc: dict[str, Any] = {}
+    misc: dict[str, Any] = dict(extra_misc or {})
     if decision.transport_provider == OPENROUTER_TRANSPORT:
         misc["route_provider_slug"] = decision.route_provider_slug
         misc["route_endpoint_tag"] = decision.route_endpoint_tag
@@ -502,8 +504,9 @@ def _generate_and_validate(
     run_config: dict[str, Any],
     max_tokens: int,
     timeout_seconds: float | None = None,
+    extra_misc: dict[str, Any] | None = None,
 ) -> tuple[CloudConfig, dict[str, Any]]:
-    config = _config_for_decision(decision, run_ts=run_ts, timeout_seconds=timeout_seconds)
+    config = _config_for_decision(decision, run_ts=run_ts, timeout_seconds=timeout_seconds, extra_misc=extra_misc)
     provider = _transport_provider(decision)
     try:
         generate = load_provider_func(provider)
@@ -532,6 +535,97 @@ def _generate_and_validate(
                 f"observed provider {observed_slug!r} does not match route {decision.route_provider_slug!r}",
             )
     return config, metrics
+
+
+BUDGET_EXHAUSTED_MARKER = "budget was exhausted"
+
+
+def _attempt_with_reasoning_ladder(
+    decision: RouteDecision,
+    *,
+    run_ts: str,
+    run_config: dict[str, Any],
+    base_budget: int,
+    timeout_seconds: float | None = None,
+) -> tuple[CloudConfig, dict[str, Any], int, str | None]:
+    """One measurement at the least reasoning the endpoint accepts.
+
+    Returns (config, metrics, max_tokens, effort). Rungs the endpoint refuses
+    (an unbilled HTTP 400) are skipped within the same job and remembered, so
+    the next run starts at the rung that worked. See `scheduler/reasoning.py`.
+    Lanes other than OpenRouter keep the old single attempt.
+    """
+    lane = _transport_provider(decision)
+    if lane not in EARLY_STOP_PROVIDERS:
+        config, metrics = _generate_and_validate(
+            decision,
+            run_ts=run_ts,
+            run_config={**run_config, "max_tokens": base_budget},
+            max_tokens=base_budget,
+            timeout_seconds=timeout_seconds,
+        )
+        return config, metrics, base_budget, None
+
+    model_id = decision.transport_model_id or decision.source_model_id
+    endpoint_tag = decision.route_endpoint_tag
+    client = None
+    try:
+        _, db_name = mongo_env()
+        client = mongo_client()
+        db = client[db_name]
+        plan = reasoning.plan_for(db, model_id, endpoint_tag)
+    except Exception as exc:  # noqa: BLE001
+        # Without the stored plan, measure the way every run did before:
+        # provider default reasoning, full budget, stop at the mark.
+        print(f"reasoning plan unavailable for {model_id}: {type(exc).__name__}: {exc}", flush=True)
+        db = None
+        plan = reasoning.ReasoningPlan(supported=False, rungs=(None,), needs_headroom=True)
+
+    try:
+        rejected: list[str] = []
+        last_failure: AttemptFailure | None = None
+        for effort in plan.rungs:
+            max_tokens, read_to_end = reasoning.budget_for(base_budget, effort, plan)
+            extra: dict[str, Any] = {"read_to_end": read_to_end}
+            if effort is not None:
+                extra["reasoning_effort"] = effort
+            try:
+                config, metrics = _generate_and_validate(
+                    decision,
+                    run_ts=run_ts,
+                    run_config={**run_config, "max_tokens": max_tokens},
+                    max_tokens=max_tokens,
+                    timeout_seconds=timeout_seconds,
+                    extra_misc=extra,
+                )
+            except AttemptFailure as failure:
+                last_failure = failure
+                if effort is not None and failure.stage == "generate" and reasoning.is_rejection(failure.message):
+                    rejected.append(effort)
+                    continue
+                if db is not None and read_to_end and BUDGET_EXHAUSTED_MARKER in failure.message:
+                    reasoning.record_needs_headroom(db, model_id, endpoint_tag, effort=effort)
+                raise
+            if db is not None and plan.supported:
+                reasoning.record_floor(db, model_id, endpoint_tag, effort, rejected=rejected)
+            if (
+                db is not None
+                and read_to_end
+                and metrics.get("time_to_64_visible_tokens_seconds") is None
+                and metrics.get("finish_reason") in ("length", "max_tokens")
+            ):
+                # The short budget ended before the 64th visible token, so the
+                # headline number is missing from this row. Give the endpoint
+                # room from the next run on.
+                reasoning.record_needs_headroom(db, model_id, endpoint_tag, effort=effort)
+            metrics["reasoning_effort"] = effort or reasoning.OMITTED
+            metrics["reasoning_rungs_rejected"] = rejected
+            return config, metrics, max_tokens, effort
+        assert last_failure is not None
+        raise last_failure
+    finally:
+        if client is not None:
+            client.close()
 
 
 def _record_attempt_failure(
@@ -647,11 +741,11 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
         if decision.transport_provider == OPENROUTER_TRANSPORT:
             configured = float(os.getenv("OPENROUTER_ROUTE_TIMEOUT_SECONDS", "45"))
             route_timeout_seconds = min(configured, max(5.0, deadline_seconds / 3.0))
-        model_config, metrics = _generate_and_validate(
+        model_config, metrics, max_tokens, effort = _attempt_with_reasoning_ladder(
             decision,
             run_ts=run_ts,
             run_config=run_config,
-            max_tokens=max_tokens,
+            base_budget=max_tokens,
             timeout_seconds=route_timeout_seconds,
         )
     except AttemptFailure as failure:
@@ -683,11 +777,11 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
         max_tokens = budget_for(decision)
         run_config = {**run_config, "max_tokens": max_tokens}
         try:
-            model_config, metrics = _generate_and_validate(
+            model_config, metrics, max_tokens, effort = _attempt_with_reasoning_ladder(
                 decision,
                 run_ts=run_ts,
                 run_config=run_config,
-                max_tokens=max_tokens,
+                base_budget=max_tokens,
             )
         except AttemptFailure as direct_failure:
             error_kind = _record_attempt_failure(
@@ -722,6 +816,7 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
             "max_tokens": max_tokens,
             "temperature": TEMPERATURE,
             "protocol_version": PROTOCOL_VERSION,
+            "reasoning_effort": effort,
         }
     )
     metrics["effective_request_hash"] = stable_hash(
@@ -736,6 +831,7 @@ def run_benchmark_job(job: dict[str, Any]) -> RunnerResult:
             "max_tokens": max_tokens,
             "temperature": TEMPERATURE,
             "protocol_version": PROTOCOL_VERSION,
+            "reasoning_effort": effort,
         }
     )
     metrics["requested_max_tokens"] = max_tokens

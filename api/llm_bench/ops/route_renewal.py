@@ -27,6 +27,7 @@ from llm_bench.scheduler.mongo import mongo_client
 from llm_bench.scheduler.mongo import mongo_env
 from llm_bench.scheduler.mongo import route_decisions_collection_name
 from llm_bench.scheduler.routing import OPENROUTER_TRANSPORT
+from llm_bench.scheduler.routing import PINNED_ENDPOINT_POLICY
 from llm_bench.scheduler.routing import RouteDecision
 from llm_bench.scheduler.routing import cooldown_route_snapshot
 from llm_bench.scheduler.routing import recover_route_snapshot
@@ -102,13 +103,36 @@ def renew_pass(
     cap = limit if limit is not None else max_per_pass()
     cutoff = now + timedelta(hours=ahead)
 
+    # A pinned-endpoint route is rebuilt from the endpoint catalogue on every
+    # job (`routing.endpoint_route_snapshot`), so a cooled copy of one is a
+    # record of a past failure, not a route anything will use again. The worker
+    # wrote one per failure, each with a failure count of 1, and this pass
+    # probed the oldest eight every hour: 12,650 of them on 2026-11-11, about
+    # 190 billed calls a day that could never succeed or retire. Retire them
+    # here without a call.
+    retired = collection.update_many(
+        {"state": "cooldown", "route_policy": PINNED_ENDPOINT_POLICY},
+        {
+            "$set": {
+                "state": "retired",
+                "route_health_state": "retired",
+                "route_retired_reason": "pinned-endpoint routes are rebuilt from the catalogue; nothing to recover",
+                "route_retired_at": now.isoformat(),
+            }
+        },
+    ).modified_count
+
     candidates = list(
         collection.find(
             {
                 "state": {"$in": ["active", "cooldown"]},
                 "$or": [
                     {"state": "active", "expires_at": {"$lte": cutoff.isoformat()}},
-                    {"state": "cooldown", "cooldown_until": {"$lte": now.timestamp()}},
+                    {
+                        "state": "cooldown",
+                        "cooldown_until": {"$lte": now.timestamp()},
+                        "route_policy": {"$ne": PINNED_ENDPOINT_POLICY},
+                    },
                 ],
             }
         )
@@ -116,7 +140,14 @@ def renew_pass(
         .limit(cap)
     )
 
-    report = {"considered": len(candidates), "renewed": 0, "cooled": 0, "revoked": 0, "skipped": 0}
+    report = {
+        "considered": len(candidates),
+        "renewed": 0,
+        "cooled": 0,
+        "revoked": 0,
+        "skipped": 0,
+        "retired_without_probe": retired,
+    }
     for route in candidates:
         # The probe must be able to route even when the stored evidence is
         # expired or the route is cooling down; that is exactly what this pass

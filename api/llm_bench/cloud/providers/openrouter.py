@@ -82,34 +82,46 @@ def _nested_field(obj: Any, *names: str) -> Any:
     return None
 
 
+def _reasoning_options(config: CloudConfig) -> dict[str, Any] | None:
+    """The reasoning setting for this request, if any.
+
+    The runner chooses the least reasoning the endpoint accepts (see
+    scheduler/reasoning.py). A legacy route flag still asks for minimal and
+    hides the text, as it always did.
+    """
+    effort = config.misc.get("reasoning_effort")
+    if effort:
+        return {"effort": str(effort)}
+    if config.misc.get("route_reasoning_exclude"):
+        # Parity with direct lanes that measure non-reasoning visible output:
+        # some OpenRouter lanes default frontier models into thinking mode,
+        # which consumes the whole published-profile token budget invisibly.
+        return {"exclude": True, "effort": "minimal"}
+    return None
+
+
 def _route_options(config: CloudConfig) -> dict[str, Any]:
+    options: dict[str, Any] = {}
+    reasoning = _reasoning_options(config)
+    if reasoning:
+        options["reasoning"] = reasoning
     # or-served (marketplace) lanes measure OpenRouter's default routing: the
     # user does not pin, so neither do we. The observed provider is recorded
     # from the response, not forced in the request.
     if config.misc.get("route_policy") == OR_SERVED_POLICY:
-        if config.misc.get("route_reasoning_exclude"):
-            return {"reasoning": {"exclude": True, "effort": "minimal"}}
-        return {}
+        return options
     # Pin the exact endpoint when one is known, and fall back to the provider
     # family only for routes predating endpoint identity. A family slug matches
     # every variant OpenRouter publishes — `only: ["deepinfra"]` still
     # load-balances `deepinfra/bf16` against `deepinfra/turbo`, which serve at
     # different speeds and different quantizations.
     route_slug = config.misc.get("route_endpoint_tag") or config.misc.get("route_provider_slug")
-    if not route_slug:
-        return {}
-    options: dict[str, Any] = {
-        "provider": {
+    if route_slug:
+        options["provider"] = {
             "only": [str(route_slug)],
             "allow_fallbacks": False,
             "require_parameters": True,
         }
-    }
-    if config.misc.get("route_reasoning_exclude"):
-        # Parity with direct lanes that measure non-reasoning visible output:
-        # some OpenRouter lanes default frontier models into thinking mode,
-        # which consumes the whole published-profile token budget invisibly.
-        options["reasoning"] = {"exclude": True, "effort": "minimal"}
     return options
 
 
@@ -297,6 +309,10 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
     # measurement from an unresolved one instead of guessing.
     visible_chunks = 0
     max_tokens_per_chunk = 0
+    first_chunk_text = ""
+    first_chunk_time: float | None = None
+    last_chunk_time: float | None = None
+    read_to_end = bool(config.misc.get("read_to_end"))
     usage = None
     finish_reason = None
     response_id = None
@@ -327,12 +343,15 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
         if not first_token_received:
             time_to_first_token = current_time - time_0
             first_token_received = True
+            first_chunk_text = str(content)
+            first_chunk_time = current_time
         elif previous_token_time is not None:
             times_between_tokens.append(current_time - previous_token_time)
         previous_token_time = current_time
+        last_chunk_time = current_time
         response_text += str(content)
         visible_clock.add(str(content), now=current_time)
-        if visible_clock.crossed:
+        if visible_clock.crossed and not read_to_end:
             # Delivered TPS is settled at the 64th visible token. Reading on
             # only buys tokens nothing consumes: R1 runs to ~1,467 completion
             # tokens when the answer here needed 64.
@@ -371,6 +390,17 @@ def generate(config: CloudConfig, run_config: dict) -> dict:
             "visible_stream_chunks": visible_chunks,
             "max_tokens_per_chunk": max_tokens_per_chunk,
             "stream_resolution": stream_resolution(visible_chunks, max_tokens_per_chunk),
+            # Decode window: visible tokens after the first chunk, over the time
+            # from the first to the last visible chunk. Exact token counts per
+            # window, so a stream that arrives a few tokens per chunk still
+            # yields a rate without assuming every chunk is the same size.
+            "decode_window_tokens": (
+                max(count_tokens(response_text) - count_tokens(first_chunk_text), 0) if first_chunk_time else None
+            ),
+            "decode_window_seconds": (
+                (last_chunk_time - first_chunk_time) if first_chunk_time and last_chunk_time else None
+            ),
+            "read_to_end": read_to_end,
         }
     )
 
