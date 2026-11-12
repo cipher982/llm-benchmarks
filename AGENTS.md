@@ -113,7 +113,7 @@ Always `cd` into the specific subdirectory before git operations.
 | **clifford** | openrouter | Mongo-backed scheduler with isolated provider worker lanes; every non-Bedrock provider is an OpenRouter endpoint |
 | **EC2** | bedrock | Needs AWS IAM role + MongoDB via HTTP bridge |
 
-**HTTP Ingest Bridge:** EC2 POSTs results to `https://bench-ingest.drose.io` (on clifford), which writes to MongoDB. `bench-ingest` is a manual app, not a Coolify app: tracked deploy state is in `~/git/me/domains/mytech/infrastructure/manual-apps/bench-ingest/`, runtime secrets are on clifford at `/home/drose/manual-apps/bench-ingest/.env.secrets`, and deploys use `~/git/me/domains/mytech/bin/manual-app deploy bench-ingest --repo-dir ~/git/llmbench/bench-ingest`.
+**HTTP Ingest Bridge:** EC2 POSTs results to `https://bench-ingest.drose.io` (on clifford), which writes to MongoDB. `bench-ingest` is a manual app, not a Coolify app: tracked deploy state is in `~/git/me/domains/mytech/infrastructure/manual-apps/bench-ingest/`, runtime secrets are on clifford at `/etc/estate/stacks/bench-ingest/.env.secrets` (the older `/home/drose/manual-apps/bench-ingest/` layout is unused), and deploys use `~/git/me/domains/mytech/bin/manual-app deploy bench-ingest --repo-dir ~/git/llmbench/bench-ingest`.
 
 **Configuration:** clifford scheduler config lives in the tracked manual-app compose at `~/git/me/domains/mytech/infrastructure/manual-apps/llm-bench-dashboard/compose.yaml` — not in this repo's `docker-compose.yml`, which is not what runs in production. `bench-ingest` config/secrets live in the manual-app remote `.env.secrets`. The RND Bedrock runner loads `/etc/bedrock-bench/runner.env`, but its model worklist comes from `bench-ingest` `/runner-config`, not from a static env var.
 
@@ -122,6 +122,8 @@ Always `cd` into the specific subdirectory before git operations.
 ## MongoDB
 
 **Connection:** Use the service env on clifford; do not ask the user for `MONGODB_URI`. The RND Bedrock runner must never receive MongoDB credentials.
+
+**Credentials (rotated 2026-11-11):** `mongod` runs on clifford (systemd, auth on, port 27017 open only to tailnet, Docker and private ranges). The canonical values are in Infisical `ops-infra/prod`: `LLM_BENCH_MONGO_WRITER_PASSWORD` and `LLM_BENCH_MONGO_WRITER_URI` (user `writer`, role `readWrite` on `llm-bench`), plus `CLIFFORD_MONGO_ADMIN_PASSWORD` (user `admin` in `admin`, role `root`). The writer URI lives in these consumers, and all of them must change together: `/home/drose/manual-apps/llm-bench-dashboard/.env.service` and `.env.dashboard`, `/etc/estate/stacks/bench-ingest/.env.secrets`, `/etc/llm-benchmarks/health-check.env`, and `/srv/services/sauron/state/secrets.env` (`LLM_BENCH_MONGODB_URI`, also read by the Kopia Mongo export). Rotate with the admin user via `db.getSiblingDB("llm-bench").updateUser("writer", {pwd: ...})`, rewrite those files, then recreate the containers (`docker compose ... up -d --no-build`) and restart `sauron`.
 
 **Key collections:**
 - `models` - Enabled models (provider, model_id, enabled, deprecated)
